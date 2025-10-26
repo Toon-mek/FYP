@@ -26,11 +26,13 @@ const props = defineProps({
     }),
   },
 })
+
+const emit = defineEmits(['cta-click', 'brand-click', 'nav-click'])
 </script>
 
 <template>
   <header class="site-header">
-    <a class="brand" :href="props.brand.href">
+    <a class="brand" :href="props.brand.href" @click.prevent="emit('brand-click')">
       <span class="brand-mark">{{ props.brand.initials }}</span>
       <span class="brand-text">
         <span class="brand-name">{{ props.brand.name }}</span>
@@ -39,14 +41,16 @@ const props = defineProps({
     </a>
 
     <nav v-if="props.navLinks.length" class="site-nav" aria-label="Primary navigation">
-      <a v-for="link in props.navLinks" :key="link.label" :href="link.href">
+      <a v-for="link in props.navLinks" :key="link.label" :href="link.href"
+        @click.prevent="emit('nav-click', link.href)">
         {{ link.label }}
       </a>
     </nav>
 
-    <a v-if="props.cta?.label" class="btn primary header-cta" :href="props.cta.href">
+    <component :is="props.cta?.href ? 'a' : 'button'" v-if="props.cta?.label" class="btn primary header-cta"
+      :href="props.cta?.href" type="button" @click.prevent="props.cta?.href ? null : emit('cta-click')">
       {{ props.cta.label }}
-    </a>
+    </component>
   </header>
 </template>
 

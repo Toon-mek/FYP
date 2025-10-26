@@ -1,0 +1,100 @@
+*** Begin Patch
+*** Update File: FrontEnd/src/components/LoginPage.vue
+@@
+-      <Transition name="fade-slide" mode="out-in">
+-        <div class="form-body" :key="activeType.id">
+-          <div class="form-heading">
+-            <h2>{{ activeType.title }}</h2>
+-            <p>{{ activeType.description }}</p>
+-          </div>
+-
+-          <n-alert v-if="loginError" type="error" closable strong @close="loginError = ''">
+-            {{ loginError }}
+-          </n-alert>
+-
+-          <n-form
+-            ref="loginFormRef"
+-            :model="formState[selectedType.value]"
+-            :rules="formRules"
+-            label-placement="top"
+-            label-width="auto"
+-            require-mark-placement="right-hanging"
+-          >
+-            <n-form-item :label="activeType.emailLabel">
+-              <n-input v-model:value="formState[selectedType.value].email" type="text" :placeholder="activeType.emailPlaceholder"
+-                clearable size="large" />
+-            </n-form-item>
+-
+-            <n-form-item :label="activeType.passwordLabel">
+-              <n-input v-model:value="formState[selectedType.value].password" type="password"
+-                show-password-on="mousedown" placeholder="Enter password" size="large" />
+-            </n-form-item>
+-
+-            <div class="form-actions">
+-              <n-button type="primary" size="large" round :loading="loggingIn" :disabled="loggingIn" @click="handleLogin">
+-                {{ activeType.submitLabel }}
+-              </n-button>
+-              <n-button text type="primary" size="large" tag="a" :href="activeType.help.href">
+-                {{ activeType.help.label }}
+-              </n-button>
+-            </div>
+-          </n-form>
++      <Transition name="fade-slide" mode="out-in">
++        <div class="form-body" :key="activeType.id">
++          <div class="form-heading">
++            <h2>{{ activeType.title }}</h2>
++            <p>{{ activeType.description }}</p>
++          </div>
++
++          <n-alert v-if="loginError" type="error" closable strong @close="loginError = ''">
++            {{ loginError }}
++          </n-alert>
++
++          <n-form
++            ref="formRef"
++            :model="formValue"
++            :rules="formRules"
++            label-placement="top"
++            label-width="auto"
++            require-mark-placement="right-hanging"
++            size="large"
++          >
++            <n-form-item :label="activeType.emailLabel" path="email">
++              <n-input
++                v-model:value="formValue.email"
++                type="text"
++                :placeholder="activeType.emailPlaceholder"
++                clearable
++                size="large"
++              />
++            </n-form-item>
++
++            <n-form-item :label="activeType.passwordLabel" path="password">
++              <n-input
++                v-model:value="formValue.password"
++                type="password"
++                show-password-on="mousedown"
++                placeholder="Enter password"
++                size="large"
++              />
++            </n-form-item>
++
++            <n-form-item class="form-actions">
++              <n-button
++                type="primary"
++                size="large"
++                round
++                :loading="loggingIn"
++                :disabled="loggingIn"
++                @click="handleLogin"
++              >
++                {{ activeType.submitLabel }}
++              </n-button>
++              <n-button text type="primary" size="large" tag="a" :href="activeType.help.href">
++                {{ activeType.help.label }}
++              </n-button>
++            </n-form-item>
++          </n-form>
+         </div>
+       </Transition>
+*** End Patch

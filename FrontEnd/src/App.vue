@@ -1,25 +1,37 @@
 <script setup>
+import { computed, nextTick, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import AdminDashboard from './components/AdminDashboard.vue'
 import HomePage from './components/HomePage.vue'
+import LoginPage from './components/LoginPage.vue'
+import TravelerDashboard from './components/TravelerDashboard.vue'
 import SiteHeader from './components/SiteHeader.vue'
 import SiteFooter from './components/SiteFooter.vue'
 
-const navLinks = [
+const homeNavLinks = [
   { label: 'About', href: '#about' },
   { label: 'Destinations', href: '#destinations' },
   { label: 'Tips', href: '#tips' },
   { label: 'Newsletter', href: '#newsletter' },
 ]
 
-const headerBrand = {
+const travelerNavLinks = [
+  { label: 'Destinations', href: '#destinations' },
+  { label: 'Calendar', href: '#calendar-panel' },
+  { label: 'Resorts', href: '#resorts-panel' },
+  { label: 'Upcoming', href: '#upcoming-panel' },
+]
+
+const adminNavLinks = []
+
+const headerBrandBase = {
   initials: 'MS',
   name: 'Malaysia Sustainable Travel',
   tagline: 'Explore with care',
-  href: '#hero',
 }
 
-const headerCta = {
+const headerCtaHome = {
   label: 'Start planning',
-  href: '#destinations',
 }
 
 const footerBrand = {
@@ -63,18 +75,126 @@ const socialLinks = [
 ]
 
 const copyrightYear = new Date().getFullYear()
+
+const loggedInUser = ref(null)
+const router = useRouter()
+const route = useRoute()
+
+const currentView = computed(() => route.meta.view ?? 'home')
+
+const navLinks = computed(() => {
+  if (currentView.value === 'traveler') return travelerNavLinks
+  if (currentView.value === 'admin') return adminNavLinks
+  return homeNavLinks
+})
+
+const headerBrand = computed(() => ({
+  ...headerBrandBase,
+  href:
+    currentView.value === 'traveler'
+      ? '#traveler-top'
+      : currentView.value === 'admin'
+        ? '#admin-top'
+        : '#hero',
+}))
+
+const headerCta = computed(() =>
+  currentView.value === 'traveler' || currentView.value === 'admin'
+    ? { label: 'Log out' }
+    : headerCtaHome,
+)
+
+function scrollToSection(targetId) {
+  if (!targetId) {
+    return
+  }
+  nextTick(() => {
+    const section = document.querySelector(targetId)
+    if (section) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
+}
+
+function showHome(targetId) {
+  if (currentView.value !== 'home') {
+    router.push('/').then(() => {
+      scrollToSection(targetId || '#hero')
+    })
+  } else {
+    scrollToSection(targetId || '#hero')
+  }
+}
+
+function goToLogin() {
+  router.push('/login')
+}
+
+function logout() {
+  activeAccountType.value = null
+  loggedInUser.value = null
+  router.push('/').then(() => scrollToSection('#hero'))
+}
+
+function handleHeaderCta() {
+  if (currentView.value === 'traveler' || currentView.value === 'admin') {
+    logout()
+  } else {
+    goToLogin()
+  }
+}
+
+function handleBrandClick() {
+  if (currentView.value === 'traveler') {
+    scrollToSection('#traveler-top')
+  } else if (currentView.value === 'admin') {
+    scrollToSection('#admin-top')
+  } else {
+    showHome('#hero')
+  }
+}
+
+function handleNavClick(href) {
+  if (!href || !href.startsWith('#')) {
+    return
+  }
+  if (currentView.value === 'traveler') {
+    scrollToSection(href)
+  } else {
+    showHome(href)
+  }
+}
+
+function handleLoginSuccess(payload) {
+  const { accountType, user } = payload
+  loggedInUser.value = user || null
+
+  if (accountType === 'traveler') {
+    router.push('/traveler').then(() => scrollToSection('#traveler-top'))
+  } else if (accountType === 'operator') {
+    router.push('/')
+  } else if (accountType === 'admin') {
+    router.push('/admin').then(() => scrollToSection('#admin-top'))
+  } else {
+    router.push('/')
+  }
+}
 </script>
 
 <template>
-  <div class="page">
-    <SiteHeader :nav-links="navLinks" :brand="headerBrand" :cta="headerCta" />
-    <HomePage />
-    <SiteFooter
-      :brand="footerBrand"
-      :columns="footerColumns"
-      :social-links="socialLinks"
-      :copyright-year="copyrightYear"
-    />
+  <div class="page" :class="`page--${currentView}`">
+    <SiteHeader :nav-links="navLinks" :brand="headerBrand" :cta="headerCta" @brand-click="handleBrandClick"
+      @nav-click="handleNavClick" @cta-click="handleHeaderCta" />
+
+    <div class="content">
+      <HomePage v-if="currentView === 'home'" />
+      <LoginPage v-else-if="currentView === 'login'" @login-success="handleLoginSuccess" />
+      <TravelerDashboard v-else-if="currentView === 'traveler'" :traveler="loggedInUser" />
+      <AdminDashboard v-else />
+    </div>
+
+    <SiteFooter :brand="footerBrand" :columns="footerColumns" :social-links="socialLinks"
+      :copyright-year="copyrightYear" />
   </div>
 </template>
 
@@ -83,5 +203,13 @@ const copyrightYear = new Date().getFullYear()
   display: flex;
   flex-direction: column;
   gap: 3.5rem;
+}
+
+.content {
+  display: contents;
+}
+
+.page--login :deep(.site-nav a) {
+  cursor: pointer;
 }
 </style>

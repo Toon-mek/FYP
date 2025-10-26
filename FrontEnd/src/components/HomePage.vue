@@ -57,7 +57,8 @@ const travelTips = [
         <p class="hero-tag">Discover Malaysia responsibly</p>
         <h1>Malaysia Sustainable Travel</h1>
         <p class="hero-subtitle">
-          Craft eco-forward journeys that celebrate biodiversity, protect cultural heritage, and leave a gentle footprint.
+          Craft eco-forward journeys that celebrate biodiversity, protect cultural heritage, and leave a gentle
+          footprint.
         </p>
         <div class="hero-actions">
           <a class="btn primary" href="#destinations">Explore destinations</a>
@@ -70,7 +71,8 @@ const travelTips = [
       <header class="panel-header">
         <h2>Why travel sustainably in Malaysia?</h2>
         <p>
-          Sustainable choices protect lush rainforests, coral reefs, and vibrant cultures that make Malaysia extraordinary.
+          Sustainable choices protect lush rainforests, coral reefs, and vibrant cultures that make Malaysia
+          extraordinary.
         </p>
       </header>
       <div class="grid">
@@ -106,7 +108,8 @@ const travelTips = [
           <p class="panel-kicker">Responsible travel checklist</p>
           <h2>Small changes, lasting impact</h2>
           <p>
-            Empower your itinerary with mindful habits that protect wildlife, steward resources, and amplify local voices.
+            Empower your itinerary with mindful habits that protect wildlife, steward resources, and amplify local
+            voices.
           </p>
         </div>
         <ul class="tips-list">

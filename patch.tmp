@@ -1,0 +1,171 @@
+*** Begin Patch
+*** Update File: FrontEnd/src/components/LoginPage.vue
+@@
+-import { computed, reactive, ref, watch } from 'vue'
++import { computed, reactive, ref, watch } from 'vue'
++import { useMessage } from 'naive-ui'
+ 
+ const emit = defineEmits(['login-success'])
++const message = useMessage()
+@@
+-const formValues = reactive({
+-  traveler: { email: '', password: '' },
+-  business: { email: '', password: '' },
+-})
+-
+-const activeType = computed(() => accountTypes.find((type) => type.id === selectedType.value) ?? accountTypes[0])
+-const currentForm = computed(() => formValues[selectedType.value])
+-
+-const showTravelerSignup = ref(false)
+-const showBusinessApply = ref(false)
+-
+-const travelerSignupForm = reactive({
+-  fullName: '',
+-  email: '',
+-  password: '',
+-  confirmPassword: '',
+-})
+-
+-const businessApplyForm = reactive({
+-  companyName: '',
+-  contactPerson: '',
+-  email: '',
+-  phone: '',
+-  website: '',
+-})
+-
+-const dialogCardStyle = {
+-  width: 'min(520px, calc(100vw - 2.5rem))',
+-  margin: '0 auto',
+-}
+-
+-const dialogHeaderStyle = {
+-  padding: '1.25rem clamp(1.25rem, 3vw, 1.75rem) 0',
+-}
+-
+-const dialogContentStyle = {
+-  padding: '1.5rem clamp(1.25rem, 3vw, 1.75rem)',
+-}
+-
+-const dialogFooterStyle = {
+-  padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem',
+-}
+-
+-const loggingIn = ref(false)
+-const loginError = ref('')
+-const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+-const loginFormRef = ref(null)
+-
+-const emailPattern =
+-  /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
+-
+-const formRules = {
+-  email: [
+-    {
+-      required: true,
+-      message: 'Email is required',
+-      trigger: ['input', 'blur'],
+-    },
+-    {
+-      validator: (_, value) => {
+-        if (!emailPattern.test(value)) {
+-          return new Error('Enter a valid email address')
+-        }
+-        return true
+-      },
+-      trigger: ['blur'],
+-    },
+-  ],
+-  password: [
+-    {
+-      required: true,
+-      message: 'Password is required',
+-      trigger: ['input', 'blur'],
+-    },
+-    {
+-      validator: (_, value) => {
+-        if (String(value).length < 6) {
+-          return new Error('Password must be at least 6 characters')
+-        }
+-        return true
+-      },
+-      trigger: ['blur'],
+-    },
+-  ],
+-}
+-
+-const formSubmitDisabled = computed(() => loggingIn.value)
++const formState = reactive({
++  traveler: { email: '', password: '' },
++  business: { email: '', password: '' },
++})
++
++const activeType = computed(() => accountTypes.find((type) => type.id === selectedType.value) ?? accountTypes[0])
++
++const loginFormRef = ref(null)
++const loggingIn = ref(false)
++const loginError = ref('')
++const API_BASE = import.meta.env.VITE_API_BASE || '/api'
++
++const emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
++
++const formRules = {
++  email: [
++    {
++      required: true,
++      message: 'Email is required',
++      trigger: ['input', 'blur'],
++    },
++    {
++      validator: (_, value) => (emailPattern.test(value) ? true : new Error('Enter a valid email address')),
++      trigger: ['blur'],
++    },
++  ],
++  password: [
++    {
++      required: true,
++      message: 'Password is required',
++      trigger: ['input', 'blur'],
++    },
++    {
++      validator: (_, value) => (String(value).length >= 6 ? true : new Error('Password must be at least 6 characters')),
++      trigger: ['blur'],
++    },
++  ],
++}
++
++const showTravelerSignup = ref(false)
++const showBusinessApply = ref(false)
++
++const travelerSignupForm = reactive({
++  fullName: '',
++  email: '',
++  password: '',
++  confirmPassword: '',
++})
++
++const businessApplyForm = reactive({
++  companyName: '',
++  contactPerson: '',
++  email: '',
++  phone: '',
++  website: '',
++})
++
++const dialogCardStyle = {
++  width: 'min(520px, calc(100vw - 2.5rem))',
++  margin: '0 auto',
++}
++
++const dialogHeaderStyle = {
++  padding: '1.25rem clamp(1.25rem, 3vw, 1.75rem) 0',
++}
++
++const dialogContentStyle = {
++  padding: '1.5rem clamp(1.25rem, 3vw, 1.75rem)',
++}
++
++const dialogFooterStyle = {
++  padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem',
++}
+*** End Patch

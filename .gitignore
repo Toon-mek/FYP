@@ -1,0 +1,9 @@
+# Node / frontend artifacts
+FrontEnd/node_modules/
+FrontEnd/dist/
+
+# Backend served Vite bundle
+BackEnd/public_assets/assets/
+
+# Misc
+.env
