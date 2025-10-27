@@ -1,33 +1,60 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, h, ref, watch } from 'vue'
+import { NIcon } from 'naive-ui'
 
 const props = defineProps({
   traveler: {
     type: Object,
     default: () => null,
   },
+  metrics: {
+    type: Object,
+    default: () => ({}),
+  },
+  destinationGroups: {
+    type: Array,
+    default: () => [],
+  },
+  upcomingTrips: {
+    type: Array,
+    default: () => [],
+  },
+  stays: {
+    type: Array,
+    default: () => [],
+  },
+  transport: {
+    type: Array,
+    default: () => [],
+  },
+  experiences: {
+    type: Array,
+    default: () => [],
+  },
+  companions: {
+    type: Array,
+    default: () => [],
+  },
+  integrations: {
+    type: Array,
+    default: () => [],
+  },
+  insights: {
+    type: Array,
+    default: () => [],
+  },
 })
 
-const sidebarItems = [
-  { label: 'Destinations', icon: 'ri-compass-3-line', active: true },
-  { label: 'Messages', icon: 'ri-chat-3-line', disabled: true },
-  { label: 'Notifications', icon: 'ri-notification-3-line', disabled: true },
-  { label: 'Saved places', icon: 'ri-heart-line', disabled: true },
-  { label: 'Account', icon: 'ri-user-3-line', disabled: true },
-  { label: 'Settings', icon: 'ri-settings-5-line', disabled: true },
-]
-
 const defaultTraveler = {
-  name: 'Traveler Name',
-  destinations: 127,
-  avatarInitials: 'TN',
+  fullName: 'Traveler',
+  username: 'traveler01',
 }
 
 const traveler = computed(() => {
-  const override = props.traveler ?? {}
-  const displayName = override.fullName || override.username || defaultTraveler.name
+  const incoming = props.traveler ?? {}
+  const displayName = incoming.fullName || incoming.username || defaultTraveler.fullName
   const initials =
-    override.avatarInitials ||
+    incoming.avatarInitials ||
     displayName
       .split(/\s+/)
       .map((part) => part[0])
@@ -37,474 +64,520 @@ const traveler = computed(() => {
 
   return {
     ...defaultTraveler,
-    ...override,
-    name: displayName,
-    avatarInitials: initials || defaultTraveler.avatarInitials,
+    ...incoming,
+    displayName,
+    initials,
   }
 })
 
-const destinationTabs = ['Most Popular', 'Best Price', 'Near Me']
-const activeDestinationTab = ref(destinationTabs[0])
+const metrics = computed(() => ({
+  tripsPlanned: Number(props.metrics.tripsPlanned ?? 0),
+  ecoPoints: Number(props.metrics.ecoPoints ?? 0),
+  savedSpots: Number(props.metrics.savedSpots ?? 0),
+  impactBadges: Number(props.metrics.impactBadges ?? 0),
+  nextTrip: props.metrics.nextTrip ?? 'Not scheduled yet',
+  carbonSaved: Number(props.metrics.carbonSaved ?? 0),
+  pledges: Number(props.metrics.pledges ?? 0),
+  sharedGuides: Number(props.metrics.sharedGuides ?? 0),
+  impactScore: Number(props.metrics.impactScore ?? 0),
+}))
 
-const destinationCards = [
+const renderIcon = (name) => () =>
+  h(NIcon, null, { default: () => h('i', { class: name }) })
+
+const destinationGroups = computed(() => props.destinationGroups ?? [])
+const experiences = computed(() => props.experiences ?? [])
+const upcomingTrips = computed(() => props.upcomingTrips ?? [])
+const stays = computed(() => props.stays ?? [])
+const transport = computed(() => props.transport ?? [])
+const companions = computed(() => props.companions ?? [])
+const integrations = computed(() => props.integrations ?? [])
+const insights = computed(() => props.insights ?? [])
+
+const sidebarOptions = [
+  { key: 'dashboard', label: 'Dashboard overview', icon: renderIcon('ri-compass-3-line') },
+  { key: 'messages', label: 'Messages', disabled: true, icon: renderIcon('ri-chat-3-line') },
+  { key: 'notifications', label: 'Notifications', disabled: true, icon: renderIcon('ri-notification-3-line') },
+  { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
+  { key: 'saved', label: 'Saved places', disabled: true, icon: renderIcon('ri-heart-3-line') },
+  { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
+]
+
+const selectedMenu = ref('dashboard')
+
+const destinationTabs = computed(() => destinationGroups.value.map((group) => group.label))
+const activeDestinationTab = ref(destinationTabs.value[0] ?? null)
+
+watch(destinationTabs, (tabs) => {
+  if (!tabs.includes(activeDestinationTab.value)) {
+    activeDestinationTab.value = tabs[0] ?? null
+  }
+})
+
+const activeDestinations = computed(() => {
+  const group = destinationGroups.value.find((item) => item.label === activeDestinationTab.value)
+  return group?.items ?? []
+})
+
+const summaryCards = computed(() => [
   {
-    title: 'Perhentian Islands',
-    location: 'Terengganu',
-    days: '3-5 days',
-    rating: 4.8,
-    image: 'https://images.unsplash.com/photo-1526481280695-3c46973cffa3?auto=format&fit=crop&w=600&q=80',
+    key: 'trips',
+    label: 'Trips planned',
+    value: metrics.value.tripsPlanned,
+    type: 'number',
+    accent: 'linear-gradient(135deg, #70c3ff, #6c63ff)',
   },
   {
-    title: 'Belum Rainforest',
-    location: 'Perak',
-    days: '5-7 days',
-    rating: 4.7,
-    image: 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=600&q=80',
+    key: 'eco-points',
+    label: 'Eco points collected',
+    value: metrics.value.ecoPoints,
+    type: 'number',
+    accent: 'linear-gradient(135deg, #42b883, #8fd3f4)',
   },
   {
-    title: 'Kota Kinabalu',
-    location: 'Sabah',
-    days: '2-4 days',
-    rating: 4.6,
-    image: 'https://images.unsplash.com/photo-1522906456132-bac22adad33f?auto=format&fit=crop&w=600&q=80',
+    key: 'saved',
+    label: 'Saved eco stays',
+    value: metrics.value.savedSpots,
+    type: 'number',
+    accent: 'linear-gradient(135deg, #ff9a9e, #fad0c4)',
   },
-]
+  {
+    key: 'impact',
+    label: 'Impact badges',
+    value: metrics.value.impactBadges,
+    type: 'number',
+    accent: 'linear-gradient(135deg, #a18cd1, #fbc2eb)',
+  },
+  {
+    key: 'upcoming',
+    label: 'Next activity',
+    value: metrics.value.nextTrip,
+    type: 'text',
+    accent: 'linear-gradient(135deg, #f6d365, #fda085)',
+  },
+])
 
-const calendarWeeks = [
-  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-  ['1', '2', '3', '4', '5', '6', '7'],
-  ['8', '9', '10', '11', '12', '13', '14'],
-  ['15', '16', '17', '18', '19', '20', '21'],
-  ['22', '23', '24', '25', '26', '27', '28'],
-  ['29', '30', '31', '', '', '', ''],
-]
+const heroStats = computed(() => [
+  {
+    key: 'carbon',
+    label: 'Carbon saved',
+    value: metrics.value.carbonSaved,
+    suffix: ' tCO₂e',
+    icon: 'ri-planet-line',
+  },
+  {
+    key: 'pledges',
+    label: 'Community pledges',
+    value: metrics.value.pledges,
+    icon: 'ri-hand-heart-line',
+  },
+  {
+    key: 'guides',
+    label: 'Shared guides',
+    value: metrics.value.sharedGuides,
+    icon: 'ri-map-pin-user-line',
+  },
+  {
+    key: 'impactScore',
+    label: 'Impact score',
+    value: metrics.value.impactScore,
+    suffix: '/100',
+    icon: 'ri-star-sparkle-line',
+  },
+])
 
-const upcoming = [
-  { date: '06', label: 'Mangrove kayak tour', location: 'Langkawi', days: '1 day' },
-  { date: '14', label: 'Wildlife spotting', location: 'Taman Negara', days: '2 days' },
-  { date: '22', label: 'Reef volunteering', location: 'Sipadan', days: '4 days' },
-]
-
-const bestResorts = [
-  { name: 'Heritage Rainforest Lodge', location: 'Pahang', price: 'RM420 / night' },
-  { name: 'Eco Reef Villas', location: 'Sabah', price: 'RM380 / night' },
-  { name: 'Highland Farmstay', location: 'Cameron Highlands', price: 'RM290 / night' },
-]
-
-const transports = [
-  { icon: 'ri-plane-line', label: 'Flights' },
-  { icon: 'ri-train-line', label: 'Rail' },
-  { icon: 'ri-bus-2-line', label: 'Bus' },
-  { icon: 'ri-sailboat-line', label: 'Ferry' },
-]
-
-const friends = [
-  'https://randomuser.me/api/portraits/women/1.jpg',
-  'https://randomuser.me/api/portraits/men/11.jpg',
-  'https://randomuser.me/api/portraits/women/12.jpg',
-  'https://randomuser.me/api/portraits/men/15.jpg',
-]
-
-const integrations = ['Slack', 'Asana', 'Dropbox']
+const hasDestinations = computed(() => destinationGroups.value.length > 0)
+const hasExperiences = computed(() => experiences.value.length > 0)
+const hasTrips = computed(() => upcomingTrips.value.length > 0)
+const hasStays = computed(() => stays.value.length > 0)
+const hasTransport = computed(() => transport.value.length > 0)
+const hasCompanions = computed(() => companions.value.length > 0)
+const hasIntegrations = computed(() => integrations.value.length > 0)
+const hasInsights = computed(() => insights.value.length > 0)
 </script>
 
 <template>
-  <div class="dashboard-shell">
-    <div class="dashboard">
-      <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-icon">✈️</div>
-          <n-text strong class="brand-name">Tourvista</n-text>
-        </div>
-        <n-space vertical size="small" class="menu">
-          <n-button v-for="item in sidebarItems" :key="item.label" block quaternary class="menu-button"
-            :class="{ active: item.active }" :disabled="item.disabled">
-            <n-icon size="20">
-              <i :class="item.icon" />
-            </n-icon>
-            <span>{{ item.label }}</span>
-          </n-button>
-        </n-space>
-      </aside>
+  <n-layout
+    has-sider
+    style="min-height: 100vh; background: var(--body-color);"
+  >
+    <n-layout-sider
+      bordered
+      collapse-mode="width"
+      :collapsed-width="64"
+      :width="220"
+      show-trigger="bar"
+    >
+      <n-space vertical size="small" style="padding: 18px 16px;">
+        <n-gradient-text type="info" style="font-size: 1.1rem; font-weight: 600;">
+          Traveler hub
+        </n-gradient-text>
+        <n-text depth="3">Navigate modules</n-text>
+      </n-space>
+      <div style="padding: 0 8px 16px;">
+        <n-menu
+          :options="sidebarOptions"
+          :value="selectedMenu"
+          :indent="16"
+          :collapsed-icon-size="20"
+          @update:value="(val) => (selectedMenu.value = val)"
+        />
+      </div>
+    </n-layout-sider>
 
-      <main class="main">
-        <section class="greeting" id="traveler-top">
-          <div class="hello-wrap">
-            <n-text class="hello">Hello, {{ traveler.name }}</n-text>
-            <n-text depth="3">Welcome back!</n-text>
-          </div>
-          <div class="greeting-actions">
-            <n-input round placeholder="Search destinations, guides..." size="large" class="search">
-              <template #prefix>
-                <n-icon size="18"><i class="ri-search-line" /></n-icon>
-              </template>
-            </n-input>
-            <n-button circle quaternary><n-icon size="18"><i class="ri-notification-2-line" /></n-icon></n-button>
-            <n-button circle quaternary><n-icon size="18"><i class="ri-settings-3-line" /></n-icon></n-button>
-          </div>
-        </section>
-
-        <section class="destinations" id="destinations">
-          <div class="section-header">
-            <n-text strong>Hotels</n-text>
-            <div class="tab-group">
-              <n-button v-for="tab in destinationTabs" :key="tab" size="small" round quaternary
-                :class="{ 'tab-active': activeDestinationTab === tab }" @click="activeDestinationTab = tab">
-                {{ tab }}
-              </n-button>
-            </div>
-            <n-button text type="primary" size="small">See all</n-button>
-          </div>
-          <div class="destination-grid">
-            <n-card v-for="card in destinationCards" :key="card.title" class="destination-card" size="small" hoverable>
-              <img :src="card.image" :alt="card.title" />
-              <n-space vertical size="small">
-                <n-text strong>{{ card.title }}</n-text>
-                <n-text depth="3">{{ card.location }}</n-text>
-                <n-space align="center" size="small" justify="space-between">
-                  <n-tag round type="info" size="small">{{ card.days }}</n-tag>
-                  <n-tag round type="success" size="small">{{ card.rating }} ★</n-tag>
-                </n-space>
-              </n-space>
-            </n-card>
-          </div>
-        </section>
-
-        <section class="middle-panels">
-          <n-card class="calendar" id="calendar-panel" size="small">
-            <div class="section-header section-header--sub">
-              <n-text strong>Available dates</n-text>
-              <n-tag round type="info">January 2025</n-tag>
-            </div>
-            <div class="calendar-grid">
-              <div v-for="(week, weekIndex) in calendarWeeks" :key="weekIndex" class="calendar-row">
-                <span v-for="day in week" :key="day + weekIndex"
-                  :class="['calendar-cell', { 'calendar-cell--muted': !day, 'calendar-cell--active': day === '06' || day === '19' }]">
-                  {{ day }}
-                </span>
+    <n-layout>
+      <n-layout-header
+        bordered
+        style="padding: 20px 32px; background: transparent;"
+      >
+        <n-space justify="space-between" align="center" wrap>
+          <n-space align="center" size="large">
+            <n-avatar round size="large" style="background: var(--primary-color-hover); color: white;">
+              {{ traveler.initials }}
+            </n-avatar>
+            <div>
+              <n-text depth="3">Hello, traveler</n-text>
+              <div style="font-size: 1.35rem; font-weight: 600;">
+                {{ traveler.displayName }}
               </div>
             </div>
-          </n-card>
+          </n-space>
+          <n-space>
+            <n-input
+              round
+              clearable
+              placeholder="Search eco stays, guides, or itineraries"
+              style="min-width: 280px;"
+            >
+              <template #suffix>
+                <n-icon size="18">
+                  <i class="ri-search-2-line" />
+                </n-icon>
+              </template>
+            </n-input>
+            <n-button type="primary" round>
+              Start new plan
+            </n-button>
+          </n-space>
+        </n-space>
+      </n-layout-header>
 
-          <n-card class="resorts" id="resorts-panel" size="small">
-            <div class="section-header section-header--sub">
-              <n-text strong>Best resorts</n-text>
-            </div>
-            <n-list>
-              <n-list-item v-for="resort in bestResorts" :key="resort.name">
-                <n-space justify="space-between" align="center" style="width: 100%">
-                  <div>
-                    <n-text strong>{{ resort.name }}</n-text>
-                    <n-text depth="3">{{ resort.location }}</n-text>
+      <n-layout-content embedded style="padding: 24px 32px;">
+        <n-space vertical size="large">
+          <n-card
+            :segmented="{ content: true }"
+            :style="{
+              background: 'linear-gradient(135deg, rgba(66, 184, 131, 0.12), rgba(108, 99, 255, 0.12))',
+              border: '1px solid rgba(66, 184, 131, 0.24)',
+            }"
+          >
+            <n-grid cols="1 m:2" :x-gap="18" :y-gap="18" align="center">
+              <n-grid-item>
+                <n-space vertical size="small">
+                  <n-tag type="success" size="small" bordered>Traveler spotlight</n-tag>
+                  <div style="font-size: 1.8rem; font-weight: 700;">
+                    Craft journeys that protect Malaysia’s wild places
                   </div>
-                  <n-text type="success">{{ resort.price }}</n-text>
-                </n-space>
-              </n-list-item>
-            </n-list>
-          </n-card>
-
-          <n-card class="upcoming" id="upcoming-panel" size="small">
-            <div class="section-header section-header--sub">
-              <n-text strong>Upcoming trips</n-text>
-            </div>
-            <n-list>
-              <n-list-item v-for="item in upcoming" :key="item.label">
-                <n-space align="center" justify="space-between" style="width: 100%">
-                  <n-space align="center" size="medium">
-                    <div class="pill-date">{{ item.date }}</div>
-                    <div>
-                      <n-text strong>{{ item.label }}</n-text>
-                      <n-text depth="3">{{ item.location }} · {{ item.days }}</n-text>
-                    </div>
+                  <n-text depth="3">
+                    Plan flexible itineraries, track your eco impact, and stay in touch with responsible guides.
+                  </n-text>
+                  <n-space>
+                    <n-button type="primary" round>
+                      Continue last itinerary
+                    </n-button>
+                    <n-button tertiary type="primary" round>
+                      Explore eco pledges
+                    </n-button>
                   </n-space>
-                  <n-button text type="primary" size="small">Details</n-button>
                 </n-space>
-              </n-list-item>
-            </n-list>
+              </n-grid-item>
+              <n-grid-item>
+                <n-grid cols="2" :x-gap="16" :y-gap="16">
+                  <n-grid-item v-for="stat in heroStats" :key="stat.key">
+                    <n-statistic :label="stat.label" :value="stat.value" :suffix="stat.suffix">
+                      <template #prefix>
+                        <n-icon size="20">
+                          <i :class="stat.icon" />
+                        </n-icon>
+                      </template>
+                    </n-statistic>
+                  </n-grid-item>
+                </n-grid>
+              </n-grid-item>
+            </n-grid>
           </n-card>
-        </section>
-      </main>
 
-      <aside class="rightbar">
-        <n-card class="profile-card" size="small" :bordered="false">
-          <n-space vertical align="center" size="small">
-            <n-avatar round size="large">{{ traveler.avatarInitials }}</n-avatar>
-            <n-text strong>{{ traveler.name }}</n-text>
-            <n-text depth="3">{{ traveler.destinations }} destinations</n-text>
-            <n-button type="primary" ghost round size="small">Edit profile</n-button>
-          </n-space>
-        </n-card>
+          <n-grid cols="1 m:2 l:5" :x-gap="16" :y-gap="16">
+            <n-grid-item v-for="card in summaryCards" :key="card.key">
+              <n-card
+                size="medium"
+                :segmented="{ content: true, footer: false }"
+                :style="{
+                  background: card.accent,
+                  color: '#fff',
+                }"
+              >
+                <n-space vertical size="small">
+                  <n-text depth="3" style="color: rgba(255, 255, 255, 0.85);">
+                    {{ card.label }}
+                  </n-text>
+                  <div v-if="card.type === 'number'" style="display: flex; align-items: baseline; gap: 6px;">
+                    <n-number-animation
+                      :from="0"
+                      :to="card.value"
+                      :duration="1200"
+                      show-separator
+                    />
+                  </div>
+                  <div v-else style="font-size: 1.1rem; font-weight: 600;">
+                    {{ card.value }}
+                  </div>
+                </n-space>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
 
-        <n-card class="friends-card" size="small">
-          <n-text strong>Friends</n-text>
-          <n-space size="small" align="center">
-            <n-avatar-group size="large">
-              <n-avatar v-for="friend in friends" :key="friend" round :src="friend" />
-            </n-avatar-group>
-            <n-button circle quaternary><n-icon size="18"><i class="ri-add-line" /></n-icon></n-button>
-          </n-space>
-        </n-card>
+          <n-card title="Featured experiences" :segmented="{ content: true }">
+            <template v-if="hasExperiences">
+              <n-carousel autoplay dot-type="line" draggable>
+                <n-carousel-item
+                  v-for="experience in experiences"
+                  :key="experience.key ?? experience.title"
+                >
+                  <div
+                    :style="{
+                      height: '280px',
+                      borderRadius: '20px',
+                      backgroundImage: `linear-gradient(135deg, rgba(9, 54, 34, 0.55), rgba(9, 54, 34, 0.15)), url(${experience.image})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'flex-end',
+                      padding: '28px',
+                      color: '#fff',
+                    }"
+                  >
+                    <div style="font-size: 1.65rem; font-weight: 700;">{{ experience.title }}</div>
+                    <div style="max-width: 520px; margin-top: 6px;">
+                      {{ experience.description }}
+                    </div>
+                    <n-space style="margin-top: 16px;">
+                      <n-button round type="primary">See itinerary</n-button>
+                      <n-button round tertiary type="primary">Save experience</n-button>
+                    </n-space>
+                  </div>
+                </n-carousel-item>
+              </n-carousel>
+            </template>
+            <template v-else>
+              <n-empty description="No featured experiences yet.">
+                <template #extra>
+                  <n-button size="small" type="primary" tertiary>Import from API</n-button>
+                </template>
+              </n-empty>
+            </template>
+          </n-card>
 
-        <n-card class="integrations-card" size="small">
-          <n-text strong>Integrations</n-text>
-          <n-space vertical size="small">
-            <n-tag v-for="integration in integrations" :key="integration" type="success" round strong>
-              {{ integration }}
-            </n-tag>
-          </n-space>
-        </n-card>
-      </aside>
-    </div>
-  </div>
+          <n-card
+            :segmented="{ content: true }"
+            title="Destination inspiration"
+          >
+            <template v-if="hasDestinations">
+              <n-tabs
+                v-model:value="activeDestinationTab"
+                type="segment"
+              >
+                <n-tab-pane
+                  v-for="tab in destinationTabs"
+                  :key="tab"
+                  :name="tab"
+                  :tab="tab"
+                >
+                  <n-grid cols="1 m:2 l:3" :x-gap="18" :y-gap="18">
+                    <n-grid-item
+                      v-for="destination in activeDestinations"
+                      :key="destination.key ?? destination.name"
+                    >
+                      <n-card
+                        size="medium"
+                        :segmented="{ content: true }"
+                        style="overflow: hidden;"
+                      >
+                        <template #cover>
+                          <img
+                            v-if="destination.image"
+                            :src="destination.image"
+                            :alt="destination.name"
+                            style="width: 100%; height: 180px; object-fit: cover;"
+                          />
+                        </template>
+                        <n-space vertical size="small">
+                          <div style="font-size: 1.1rem; font-weight: 600;">
+                            {{ destination.name }}
+                          </div>
+                          <n-text depth="3">
+                            {{ destination.location }} · {{ destination.duration }}
+                          </n-text>
+                          <n-tag v-if="destination.tag" type="success" size="small" bordered>
+                            {{ destination.tag }}
+                          </n-tag>
+                          <n-button tertiary type="primary">
+                            View itinerary
+                          </n-button>
+                        </n-space>
+                      </n-card>
+                    </n-grid-item>
+                  </n-grid>
+                </n-tab-pane>
+              </n-tabs>
+            </template>
+            <template v-else>
+              <n-empty description="Add destination groups to inspire your traveler." />
+            </template>
+          </n-card>
+
+          <n-grid cols="1 m:3" :x-gap="16" :y-gap="16">
+            <n-grid-item span="1 m:2">
+              <n-card title="Upcoming journeys" :segmented="{ content: true }">
+                <template v-if="hasTrips">
+                  <n-timeline size="large">
+                    <n-timeline-item
+                      v-for="trip in upcomingTrips"
+                      :key="trip.id ?? trip.title"
+                      :title="trip.title"
+                      :time="`${trip.location} · ${trip.duration}`"
+                    >
+                      <n-text depth="3">{{ trip.focus }}</n-text>
+                      <template #footer>
+                        <n-button text type="primary">Open trip board</n-button>
+                      </template>
+                    </n-timeline-item>
+                  </n-timeline>
+                </template>
+                <template v-else>
+                  <n-empty description="No upcoming trips scheduled." />
+                </template>
+              </n-card>
+            </n-grid-item>
+
+            <n-grid-item>
+              <n-space vertical size="large">
+                <n-card title="Sustainable stays" :segmented="{ content: true }">
+                  <template v-if="hasStays">
+                    <n-list bordered :show-divider="false">
+                      <n-list-item v-for="stay in stays" :key="stay.id ?? stay.name">
+                        <n-space justify="space-between" align="center" style="width: 100%;">
+                          <div>
+                            <div style="font-weight: 600;">{{ stay.name }}</div>
+                            <n-text depth="3">{{ stay.location }}</n-text>
+                          </div>
+                          <n-tag size="small" type="success" bordered>{{ stay.price }}</n-tag>
+                        </n-space>
+                      </n-list-item>
+                    </n-list>
+                  </template>
+                  <template v-else>
+                    <n-empty description="Connect your sustainable stays feed to populate this list." />
+                  </template>
+                  <template #footer>
+                    <n-button block tertiary type="primary">Browse eco stays</n-button>
+                  </template>
+                </n-card>
+
+                <n-card title="Preferred transport" :segmented="{ content: true }">
+                  <template v-if="hasTransport">
+                    <n-space wrap>
+                      <n-button
+                        v-for="mode in transport"
+                        :key="mode.key ?? mode.label"
+                        round
+                        quaternary
+                      >
+                        <n-icon size="18" v-if="mode.icon">
+                          <i :class="mode.icon" />
+                        </n-icon>
+                        <span style="margin-left: 6px;">{{ mode.label }}</span>
+                      </n-button>
+                    </n-space>
+                  </template>
+                  <template v-else>
+                    <n-empty description="Transport providers will appear once connected." />
+                  </template>
+                </n-card>
+              </n-space>
+            </n-grid-item>
+          </n-grid>
+
+          <n-grid cols="1 m:2" :x-gap="16" :y-gap="16">
+            <n-grid-item>
+              <n-card title="Travel companions" :segmented="{ content: true }">
+                <template v-if="hasCompanions">
+                  <n-avatar-group size="medium">
+                    <n-avatar v-for="url in companions" :key="url" :src="url" />
+                  </n-avatar-group>
+                </template>
+                <template v-else>
+                  <n-empty description="Invite friends to plan together." />
+                </template>
+                <template #footer>
+                  <n-space justify="space-between" align="center">
+                    <n-text depth="3">Collaborate on itineraries and share travel notes.</n-text>
+                    <n-button text type="primary">Manage invitations</n-button>
+                  </n-space>
+                </template>
+              </n-card>
+            </n-grid-item>
+
+            <n-grid-item>
+              <n-card title="Connected apps" :segmented="{ content: true }">
+                <template v-if="hasIntegrations">
+                  <n-space wrap>
+                    <n-tag
+                      v-for="app in integrations"
+                      :key="app.key ?? app"
+                      type="info"
+                      size="large"
+                      bordered
+                    >
+                      {{ app.label ?? app }}
+                    </n-tag>
+                  </n-space>
+                </template>
+                <template v-else>
+                  <n-empty description="Link trip planning apps to sync data here." />
+                </template>
+                <template #footer>
+                  <n-button text type="primary">Manage integrations</n-button>
+                </template>
+              </n-card>
+            </n-grid-item>
+          </n-grid>
+
+          <n-card title="Eco travel playbook" :segmented="{ content: true }">
+            <template v-if="hasInsights">
+              <n-collapse>
+                <n-collapse-item
+                  v-for="item in insights"
+                  :key="item.key ?? item.title"
+                  :title="item.title"
+                >
+                  <n-text depth="3">{{ item.description }}</n-text>
+                </n-collapse-item>
+              </n-collapse>
+            </template>
+            <template v-else>
+              <n-empty description="Add best-practice tips to guide mindful travel." />
+            </template>
+          </n-card>
+        </n-space>
+      </n-layout-content>
+    </n-layout>
+  </n-layout>
 </template>
 
 <style scoped>
-.dashboard-shell {
-  background: radial-gradient(circle at 20% 20%, #f3ecff, transparent 55%), radial-gradient(circle at 80% -10%, #e4f4ed, transparent 60%);
-  padding: 2.5rem 0 4rem;
-}
-
-.dashboard {
-  max-width: 1280px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 260px;
-  gap: 2rem;
-  padding: 0 1.5rem;
-}
-
-.sidebar,
-.rightbar {
-  display: flex;
-  flex-direction: column;
-  gap: 1.75rem;
-}
-
-.sidebar {
-  border-radius: 28px;
-  padding: 2rem 1.5rem;
-  background: linear-gradient(200deg, #f2f0ff 0%, #f6fbf8 45%, #ffffff 100%);
-  box-shadow: 0 24px 48px rgba(79, 70, 255, 0.12);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.85rem;
-  font-size: 1.15rem;
-  margin-bottom: 1.75rem;
-}
-
-.brand-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #6c63ff, #42b883);
-  color: #fff;
-  font-size: 20px;
-}
-
-.brand-name {
-  font-size: 1.05rem;
-  letter-spacing: 0.03em;
-}
-
-.menu-button {
-  justify-content: flex-start;
-  gap: 0.85rem;
-  border-radius: 16px;
-  padding: 0.85rem 1rem;
-}
-
-.menu-button.active {
-  background: rgba(108, 99, 255, 0.18);
-  color: #4f46ff;
-  font-weight: 600;
-}
-
-.sidebar-upgrade {
-  margin-top: auto;
-  border-radius: 24px;
-  padding: 1.75rem;
-  background: rgba(108, 99, 255, 0.12);
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  text-align: left;
-}
-
-.main {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.greeting {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-}
-
-.hello-wrap {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.search {
-  width: clamp(260px, 36vw, 420px);
-}
-
-.search :deep(input) {
-  padding-inline: 1.1rem;
-}
-
-.greeting-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.destinations .section-header,
-.section-header--sub {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-}
-
-.destinations .section-header {
-  margin-bottom: 1.5rem;
-}
-
-.tab-group {
-  display: inline-flex;
-  gap: 0.5rem;
-  background: rgba(108, 99, 255, 0.08);
-  padding: 0.25rem;
-  border-radius: 999px;
-}
-
-.tab-active {
-  background: linear-gradient(135deg, #6c63ff, #42b883) !important;
-  color: #fff !important;
-  font-weight: 600;
-}
-
-.destination-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1.6rem;
-}
-
-.destination-card {
-  border-radius: 22px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.85) 0%, #ffffff 65%);
-  box-shadow: 0 18px 40px rgba(16, 24, 40, 0.08);
-}
-
-.destination-card img {
-  width: 100%;
-  height: 160px;
-  object-fit: cover;
-  border-radius: 18px;
-}
-
-.middle-panels {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1.5rem;
-}
-
-.calendar-grid {
-  display: grid;
-  gap: 0.6rem;
-}
-
-.calendar-row {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 0.4rem;
-  text-align: center;
-}
-
-.calendar-cell {
-  padding: 0.65rem 0;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.5);
-  font-weight: 600;
-}
-
-.calendar-cell--muted {
-  opacity: 0.2;
-}
-
-.calendar-cell--active {
-  background: linear-gradient(135deg, #6c63ff, #42b883);
-  color: #fff;
-}
-
-.pill-date {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  border-radius: 16px;
-  background: rgba(108, 99, 255, 0.15);
-  color: #4f46ff;
-  font-weight: 600;
-  font-size: 1rem;
-}
-
-.rightbar-card,
-.profile-card,
-.friends-card,
-.integrations-card {
-  border-radius: 26px;
-  box-shadow: 0 18px 48px rgba(16, 24, 40, 0.08);
-}
-
-.integrations-card :deep(.n-tag) {
-  justify-content: center;
-  padding: 0.6rem 1rem;
-}
-
-@media (max-width: 1200px) {
-  .dashboard {
-    grid-template-columns: 210px minmax(0, 1fr);
-  }
-
-  .rightbar {
-    display: none;
-  }
-
-  .greeting {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .search {
-    width: 100%;
-  }
-}
-
-@media (max-width: 900px) {
-  .dashboard {
-    grid-template-columns: 1fr;
-    padding: 0 1rem;
-  }
-
-  .sidebar {
-    position: sticky;
-    top: 80px;
-    z-index: 1;
-  }
+:global(body) {
+  background: var(--body-color);
 }
 </style>
