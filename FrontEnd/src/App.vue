@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { NMessageProvider } from 'naive-ui'
 import AdminDashboard from './components/AdminDashboard.vue'
 import HomePage from './components/HomePage.vue'
 import LoginPage from './components/LoginPage.vue'
@@ -197,9 +198,10 @@ function handleLoginSuccess(payload) {
 </script>
 
 <template>
-  <div class="page" :class="`page--${currentView}`">
-    <SiteHeader :nav-links="navLinks" :brand="headerBrand" :cta="headerCta" @brand-click="handleBrandClick"
-      @nav-click="handleNavClick" @cta-click="handleHeaderCta" />
+  <n-message-provider>
+    <div class="page" :class="`page--${currentView}`">
+      <SiteHeader :nav-links="navLinks" :brand="headerBrand" :cta="headerCta" @brand-click="handleBrandClick"
+        @nav-click="handleNavClick" @cta-click="handleHeaderCta" />
 
   <div class="content">
     <HomePage v-if="currentView === 'home'" />
