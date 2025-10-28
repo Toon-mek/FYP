@@ -39,8 +39,10 @@ import {
   NSpace,
   NTag,
   NText,
+  NSwitch,
   NTabPane,
   NTabs,
+  NUpload,
 } from "naive-ui"
 
 export default create({
@@ -84,7 +86,10 @@ export default create({
     NSpace,
     NTag,
     NText,
+    NSwitch,
     NTabPane,
     NTabs,
+    NUpload,
   ],
 })
+

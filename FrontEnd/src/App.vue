@@ -5,6 +5,7 @@ import AdminDashboard from './components/AdminDashboard.vue'
 import HomePage from './components/HomePage.vue'
 import LoginPage from './components/LoginPage.vue'
 import TravelerDashboard from './components/TravelerDashboard.vue'
+import BusinessOperatorDashboard from './components/BusinessOperatorDashboard.vue'
 import SiteHeader from './components/SiteHeader.vue'
 import SiteFooter from './components/SiteFooter.vue'
 
@@ -23,6 +24,11 @@ const travelerNavLinks = [
 ]
 
 const adminNavLinks = []
+const operatorNavLinks = [
+  { label: 'Upload Info', href: '#upload-info' },
+  { label: 'Media Manager', href: '#media-manager' },
+  { label: 'Manage Listings', href: '#listings-panel' },
+]
 
 const headerBrandBase = {
   initials: 'MS',
@@ -84,6 +90,7 @@ const currentView = computed(() => route.meta.view ?? 'home')
 
 const navLinks = computed(() => {
   if (currentView.value === 'traveler') return travelerNavLinks
+  if (currentView.value === 'operator') return operatorNavLinks
   if (currentView.value === 'admin') return adminNavLinks
   return homeNavLinks
 })
@@ -93,13 +100,15 @@ const headerBrand = computed(() => ({
   href:
     currentView.value === 'traveler'
       ? '#traveler-top'
-      : currentView.value === 'admin'
-        ? '#admin-top'
-        : '#hero',
+      : currentView.value === 'operator'
+        ? '#operator-top'
+        : currentView.value === 'admin'
+          ? '#admin-top'
+          : '#hero',
 }))
 
 const headerCta = computed(() =>
-  currentView.value === 'traveler' || currentView.value === 'admin'
+  currentView.value === 'traveler' || currentView.value === 'operator' || currentView.value === 'admin'
     ? { label: 'Log out' }
     : headerCtaHome,
 )
@@ -147,6 +156,8 @@ function handleHeaderCta() {
 function handleBrandClick() {
   if (currentView.value === 'traveler') {
     scrollToSection('#traveler-top')
+  } else if (currentView.value === 'operator') {
+    scrollToSection('#operator-top')
   } else if (currentView.value === 'admin') {
     scrollToSection('#admin-top')
   } else {
@@ -160,6 +171,10 @@ function handleNavClick(href) {
   }
   if (currentView.value === 'traveler') {
     scrollToSection(href)
+  } else if (currentView.value === 'operator') {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('operator:navigate', { detail: href.replace('#', '') }))
+    }
   } else {
     showHome(href)
   }
@@ -172,7 +187,7 @@ function handleLoginSuccess(payload) {
   if (accountType === 'traveler') {
     router.push('/traveler').then(() => scrollToSection('#traveler-top'))
   } else if (accountType === 'operator') {
-    router.push('/')
+    router.push('/operator').then(() => scrollToSection('#operator-top'))
   } else if (accountType === 'admin') {
     router.push('/admin').then(() => scrollToSection('#admin-top'))
   } else {
@@ -186,12 +201,13 @@ function handleLoginSuccess(payload) {
     <SiteHeader :nav-links="navLinks" :brand="headerBrand" :cta="headerCta" @brand-click="handleBrandClick"
       @nav-click="handleNavClick" @cta-click="handleHeaderCta" />
 
-    <div class="content">
-      <HomePage v-if="currentView === 'home'" />
-      <LoginPage v-else-if="currentView === 'login'" @login-success="handleLoginSuccess" />
-      <TravelerDashboard v-else-if="currentView === 'traveler'" :traveler="loggedInUser" />
-      <AdminDashboard v-else />
-    </div>
+  <div class="content">
+    <HomePage v-if="currentView === 'home'" />
+    <LoginPage v-else-if="currentView === 'login'" @login-success="handleLoginSuccess" />
+    <BusinessOperatorDashboard v-else-if="currentView === 'operator'" :operator="loggedInUser" />
+    <TravelerDashboard v-else-if="currentView === 'traveler'" :traveler="loggedInUser" />
+    <AdminDashboard v-else />
+  </div>
 
     <SiteFooter :brand="footerBrand" :columns="footerColumns" :social-links="socialLinks"
       :copyright-year="copyrightYear" />

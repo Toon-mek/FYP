@@ -4,6 +4,7 @@ import AdminDashboard from '../components/AdminDashboard.vue'
 import HomePage from '../components/HomePage.vue'
 import LoginPage from '../components/LoginPage.vue'
 import TravelerDashboard from '../components/TravelerDashboard.vue'
+import BusinessOperatorDashboard from '../components/BusinessOperatorDashboard.vue'
 
 const routes = [
   {
@@ -23,6 +24,12 @@ const routes = [
     name: 'traveler',
     component: TravelerDashboard,
     meta: { view: 'traveler' },
+  },
+  {
+    path: '/operator',
+    name: 'operator',
+    component: BusinessOperatorDashboard,
+    meta: { view: 'operator' }, 
   },
   {
     path: '/admin',
