@@ -1,6 +1,7 @@
 <script setup>
 import { computed, h, ref, watch } from 'vue'
 import { NIcon } from 'naive-ui'
+import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 
 const props = defineProps({
   traveler: {
@@ -336,6 +337,8 @@ const hasInsights = computed(() => insights.value.length > 0)
               </n-card>
             </n-grid-item>
           </n-grid>
+
+          <TravelerWeatherWidget />
 
           <n-card title="Featured experiences" :segmented="{ content: true }">
             <template v-if="hasExperiences">
