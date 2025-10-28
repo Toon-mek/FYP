@@ -1,19 +1,22 @@
 <script setup>
-import { computed, h, ref } from 'vue'
-import { NButton, NSpace, NTag, NText } from 'naive-ui'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
+import { NButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
+
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const message = useMessage()
+const props = defineProps({
+  currentAdminId: {
+    type: Number,
+    default: null,
+  },
+})
 
 const menuOptions = [
-  {
-    key: 'overview',
-    label: 'Dashboard overview',
-  },
+  { key: 'overview', label: 'Dashboard overview' },
   {
     type: 'group',
     label: 'People & access',
-    children: [
-      { key: 'users', label: 'User management' },
-      { key: 'roles', label: 'Role management' },
-    ],
+    children: [{ key: 'users', label: 'User & role management' }],
   },
   {
     type: 'group',
@@ -44,10 +47,6 @@ const moduleMeta = {
     title: 'User management',
     subtitle: 'Approve traveler and operator accounts, enforce access policies',
   },
-  roles: {
-    title: 'Role management',
-    subtitle: 'Define administrative scopes and align permissions with responsibilities',
-  },
   verification: {
     title: 'Listing verification',
     subtitle: 'Review sustainability credentials before listings go live',
@@ -74,221 +73,14 @@ const moduleMeta = {
   },
 }
 
-const modulePlaceholders = {
-  default: {
-    title: 'Module workspace',
-    description: 'Select a module from the sidebar to begin.',
-    highlights: [],
-    actions: [],
-  },
-  users: {
-    title: 'User & role management workspace',
-    description:
-      'Segment travelers, operators, and administrators. Approve new sign-ups, lock risky accounts, and align each team to clear responsibilities.',
-    highlights: [
-      'Pending traveler approvals',
-      'Operator verification queues',
-      'Recent credential updates',
-    ],
-    actions: [
-      { key: 'view-users', label: 'Open user directory', type: 'primary' },
-      { key: 'invite-admin', label: 'Invite administrator', tertiary: true },
-      { key: 'audit-log', label: 'View audit log', quaternary: true },
-    ],
-  },
-  roles: {
-    title: 'Role control center',
-    description:
-      'Define reusable role templates and share permission presets across regions or task forces.',
-    highlights: [
-      'Current role hierarchy',
-      'Permission change requests',
-      'Least-privilege recommendations',
-    ],
-    actions: [
-      { key: 'create-role', label: 'Create role template', type: 'primary' },
-      { key: 'export-policy', label: 'Export policy JSON', tertiary: true },
-    ],
-  },
-  verification: {
-    title: 'Listing verification queue',
-    description:
-      'Coordinate sustainability checks, document requests, and regional approvals before publishing.',
-    highlights: [
-      'Submissions awaiting document review',
-      'Listings flagged during spot checks',
-      'Completed verifications this week',
-    ],
-    actions: [
-      { key: 'open-queue', label: 'Open verification board', type: 'primary' },
-      { key: 'review-guidelines', label: 'Review checklist', tertiary: true },
-    ],
-  },
-  business: {
-    title: 'Business listings workspace',
-    description:
-      'Track listing health scores, pricing tiers, and operator engagement to keep content fresh.',
-    highlights: [
-      'Listings needing photo updates',
-      'Partners approaching renewal',
-      'High-performing eco stays',
-    ],
-    actions: [
-      { key: 'view-catalog', label: 'View listing catalog', type: 'primary' },
-      { key: 'sync-crm', label: 'Sync with CRM', tertiary: true },
-    ],
-  },
-  community: {
-    title: 'Community health dashboard',
-    description:
-      'Moderate posts, comments, and collaborative itineraries. Surface content for editorial amplification.',
-    highlights: [
-      'Queued moderation tickets',
-      'Trending responsible travel stories',
-      'Members needing follow-up',
-    ],
-    actions: [
-      { key: 'open-inbox', label: 'Open moderation inbox', type: 'primary' },
-      { key: 'schedule-spotlight', label: 'Schedule spotlight', tertiary: true },
-    ],
-  },
-  notifications: {
-    title: 'Communications hub',
-    description:
-      'Send targeted announcements to travelers and operators, and track engagement metrics in one place.',
-    highlights: [
-      'Draft announcements awaiting approval',
-      'Audience segment performance',
-      'Recent SMS/Email status',
-    ],
-    actions: [
-      { key: 'compose-broadcast', label: 'Compose broadcast', type: 'primary' },
-      { key: 'automation-center', label: 'Manage automations', tertiary: true },
-    ],
-  },
-  reports: {
-    title: 'Insights & reporting',
-    description:
-      'Generate sustainability impact dashboards and export summaries for leadership reviews.',
-    highlights: [
-      'Monthly activity snapshots',
-      'Impact KPI trackers',
-      'Data export schedules',
-    ],
-    actions: [
-      { key: 'new-report', label: 'Generate new report', type: 'primary' },
-      { key: 'share-dashboard', label: 'Share live dashboard', tertiary: true },
-    ],
-  },
-  settings: {
-    title: 'Platform configuration',
-    description:
-      'Adjust policy toggles, security settings, integrations, and maintenance windows.',
-    highlights: [
-      'API credential status',
-      'Webhook delivery logs',
-      'Security policy expirations',
-    ],
-    actions: [
-      { key: 'open-settings', label: 'Open settings', type: 'primary' },
-      { key: 'integration-center', label: 'Integration center', tertiary: true },
-    ],
-  },
-}
-
-const activeModule = ref('overview')
-
-const activeModuleMeta = computed(
-  () => moduleMeta[activeModule.value] ?? moduleMeta.overview,
-)
-
-const headerButtons = computed(() => {
-  switch (activeModule.value) {
-    case 'overview':
-      return [
-        { key: 'draft-announcement', label: 'Draft announcement', tertiary: true },
-        { key: 'schedule-review', label: 'Schedule review', type: 'primary' },
-      ]
-    case 'users':
-      return [
-        { key: 'invite-user', label: 'Invite user', type: 'primary' },
-        { key: 'view-rules', label: 'Access policies', tertiary: true },
-      ]
-    case 'roles':
-      return [
-        { key: 'role-blueprint', label: 'Role blueprint', type: 'primary' },
-        { key: 'permission-diff', label: 'Permission diff', tertiary: true },
-      ]
-    case 'verification':
-      return [
-        { key: 'assign-review', label: 'Assign reviewers', type: 'primary' },
-        { key: 'download-checklist', label: 'Download checklist', tertiary: true },
-      ]
-    case 'business':
-      return [
-        { key: 'new-listing', label: 'Register listing', type: 'primary' },
-        { key: 'bulk-update', label: 'Bulk update', tertiary: true },
-      ]
-    case 'community':
-      return [
-        { key: 'open-moderation', label: 'Moderation queue', type: 'primary' },
-        { key: 'escalation-rules', label: 'Escalation rules', tertiary: true },
-      ]
-    case 'notifications':
-      return [
-        { key: 'create-campaign', label: 'Create campaign', type: 'primary' },
-        { key: 'message-history', label: 'Message history', tertiary: true },
-      ]
-    case 'reports':
-      return [
-        { key: 'export-pdf', label: 'Export PDF', type: 'primary' },
-        { key: 'schedule-email', label: 'Schedule email', tertiary: true },
-      ]
-    case 'settings':
-      return [
-        { key: 'open-settings', label: 'Manage settings', type: 'primary' },
-        { key: 'maintenance', label: 'Maintenance window', tertiary: true },
-      ]
-    default:
-      return [{ key: 'configure', label: 'Configure module', type: 'primary' }]
-  }
-})
-
 const summaryCards = [
-  {
-    key: 'travelers',
-    label: 'Active travelers',
-    value: '1,284',
-    trendLabel: '+8.4% vs last month',
-    trendType: 'success',
-  },
-  {
-    key: 'operators',
-    label: 'Verified operators',
-    value: '312',
-    trendLabel: '+12 this week',
-    trendType: 'success',
-  },
-  {
-    key: 'itineraries',
-    label: 'Shared itineraries',
-    value: '485',
-    trendLabel: '23 awaiting review',
-    trendType: 'warning',
-  },
-  {
-    key: 'reports',
-    label: 'Open reports',
-    value: '9',
-    trendLabel: '2 critical items',
-    trendType: 'error',
-  },
+  { key: 'travelers', label: 'Active travelers', value: '1,284', trendLabel: '+8.4% vs last month', trendType: 'success' },
+  { key: 'operators', label: 'Verified operators', value: '312', trendLabel: '+12 this week', trendType: 'success' },
+  { key: 'itineraries', label: 'Shared itineraries', value: '485', trendLabel: '23 awaiting review', trendType: 'warning' },
+  { key: 'reports', label: 'Open reports', value: '9', trendLabel: '2 critical items', trendType: 'error' },
 ]
 
-const verificationProgress = {
-  completed: 42,
-  total: 60,
-}
+const verificationProgress = { completed: 42, total: 60 }
 
 const pendingApprovals = ref([
   {
@@ -318,10 +110,10 @@ const pendingApprovals = ref([
 ])
 
 const recentActivities = [
-  { id: 1, actor: 'Traveler • Yap Wei Hoong', description: 'reported inaccurate listing data', time: '4m ago' },
-  { id: 2, actor: 'Operator • Green Trails', description: 'submitted sustainability audit', time: '32m ago' },
-  { id: 3, actor: 'Traveler • Arif Hussain', description: 'published itinerary “Eco Sabah”', time: '1h ago' },
-  { id: 4, actor: 'Operator • Penang Heritage', description: 'requested verification call', time: '2h ago' },
+  { id: 1, actor: 'Traveler - Yap Wei Hoong', description: 'reported inaccurate listing data', time: '4m ago' },
+  { id: 2, actor: 'Operator - Green Trails', description: 'submitted sustainability audit', time: '32m ago' },
+  { id: 3, actor: 'Traveler - Arif Hussain', description: 'published itinerary "Eco Sabah"', time: '1h ago' },
+  { id: 4, actor: 'Operator - Penang Heritage', description: 'requested verification call', time: '2h ago' },
 ]
 
 const quickActions = [
@@ -331,119 +123,409 @@ const quickActions = [
 ]
 
 const approvalColumns = [
-  {
-    title: 'Company',
-    key: 'company',
-  },
-  {
-    title: 'Primary contact',
-    key: 'contact',
-  },
-  {
-    title: 'Email',
-    key: 'email',
-  },
-  {
-    title: 'Submitted',
-    key: 'submitted',
-  },
+  { title: 'Company', key: 'company' },
+  { title: 'Primary contact', key: 'contact' },
+  { title: 'Email', key: 'email' },
+  { title: 'Submitted', key: 'submitted' },
   {
     title: 'Status',
     key: 'status',
     render(row) {
-      return h(
-        NTag,
-        {
-          size: 'small',
-          type: row.status.includes('Ready') ? 'success' : 'warning',
-          bordered: false,
-        },
-        { default: () => row.status },
-      )
+      const type = row.status.includes('Ready') ? 'success' : 'warning'
+      return h(NTag, { size: 'small', type, bordered: false }, { default: () => row.status })
     },
   },
   {
     title: 'Action',
     key: 'actions',
     render() {
-      return h(
-        NSpace,
-        { size: 'small' },
-        () => [
-          h(
-            NButton,
-            { size: 'small', tertiary: true, type: 'primary' },
-            { default: () => 'Review' },
-          ),
-          h(
-            NButton,
-            { size: 'small', quaternary: true },
-            { default: () => 'Message' },
-          ),
-        ],
-      )
+      return h(NSpace, { size: 'small' }, () => [
+        h(NButton, { size: 'small', tertiary: true, type: 'primary' }, { default: () => 'Review' }),
+        h(NButton, { size: 'small', quaternary: true }, { default: () => 'Message' }),
+      ])
     },
   },
 ]
 
-const verificationPercent = computed(() =>
-  Math.round((verificationProgress.completed / verificationProgress.total) * 100),
-)
-
-const currentPlaceholder = computed(
-  () => modulePlaceholders[activeModule.value] ?? modulePlaceholders.default,
-)
+const activeModule = ref('overview')
+const activeModuleMeta = computed(() => moduleMeta[activeModule.value] ?? moduleMeta.overview)
 
 function handleMenuSelect(key) {
   activeModule.value = key
 }
+
+const users = ref([])
+const roles = ref([])
+const loadingUsers = ref(false)
+const loadingRoles = ref(false)
+const savingUser = ref(false)
+const userSearchTerm = ref('')
+const userTypeFilter = ref('all')
+const statusFilter = ref('all')
+const page = ref(2)
+const pageSize = 10
+
+const userTypeFilterOptions = [
+  { label: 'All types', value: 'all' },
+  { label: 'Traveler', value: 'Traveler' },
+  { label: 'Operator', value: 'Operator' },
+  { label: 'Admin', value: 'Admin' },
+]
+
+const statusFilterOptions = [
+  { label: 'All statuses', value: 'all' },
+  { label: 'Pending', value: 'Pending' },
+  { label: 'Active', value: 'Active' },
+  { label: 'Suspended', value: 'Suspended' },
+  { label: 'Inactive', value: 'Inactive' },
+]
+
+const filteredUsers = computed(() => {
+  const term = userSearchTerm.value.trim().toLowerCase()
+  return users.value.filter((user) => {
+    const matchesName = term === '' || (user.name || '').toLowerCase().includes(term)
+    const matchesType = userTypeFilter.value === 'all' || user.type === userTypeFilter.value
+    const matchesStatus = statusFilter.value === 'all' || user.status === statusFilter.value
+    return matchesName && matchesType && matchesStatus
+  })
+})
+
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredUsers.value.length / pageSize)))
+const paginatedUsers = computed(() => {
+  const start = (page.value - 1) * pageSize
+  return filteredUsers.value.slice(start, start + pageSize)
+})
+
+const statusOptions = computed(() => {
+  if (userForm.type === 'Traveler' || userForm.type === 'Operator') {
+    const options = [
+      { label: 'Active', value: 'Active' },
+      { label: 'Suspended', value: 'Suspended' },
+    ]
+    if (userForm.status === 'Pending') {
+      options.unshift({ label: 'Pending', value: 'Pending', disabled: true })
+    }
+    return options
+  }
+  return [
+    { label: 'Active', value: 'Active' },
+    { label: 'Inactive', value: 'Inactive' },
+  ]
+})
+
+const createUserTypeOptions = [
+  { label: 'Traveler', value: 'Traveler' },
+  { label: 'Operator', value: 'Operator' },
+]
+
+const roleOptions = computed(() => roles.value.map((role) => ({ label: role.name, value: role.name })))
+
+const headerButtons = computed(() => {
+  switch (activeModule.value) {
+    case 'overview':
+      return [
+        { key: 'draft-announcement', label: 'Draft announcement', tertiary: true },
+        { key: 'schedule-review', label: 'Schedule review', type: 'primary' },
+      ]
+    case 'users':
+      return [
+        { key: 'add-user', label: 'Add user', type: 'primary', onClick: () => openUserModal() },
+        { key: 'view-rules', label: 'Access policies', tertiary: true },
+      ]
+    default:
+      return [{ key: 'configure', label: 'Configure module', type: 'primary' }]
+  }
+})
+
+const userColumns = [
+  { title: 'Name', key: 'name' },
+  { title: 'Email', key: 'email' },
+  { title: 'Type / Role', key: 'role' },
+  {
+    title: 'Status',
+    key: 'status',
+    render(row) {
+      const type = row.status === 'Active' ? 'success' : row.status === 'Pending' ? 'warning' : row.status === 'Suspended' ? 'error' : 'default'
+      return h(NTag, { size: 'small', type, bordered: false }, { default: () => row.status })
+    },
+  },
+  {
+    title: 'Actions',
+    key: 'actions',
+    render(row) {
+      const buttons = [
+        h(
+          NButton,
+          {
+            size: 'small',
+            tertiary: true,
+            type: 'primary',
+            onClick: () => openUserModal(row),
+          },
+          { default: () => 'Edit' },
+        ),
+      ]
+      buttons.push(
+        h(
+          NButton,
+          {
+            size: 'small',
+            quaternary: true,
+            type: 'error',
+            onClick: () => removeUser(row),
+          },
+          { default: () => 'Remove' },
+        ),
+      )
+      return h(NSpace, { size: 'small' }, () => buttons)
+    },
+  },
+]
+
+const roleColumns = [
+  { title: 'Role name', key: 'name' },
+  {
+    title: 'Members',
+    key: 'members',
+    render(row) {
+      return h(NText, { strong: true }, { default: () => row.members })
+    },
+  },
+]
+
+const showUserModal = ref(false)
+const editingUserId = ref(null)
+const userForm = reactive({
+  name: '',
+  email: '',
+  role: 'Traveler',
+  status: 'Pending',
+  type: 'Traveler',
+  phone: '',
+  businessType: '',
+  password: '',
+  confirmPassword: '',
+})
+
+function resetUserForm() {
+  userForm.name = ''
+  userForm.email = ''
+  userForm.role = 'Traveler'
+  userForm.status = 'Pending'
+  userForm.type = 'Traveler'
+  userForm.phone = ''
+  userForm.businessType = ''
+  userForm.password = ''
+  userForm.confirmPassword = ''
+  editingUserId.value = null
+}
+
+function openUserModal(row) {
+  if (row) {
+    editingUserId.value = row.id
+    userForm.name = row.name
+    userForm.email = row.email
+    userForm.role = row.role
+    userForm.status = row.status
+    userForm.type = row.type
+    userForm.phone = row.phone || ''
+    userForm.businessType = row.businessType || ''
+    userForm.password = ''
+    userForm.confirmPassword = ''
+  } else {
+    resetUserForm()
+  }
+  showUserModal.value = true
+}
+
+async function fetchRoles() {
+  loadingRoles.value = true
+  try {
+    const response = await fetch(`${API_BASE}/admin/roles.php`)
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.roles) {
+      throw new Error(data?.error || 'Unable to load roles')
+    }
+    roles.value = data.roles
+  } catch (error) {
+    console.error(error)
+    message.error(error instanceof Error ? error.message : 'Unable to load roles')
+  } finally {
+    loadingRoles.value = false
+  }
+}
+
+async function fetchUsers() {
+  loadingUsers.value = true
+  try {
+    const response = await fetch(`${API_BASE}/admin/users.php`)
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.users) {
+      throw new Error(data?.error || 'Unable to load users')
+    }
+    users.value = data.users
+  } catch (error) {
+    console.error(error)
+    message.error(error instanceof Error ? error.message : 'Unable to load users')
+  } finally {
+    loadingUsers.value = false
+  }
+}
+
+async function saveUser() {
+  if (!userForm.name.trim() || !userForm.email.trim()) {
+    return
+  }
+
+  const passwordValue = userForm.password.trim()
+  const confirmValue = userForm.confirmPassword.trim()
+  const passwordProvided = passwordValue !== ''
+
+  if (!editingUserId.value || passwordProvided) {
+    if (passwordValue.length < 6) {
+      message.error('Password must be at least 6 characters')
+      return
+    }
+    if (passwordValue !== confirmValue) {
+      message.error('Passwords do not match')
+      return
+    }
+  }
+
+  savingUser.value = true
+  try {
+    const payload = {
+      id: editingUserId.value,
+      type: userForm.type,
+      name: userForm.name.trim(),
+      email: userForm.email.trim(),
+      status: userForm.status,
+      role: userForm.type === 'Admin' ? userForm.role : undefined,
+      phone: userForm.type !== 'Admin' ? userForm.phone.trim() : undefined,
+      businessType: userForm.type === 'Operator' ? userForm.businessType.trim() : undefined,
+      password: passwordProvided ? passwordValue : undefined,
+    }
+
+    const response = await fetch(`${API_BASE}/admin/users.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || 'Unable to save user')
+    }
+    showUserModal.value = false
+    await fetchUsers()
+    await fetchRoles()
+    message.success('User saved')
+    if (!editingUserId.value && data.temporaryPassword) {
+      message.info(`Temporary password: ${data.temporaryPassword}`)
+    }
+    resetUserForm()
+  } catch (error) {
+    console.error(error)
+    message.error(error instanceof Error ? error.message : 'Unable to save user')
+  } finally {
+    savingUser.value = false
+  }
+}
+
+async function removeUser(row) {
+  if (row.type === 'Admin' && props.currentAdminId && row.id === props.currentAdminId) {
+    message.warning('You cannot remove your own administrator account')
+    return
+  }
+  if (!confirm(`Remove this ${row.type.toLowerCase()} account? This action cannot be undone.`)) {
+    return
+  }
+  try {
+    const response = await fetch(`${API_BASE}/admin/users.php`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: row.id, type: row.type }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || 'Unable to remove user')
+    }
+    await fetchUsers()
+    await fetchRoles()
+    message.success('User removed')
+  } catch (error) {
+    console.error(error)
+    message.error(error instanceof Error ? error.message : 'Unable to remove user')
+  }
+}
+
+onMounted(async () => {
+  await fetchRoles()
+  await fetchUsers()
+})
+
+watch(roleOptions, (options) => {
+  if (editingUserId.value) return
+  if (userForm.type === 'Admin') {
+    userForm.role = options[0]?.value || ''
+  } else {
+    userForm.role = userForm.type
+  }
+})
+
+watch(
+  () => userForm.type,
+  (type) => {
+    if (!editingUserId.value) {
+      userForm.status = type === 'Traveler' || type === 'Operator' ? 'Pending' : 'Active'
+      if (type !== 'Admin') {
+        userForm.role = type
+      } else {
+        userForm.role = roleOptions.value[0]?.value || ''
+      }
+    } else if (type !== 'Admin') {
+      userForm.role = type
+    }
+  },
+)
+
+watch([userSearchTerm, userTypeFilter, statusFilter], () => {
+  page.value = 1
+})
+
+watch(filteredUsers, () => {
+  if (page.value > pageCount.value) {
+    page.value = pageCount.value
+  }
+})
+
+watch(showUserModal, (visible) => {
+  if (!visible) {
+    resetUserForm()
+  }
+})
+
 </script>
 
 <template>
-  <n-layout
-    id="admin-top"
-    has-sider
-    style="min-height: 100vh; background: var(--body-color);"
-  >
-    <n-layout-sider
-      bordered
-      collapse-mode="width"
-      :collapsed-width="64"
-      :width="240"
-      show-trigger="bar"
-    >
+  <n-layout id="admin-top" has-sider style="min-height: 100vh;">
+    <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="240" show-trigger="bar">
       <n-space vertical size="small" style="padding: 18px 16px;">
-        <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">
-          MS Admin
-        </n-gradient-text>
+        <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">MS Admin</n-gradient-text>
         <n-text depth="3">Manage modules</n-text>
       </n-space>
       <div style="padding: 0 8px;">
-        <n-menu
-          :options="menuOptions"
-          :value="activeModule"
-          :indent="18"
-          :collapsed-icon-size="20"
-          @update:value="handleMenuSelect"
-        />
+        <n-menu :options="menuOptions" :value="activeModule" :indent="18" :collapsed-icon-size="20"
+          @update:value="handleMenuSelect" />
       </div>
     </n-layout-sider>
 
     <n-layout>
       <n-layout-header bordered style="padding: 20px 28px;">
-        <n-page-header
-          :title="activeModuleMeta.title"
-          :subtitle="activeModuleMeta.subtitle"
-        >
+        <n-page-header :title="activeModuleMeta.title" :subtitle="activeModuleMeta.subtitle">
           <template #extra>
             <n-space>
-              <n-button
-                v-for="action in headerButtons"
-                :key="action.key"
-                :type="action.type ?? 'default'"
-                :tertiary="action.tertiary"
-                :quaternary="action.quaternary"
-              >
+              <n-button v-for="action in headerButtons" :key="action.key" :type="action.type ?? 'default'"
+                :tertiary="action.tertiary" @click="action.onClick ? action.onClick() : null">
                 {{ action.label }}
               </n-button>
             </n-space>
@@ -469,40 +551,28 @@ function handleMenuSelect(key) {
             <n-grid cols="1 m:3" :x-gap="16" :y-gap="16">
               <n-grid-item span="1 m:2">
                 <n-card title="Pending operator approvals" :segmented="{ content: true }">
-                  <n-data-table
-                    size="small"
-                    :columns="approvalColumns"
-                    :data="pendingApprovals"
-                    :bordered="false"
-                  />
+                  <n-data-table size="small" :columns="approvalColumns" :data="pendingApprovals" :bordered="false" />
                 </n-card>
               </n-grid-item>
-
               <n-grid-item>
                 <n-space vertical size="large">
                   <n-card title="Verification throughput" :segmented="{ content: true }">
                     <n-space vertical size="small">
-                      <span style="font-size: 2.2rem; font-weight: 600;">{{ verificationPercent }}%</span>
+                      <span style="font-size: 2.2rem; font-weight: 600;">
+                        {{ Math.round((verificationProgress.completed / verificationProgress.total) * 100) }}%
+                      </span>
                       <n-text depth="3">
-                        {{ verificationProgress.completed }} of {{ verificationProgress.total }} check-ins completed this week
+                        {{ verificationProgress.completed }} of {{ verificationProgress.total }} check-ins completed
+                        this week
                       </n-text>
-                      <n-progress
-                        type="line"
-                        :percentage="verificationPercent"
-                        indicator-placement="inside"
-                        processing
-                      />
+                      <n-progress type="line"
+                        :percentage="Math.round((verificationProgress.completed / verificationProgress.total) * 100)"
+                        indicator-placement="inside" processing />
                     </n-space>
                   </n-card>
-
                   <n-card title="Quick actions" :segmented="{ content: true }">
                     <n-space vertical>
-                      <n-button
-                        v-for="action in quickActions"
-                        :key="action.key"
-                        :type="action.type"
-                        block
-                      >
+                      <n-button v-for="action in quickActions" :key="action.key" :type="action.type" block>
                         {{ action.label }}
                       </n-button>
                     </n-space>
@@ -527,34 +597,98 @@ function handleMenuSelect(key) {
           </n-space>
         </template>
 
-        <template v-else>
+        <template v-else-if="activeModule === 'users'">
           <n-space vertical size="large">
-            <n-card :title="currentPlaceholder.title" :segmented="{ content: true }">
-              <n-space vertical size="large">
-                <n-text depth="3">{{ currentPlaceholder.description }}</n-text>
-                <n-list
-                  v-if="currentPlaceholder.highlights?.length"
-                  :show-divider="false"
-                  :bordered="false"
-                >
-                  <n-list-item v-for="item in currentPlaceholder.highlights" :key="item">
-                    {{ item }}
-                  </n-list-item>
-                </n-list>
-                <n-space v-if="currentPlaceholder.actions?.length" wrap>
-                  <n-button
-                    v-for="action in currentPlaceholder.actions"
-                    :key="action.key"
-                    :type="action.type ?? 'default'"
-                    :tertiary="action.tertiary"
-                    :quaternary="action.quaternary"
-                  >
-                    {{ action.label }}
-                  </n-button>
+            <n-card title="Account directory" :segmented="{ content: true }">
+              <template #header-extra>
+                <n-space size="small">
+                  <n-select v-model:value="userTypeFilter" size="small" :options="userTypeFilterOptions"
+                    style="width: 150px;" />
+                  <n-select v-model:value="statusFilter" size="small" :options="statusFilterOptions"
+                    style="width: 150px;" />
+                  <n-input v-model:value="userSearchTerm" size="small" clearable placeholder="Search name"
+                    style="width: 220px;" />
+                </n-space>
+              </template>
+              <n-space vertical size="medium">
+                <n-data-table size="small" :columns="userColumns" :data="paginatedUsers" :bordered="false"
+                  :loading="loadingUsers" />
+                <n-space justify="space-between" align="center">
+                  <n-text depth="3" style="font-size: 0.85rem;">
+                    Showing
+                    {{ filteredUsers.length === 0 ? 0 : (page - 1) * pageSize + 1 }}
+                    -
+                    {{ Math.min(page * pageSize, filteredUsers.length) }}
+                    of {{ filteredUsers.length }}
+                    users
+                  </n-text>
+                  <n-pagination v-model:page="page" :page-count="10" simple />
                 </n-space>
               </n-space>
             </n-card>
+
+            <n-card title="Role templates" :segmented="{ content: true }">
+
+              <n-data-table size="small" :columns="roleColumns" :data="roles" :bordered="false"
+                :loading="loadingRoles" />
+            </n-card>
           </n-space>
+
+          <n-modal v-model:show="showUserModal" preset="card" :title="editingUserId ? 'Edit user' : 'Add user'"
+            style="max-width: 480px; width: 100%;">
+            <n-form label-placement="top">
+              <n-form-item label="Account type">
+                <template v-if="editingUserId">
+                  <n-tag type="info" size="small">{{ userForm.type }}</n-tag>
+                </template>
+                <template v-else>
+                  <n-select v-model:value="userForm.type" :options="createUserTypeOptions" />
+                </template>
+              </n-form-item>
+              <n-form-item label="Full name">
+                <n-input v-model:value="userForm.name" />
+              </n-form-item>
+              <n-form-item label="Email address">
+                <n-input v-model:value="userForm.email" placeholder="***@example.com" />
+              </n-form-item>
+              <n-form-item v-if="userForm.type !== 'Admin'" label="Contact number (optional)">
+                <n-input v-model:value="userForm.phone" placeholder="012-345 6789" />
+              </n-form-item>
+              <n-form-item v-if="userForm.type === 'Operator'" label="Business type">
+                <n-input v-model:value="userForm.businessType" placeholder="Eco travel agency" />
+              </n-form-item>
+              <n-form-item :label="editingUserId ? 'New password (optional)' : 'Password'">
+                <n-input v-model:value="userForm.password" type="password" placeholder="At least 6 characters" />
+              </n-form-item>
+              <n-form-item v-if="!editingUserId || userForm.password" label="Confirm password">
+                <n-input v-model:value="userForm.confirmPassword" type="password" placeholder="Re-enter password" />
+              </n-form-item>
+              <n-form-item v-if="userForm.type === 'Admin'" label="Role">
+                <n-select v-model:value="userForm.role" :options="roleOptions" placeholder="Select role" />
+              </n-form-item>
+              <n-form-item label="Status">
+                <n-select v-model:value="userForm.status" :options="statusOptions" />
+              </n-form-item>
+            </n-form>
+            <template #footer>
+              <n-space justify="end">
+                <n-button quaternary @click="showUserModal = false">Cancel</n-button>
+                <n-button type="primary" :loading="savingUser" @click="saveUser">Save</n-button>
+              </n-space>
+            </template>
+          </n-modal>
+
+        </template>
+
+        <template v-else>
+          <n-card title="Module workspace" :segmented="{ content: true }">
+            <n-space vertical size="large">
+              <n-text depth="3">Select a module from the sidebar to begin.</n-text>
+              <n-space>
+                <n-button tertiary type="primary" @click="handleMenuSelect('overview')">Return to overview</n-button>
+              </n-space>
+            </n-space>
+          </n-card>
         </template>
       </n-layout-content>
     </n-layout>
