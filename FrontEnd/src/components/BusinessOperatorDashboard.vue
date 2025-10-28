@@ -395,6 +395,27 @@ const sectionToHash = Object.entries(hashToSection).reduce((acc, [hash, section]
 }, /** @type {Record<string, string>} */ ({}))
 
 const sidebarCollapsed = ref(false)
+const expandedSidebarStyle = computed(() => ({
+  padding: '18px 16px',
+  alignItems: 'flex-start',
+  gap: '10px',
+}))
+const collapsedSidebarStyle = computed(() => ({
+  padding: '12px 0',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '14px',
+}))
+const expandedMenuContainerStyle = computed(() => ({
+  padding: '0 8px 16px',
+}))
+const collapsedMenuContainerStyle = computed(() => ({
+  padding: '0 6px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: '12px',
+}))
 const activeSection = ref('overview')
 const searchQuery = ref('')
 const isSearchActive = ref(false)
@@ -1802,16 +1823,21 @@ function renderIcon(name) {
       @expand="sidebarCollapsed = false"
     >
       <n-space vertical size="small" :style="sidebarCollapsed ? collapsedSidebarStyle : expandedSidebarStyle">
-        <n-gradient-text type="info" style="font-size: 1.1rem; font-weight: 600;">
-          Tourism Operator Hub
-        </n-gradient-text>
-        <n-text depth="3">Manage Malaysia Sustainable listings</n-text>
+        <template v-if="sidebarCollapsed">
+          <n-avatar size="large" style="background: var(--primary-color-hover); color: white;">MS</n-avatar>
+        </template>
+        <template v-else>
+          <n-gradient-text type="info" style="font-size: 1.1rem; font-weight: 600;">
+            Tourism Operator Hub
+          </n-gradient-text>
+          <n-text depth="3">Manage Malaysia Sustainable listings</n-text>
+        </template>
         <n-switch v-model:value="sidebarCollapsed" size="small" round>
           <template #checked>Collapsed</template>
           <template #unchecked>Expanded</template>
         </n-switch>
       </n-space>
-      <div style="padding: 0 8px 16px;">
+      <div :style="sidebarCollapsed ? collapsedMenuContainerStyle : expandedMenuContainerStyle">
         <n-menu
           :options="sidebarOptions"
           :value="activeSection"
@@ -2754,6 +2780,7 @@ function renderIcon(name) {
   transform: translateY(4px) scale(0.98);
 }
 </style>
+
 
 
 

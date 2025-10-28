@@ -200,20 +200,31 @@ function handleLoginSuccess(payload) {
 <template>
   <n-message-provider>
     <div class="page" :class="`page--${currentView}`">
-      <SiteHeader :nav-links="navLinks" :brand="headerBrand" :cta="headerCta" @brand-click="handleBrandClick"
-        @nav-click="handleNavClick" @cta-click="handleHeaderCta" />
+      <SiteHeader
+        :nav-links="navLinks"
+        :brand="headerBrand"
+        :cta="headerCta"
+        @brand-click="handleBrandClick"
+        @nav-click="handleNavClick"
+        @cta-click="handleHeaderCta"
+      />
 
-  <div class="content">
-    <HomePage v-if="currentView === 'home'" />
-    <LoginPage v-else-if="currentView === 'login'" @login-success="handleLoginSuccess" />
-    <BusinessOperatorDashboard v-else-if="currentView === 'operator'" :operator="loggedInUser" />
-    <TravelerDashboard v-else-if="currentView === 'traveler'" :traveler="loggedInUser" />
-    <AdminDashboard v-else />
-  </div>
+      <div class="content">
+        <HomePage v-if="currentView === 'home'" />
+        <LoginPage v-else-if="currentView === 'login'" @login-success="handleLoginSuccess" />
+        <BusinessOperatorDashboard v-else-if="currentView === 'operator'" :operator="loggedInUser" />
+        <TravelerDashboard v-else-if="currentView === 'traveler'" :traveler="loggedInUser" />
+        <AdminDashboard v-else :current-admin-id="loggedInUser?.id ?? null" />
+      </div>
 
-    <SiteFooter :brand="footerBrand" :columns="footerColumns" :social-links="socialLinks"
-      :copyright-year="copyrightYear" />
-  </div>
+      <SiteFooter
+        :brand="footerBrand"
+        :columns="footerColumns"
+        :social-links="socialLinks"
+        :copyright-year="copyrightYear"
+      />
+    </div>
+  </n-message-provider>
 </template>
 
 <style scoped>
