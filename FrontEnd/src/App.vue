@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NMessageProvider } from 'naive-ui'
 import AdminDashboard from './components/AdminDashboard.vue'
@@ -83,9 +83,68 @@ const socialLinks = [
 
 const copyrightYear = new Date().getFullYear()
 
-const loggedInUser = ref(null)
 const router = useRouter()
 const route = useRoute()
+
+const storageAvailable = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+const sessionKeys = {
+  traveler: 'travelerSession',
+  operator: 'operatorSession',
+  admin: 'adminSession',
+}
+
+function readStoredUser(type) {
+  if (!storageAvailable || !type) return null
+  const key = sessionKeys[type]
+  const raw = key ? window.localStorage.getItem(key) : null
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+const storedAccountType = storageAvailable ? window.localStorage.getItem('activeAccountType') : null
+const activeAccountType = ref(storedAccountType ?? null)
+const loggedInUser = ref(readStoredUser(activeAccountType.value))
+
+function persistSession(accountType, user) {
+  if (!storageAvailable) return
+  if (accountType && user) {
+    Object.entries(sessionKeys).forEach(([type, key]) => {
+      if (type === accountType) {
+        window.localStorage.setItem(key, JSON.stringify(user))
+      } else {
+        window.localStorage.removeItem(key)
+      }
+    })
+    window.localStorage.setItem('activeAccountType', accountType)
+  } else {
+    Object.values(sessionKeys).forEach((key) => window.localStorage.removeItem(key))
+    window.localStorage.removeItem('activeAccountType')
+  }
+}
+
+watch(
+  loggedInUser,
+  (user) => {
+    persistSession(activeAccountType.value, user)
+  },
+  { deep: true },
+)
+
+watch(activeAccountType, (type) => {
+  if (!type) {
+    loggedInUser.value = null
+    persistSession(null, null)
+    return
+  }
+  const storedUser = readStoredUser(type)
+  if (storedUser) {
+    loggedInUser.value = storedUser
+  }
+})
 
 const currentView = computed(() => route.meta.view ?? 'home')
 
@@ -143,11 +202,16 @@ function goToLogin() {
 function logout() {
   activeAccountType.value = null
   loggedInUser.value = null
+  persistSession(null, null)
   router.push('/').then(() => scrollToSection('#hero'))
 }
 
 function handleHeaderCta() {
-  if (currentView.value === 'traveler' || currentView.value === 'admin') {
+  if (
+    currentView.value === 'traveler' ||
+    currentView.value === 'operator' ||
+    currentView.value === 'admin'
+  ) {
     logout()
   } else {
     goToLogin()
@@ -183,6 +247,8 @@ function handleNavClick(href) {
 
 function handleLoginSuccess(payload) {
   const { accountType, user } = payload
+  persistSession(accountType ?? null, user || null)
+  activeAccountType.value = accountType ?? null
   loggedInUser.value = user || null
 
   if (accountType === 'traveler') {
