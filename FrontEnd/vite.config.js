@@ -14,6 +14,6 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(__dirname, '../BackEnd/public_assets'),
-    emptyOutDir: true
+    emptyOutDir: false
   }
 })
