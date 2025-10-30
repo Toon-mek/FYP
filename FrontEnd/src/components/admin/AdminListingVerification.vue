@@ -392,6 +392,11 @@ function statusBadgeType(status) {
                 <div class="detail-value">
                   {{ selectedListing.submittedDate || 'Not available' }}
                 </div>
+
+                <div class="detail-label">Visibility</div>
+                <div class="detail-value">
+                  {{ selectedListing.visibility || 'Hidden' }}
+                </div>
               </div>
             </section>
 

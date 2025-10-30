@@ -24,6 +24,7 @@ if ($operatorId <= 0) {
 
 try {
   $pdo = require __DIR__ . '/../../config/db.php';
+  ensureVisibilityStateColumn($pdo);
 } catch (Throwable $e) {
   http_response_code(500);
   echo json_encode(['error' => 'Database unavailable']);
@@ -44,8 +45,18 @@ function formatDateTime(?string $value): ?string
   }
 }
 
-function normaliseVisibility(?string $status): string
+function normaliseVisibility(?string $status, ?string $visibilityState = null): string
 {
+  if ($visibilityState !== null && $visibilityState !== '') {
+    $state = strtolower($visibilityState);
+    if ($state === 'visible') {
+      return 'Visible';
+    }
+    if ($state === 'hidden') {
+      return 'Hidden';
+    }
+  }
+
   $statusLower = strtolower((string) $status);
   if (in_array($statusLower, ['active', 'approved', 'published'], true)) {
     return 'Visible';
@@ -73,6 +84,50 @@ function inferMimeType(?string $fileName): ?string
     'pdf' => 'application/pdf',
     default => null,
   };
+}
+
+function ensureVisibilityStateColumn(PDO $pdo): void
+{
+  static $checked = false;
+  if ($checked) {
+    return;
+  }
+
+  $checked = true;
+
+  try {
+    $pdo->query('SELECT visibilityState FROM BusinessListing LIMIT 1');
+  } catch (Throwable $e) {
+    try {
+      $pdo->exec("ALTER TABLE BusinessListing ADD COLUMN visibilityState VARCHAR(20) NOT NULL DEFAULT 'Hidden'");
+      $pdo->exec(
+        "UPDATE BusinessListing
+         SET visibilityState = CASE
+           WHEN status IN ('Approved', 'Active', 'Published') THEN 'Visible'
+           ELSE 'Hidden'
+         END"
+      );
+    } catch (Throwable) {
+      // Column addition failed; follow-up queries will surface the issue.
+    }
+  }
+
+  try {
+    $pdo->exec(
+      "UPDATE BusinessListing bl
+       SET status = CASE
+         WHEN bl.status IN ('Visible', 'Active') THEN 'Approved'
+         WHEN bl.status = 'Hidden' AND EXISTS (
+           SELECT 1 FROM ListingVerification lv
+           WHERE lv.listingID = bl.listingID AND lv.verificationStatus = 'Approved'
+         ) THEN 'Approved'
+         WHEN bl.status = 'Hidden' THEN 'Pending Review'
+         ELSE bl.status
+       END"
+    );
+  } catch (Throwable) {
+    // Normalisation attempts should not break the request if they fail.
+  }
 }
 
 // Fetch operator profile
@@ -110,6 +165,7 @@ $listingSql = "
     bl.description,
     bl.location,
     bl.status,
+    bl.visibilityState,
     bl.submittedDate,
     bl.priceRange,
     lc.categoryName,
@@ -145,7 +201,7 @@ foreach ($listingRows as $row) {
     'category' => $row['categoryName'] ?? 'Uncategorised',
     'type' => $operatorProfile['businessType'] ?? 'Business',
     'status' => $row['status'] ?? 'Pending Review',
-    'visibility' => normaliseVisibility($row['status'] ?? null),
+    'visibility' => normaliseVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
     'lastUpdated' => formatDateTime($row['verifiedDate'] ?? $row['submittedDate']),
     'contact' => [
       'phone' => $operatorProfile['contactNumber'] ?? null,

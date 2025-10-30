@@ -63,9 +63,10 @@ const editForm = reactive({
 const editErrors = reactive({})
 
 const statusOptions = [
-  { label: 'Active', value: 'Active' },
   { label: 'Pending Review', value: 'Pending Review' },
-  { label: 'Hidden', value: 'Hidden' },
+  { label: 'Approved', value: 'Approved' },
+  { label: 'Rejected', value: 'Rejected' },
+  { label: 'Active', value: 'Active' },
 ]
 
 const visibilityOptions = [
@@ -125,7 +126,15 @@ const listingColumns = computed(() => [
     title: 'Status',
     key: 'status',
     render(row) {
-      const type = row.status === 'Active' ? 'success' : row.status === 'Hidden' ? 'warning' : 'info'
+      const statusLower = String(row.status ?? '').toLowerCase()
+      let type = 'default'
+      if (statusLower === 'approved' || statusLower === 'active') {
+        type = 'success'
+      } else if (statusLower === 'rejected') {
+        type = 'error'
+      } else if (statusLower === 'pending review') {
+        type = 'warning'
+      }
       return h(
         NTag,
         { type, bordered: false },
@@ -319,12 +328,6 @@ async function toggleVisibility(listing) {
   autoSaveMessage.value = ''
 
   const nextVisibility = listing.visibility === 'Visible' ? 'Hidden' : 'Visible'
-  const nextStatus =
-    nextVisibility === 'Visible'
-      ? listing.status === 'Pending Review'
-        ? 'Pending Review'
-        : 'Active'
-      : 'Hidden'
 
   try {
     const response = await fetch(`${props.apiBase}/operator/listings.php`, {
@@ -333,7 +336,6 @@ async function toggleVisibility(listing) {
       body: JSON.stringify({
         operatorId: props.operatorId,
         listingId: listingIdNumeric,
-        status: nextStatus,
         visibility: nextVisibility,
       }),
     })

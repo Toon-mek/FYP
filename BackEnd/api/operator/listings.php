@@ -31,6 +31,7 @@ if (!is_array($payload)) {
 try {
   /** @var PDO $pdo */
   $pdo = require __DIR__ . '/../../config/db.php';
+  ensureVisibilityStateColumn($pdo);
 } catch (Throwable $e) {
   http_response_code(500);
   echo json_encode(['error' => 'Database unavailable']);
@@ -58,8 +59,18 @@ function formatDateTime(?string $value): ?string
   }
 }
 
-function normaliseVisibility(?string $status): string
+function normaliseVisibility(?string $status, ?string $visibilityState = null): string
 {
+  if ($visibilityState !== null && $visibilityState !== '') {
+    $state = strtolower($visibilityState);
+    if ($state === 'visible') {
+      return 'Visible';
+    }
+    if ($state === 'hidden') {
+      return 'Hidden';
+    }
+  }
+
   $statusLower = strtolower((string) $status);
   if (in_array($statusLower, ['active', 'approved', 'published'], true)) {
     return 'Visible';
@@ -70,6 +81,50 @@ function normaliseVisibility(?string $status): string
   }
 
   return $statusLower === 'hidden' ? 'Hidden' : 'Hidden';
+}
+
+function ensureVisibilityStateColumn(PDO $pdo): void
+{
+  static $checked = false;
+  if ($checked) {
+    return;
+  }
+
+  $checked = true;
+
+  try {
+    $pdo->query('SELECT visibilityState FROM BusinessListing LIMIT 1');
+  } catch (Throwable $e) {
+    try {
+      $pdo->exec("ALTER TABLE BusinessListing ADD COLUMN visibilityState VARCHAR(20) NOT NULL DEFAULT 'Hidden'");
+      $pdo->exec(
+        "UPDATE BusinessListing
+         SET visibilityState = CASE
+           WHEN status IN ('Approved', 'Active', 'Published') THEN 'Visible'
+           ELSE 'Hidden'
+         END"
+      );
+    } catch (Throwable) {
+      // Column addition failed; follow-up queries will surface the problem.
+    }
+  }
+
+  try {
+    $pdo->exec(
+      "UPDATE BusinessListing bl
+       SET status = CASE
+         WHEN bl.status IN ('Visible', 'Active') THEN 'Approved'
+         WHEN bl.status = 'Hidden' AND EXISTS (
+           SELECT 1 FROM ListingVerification lv
+           WHERE lv.listingID = bl.listingID AND lv.verificationStatus = 'Approved'
+         ) THEN 'Approved'
+         WHEN bl.status = 'Hidden' THEN 'Pending Review'
+         ELSE bl.status
+       END"
+    );
+  } catch (Throwable) {
+    // Normalisation is best-effort; ignore failures.
+  }
 }
 
 function fetchOperator(PDO $pdo, int $operatorId): ?array
@@ -129,6 +184,7 @@ function fetchListing(PDO $pdo, int $operatorId, int $listingId, array $operator
       bl.description,
       bl.location,
       bl.status,
+      bl.visibilityState,
       bl.submittedDate,
       bl.priceRange,
       lc.categoryName
@@ -152,7 +208,7 @@ function fetchListing(PDO $pdo, int $operatorId, int $listingId, array $operator
     'category' => $row['categoryName'] ?? 'Uncategorised',
     'type' => $operatorProfile['businessType'] ?? 'Business',
     'status' => $row['status'] ?? 'Pending Review',
-    'visibility' => normaliseVisibility($row['status'] ?? null),
+    'visibility' => normaliseVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
     'lastUpdated' => formatDateTime($row['submittedDate']),
     'contact' => [
       'phone' => $operatorProfile['contactNumber'] ?? '',
@@ -214,8 +270,8 @@ function handleCreate(PDO $pdo, array $payload): void
     $categoryId = resolveCategoryId($pdo, $category);
 
     $stmt = $pdo->prepare(
-      'INSERT INTO BusinessListing (operatorID, businessName, description, categoryID, location, priceRange, status, submittedDate)
-       VALUES (:operatorId, :businessName, :description, :categoryId, :location, :priceRange, :status, :submittedDate)'
+      'INSERT INTO BusinessListing (operatorID, businessName, description, categoryID, location, priceRange, visibilityState, status, submittedDate)
+       VALUES (:operatorId, :businessName, :description, :categoryId, :location, :priceRange, :visibilityState, :status, :submittedDate)'
     );
 
     $stmt->execute([
@@ -225,6 +281,7 @@ function handleCreate(PDO $pdo, array $payload): void
       ':categoryId' => $categoryId,
       ':location' => $address,
       ':priceRange' => $payload['priceRange'] ?? null,
+      ':visibilityState' => 'Hidden',
       ':status' => 'Pending Review',
       ':submittedDate' => date('Y-m-d'),
     ]);
@@ -297,8 +354,20 @@ function handleUpdate(PDO $pdo, array $payload): void
   }
 
   if (isset($payload['status'])) {
-    $fields[] = 'status = :status';
-    $params[':status'] = trim((string) $payload['status']) ?: 'Pending Review';
+    $trimmedStatus = trim((string) $payload['status']);
+    if ($trimmedStatus !== '') {
+      $allowedStatuses = ['Pending Review', 'Approved', 'Rejected', 'Active'];
+      if (in_array($trimmedStatus, $allowedStatuses, true)) {
+        $fields[] = 'status = :status';
+        $params[':status'] = $trimmedStatus;
+      }
+    }
+  }
+
+  if (isset($payload['visibility'])) {
+    $visibility = strtolower(trim((string) $payload['visibility'])) === 'visible' ? 'Visible' : 'Hidden';
+    $fields[] = 'visibilityState = :visibilityState';
+    $params[':visibilityState'] = $visibility;
   }
 
   if (isset($payload['category'])) {

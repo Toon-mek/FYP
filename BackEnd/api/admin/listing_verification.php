@@ -14,6 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 try {
     /** @var PDO $pdo */
     $pdo = require __DIR__ . '/../../config/db.php';
+    ensureVisibilityStateColumn($pdo);
 } catch (Throwable) {
     http_response_code(500);
     echo json_encode(['error' => 'Database unavailable']);
@@ -73,6 +74,7 @@ SELECT
     bl.businessName,
     bl.description,
     bl.status,
+    bl.visibilityState,
     bl.submittedDate,
     bl.location,
     bl.priceRange,
@@ -191,10 +193,17 @@ function handleDecision(PDO $pdo): void
         return;
     }
 
+    $visibilityState = null;
+    if ($finalStatus === 'Approved') {
+        $visibilityState = 'Visible';
+    } elseif ($finalStatus === 'Rejected') {
+        $visibilityState = 'Hidden';
+    }
+
     try {
         $pdo->beginTransaction();
 
-        updateListingStatus($pdo, $listingId, $finalStatus);
+        updateListingStatus($pdo, $listingId, $finalStatus, $visibilityState);
         recordVerification($pdo, $listingId, $adminId, $finalStatus, $remarks);
 
         if ($notifyOperator) {
@@ -238,6 +247,73 @@ function normaliseStatusFilter(string $filter): ?array
     };
 }
 
+function computeVisibility(?string $status, ?string $visibilityState): string
+{
+    if ($visibilityState !== null && $visibilityState !== '') {
+        $state = strtolower($visibilityState);
+        if ($state === 'visible') {
+            return 'Visible';
+        }
+        if ($state === 'hidden') {
+            return 'Hidden';
+        }
+    }
+
+    $statusLower = strtolower((string) $status);
+    if (in_array($statusLower, ['approved', 'active', 'published'], true)) {
+        return 'Visible';
+    }
+    if ($statusLower === 'pending review') {
+        return 'Hidden';
+    }
+
+    return 'Hidden';
+}
+
+function ensureVisibilityStateColumn(PDO $pdo): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    $checked = true;
+
+    try {
+        $pdo->query('SELECT visibilityState FROM BusinessListing LIMIT 1');
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec("ALTER TABLE BusinessListing ADD COLUMN visibilityState VARCHAR(20) NOT NULL DEFAULT 'Hidden'");
+            $pdo->exec(
+                "UPDATE BusinessListing
+                 SET visibilityState = CASE
+                   WHEN status IN ('Approved', 'Active', 'Published') THEN 'Visible'
+                   ELSE 'Hidden'
+                 END"
+            );
+        } catch (Throwable) {
+            // Column addition failed; subsequent queries will surface the issue.
+        }
+    }
+
+    try {
+        $pdo->exec(
+            "UPDATE BusinessListing bl
+             SET status = CASE
+               WHEN bl.status IN ('Visible', 'Active') THEN 'Approved'
+               WHEN bl.status = 'Hidden' AND EXISTS (
+                 SELECT 1 FROM ListingVerification lv
+                 WHERE lv.listingID = bl.listingID AND lv.verificationStatus = 'Approved'
+               ) THEN 'Approved'
+               WHEN bl.status = 'Hidden' THEN 'Pending Review'
+               ELSE bl.status
+             END"
+        );
+    } catch (Throwable) {
+        // Normalisation is best-effort.
+    }
+}
+
 function fetchImages(PDO $pdo, array $listingIds): array
 {
     if (count($listingIds) === 0) {
@@ -279,6 +355,8 @@ function formatListingRow(array $row, array $imagesByListing): array
         'businessName' => $row['businessName'],
         'description' => $row['description'],
         'status' => $row['status'],
+        'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
+        'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
         'submittedDate' => formatDateString($row['submittedDate']),
         'location' => $row['location'],
         'priceRange' => $row['priceRange'],
@@ -324,6 +402,7 @@ function loadListing(PDO $pdo, int $listingId): ?array
             bl.businessName,
             bl.description,
             bl.status,
+            bl.visibilityState,
             bl.submittedDate,
             bl.location,
             bl.priceRange,
@@ -377,7 +456,7 @@ function loadListing(PDO $pdo, int $listingId): ?array
 function fetchListingRow(PDO $pdo, int $listingId): ?array
 {
     $stmt = $pdo->prepare(
-        'SELECT listingID, operatorID, businessName, status
+        'SELECT listingID, operatorID, businessName, status, visibilityState
          FROM BusinessListing
          WHERE listingID = :listingId
          LIMIT 1'
@@ -388,15 +467,22 @@ function fetchListingRow(PDO $pdo, int $listingId): ?array
     return $row ?: null;
 }
 
-function updateListingStatus(PDO $pdo, int $listingId, string $status): void
+function updateListingStatus(PDO $pdo, int $listingId, string $status, ?string $visibilityState = null): void
 {
-    $stmt = $pdo->prepare(
-        'UPDATE BusinessListing SET status = :status WHERE listingID = :listingId'
-    );
-    $stmt->execute([
+    $fields = ['status = :status'];
+    $params = [
         ':status' => $status,
         ':listingId' => $listingId,
-    ]);
+    ];
+
+    if ($visibilityState !== null) {
+        $fields[] = 'visibilityState = :visibilityState';
+        $params[':visibilityState'] = $visibilityState;
+    }
+
+    $sql = 'UPDATE BusinessListing SET ' . implode(', ', $fields) . ' WHERE listingID = :listingId';
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
 }
 
 function recordVerification(PDO $pdo, int $listingId, int $adminId, string $status, string $remarks): void
