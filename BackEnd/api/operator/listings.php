@@ -82,6 +82,37 @@ function normaliseVisibility(?string $status, ?string $visibilityState = null): 
 
   return $statusLower === 'hidden' ? 'Hidden' : 'Hidden';
 }
+function normalisePriceRangeValue($value): ?string
+{
+  if (is_array($value)) {
+    $min = $value['min'] ?? $value[0] ?? null;
+    $max = $value['max'] ?? $value[1] ?? null;
+  } elseif (is_object($value)) {
+    $min = $value->min ?? null;
+    $max = $value->max ?? null;
+  } elseif (is_string($value)) {
+    $trim = trim($value);
+    return $trim === '' ? null : $trim;
+  } else {
+    return null;
+  }
+
+  if (!is_numeric($min) || !is_numeric($max)) {
+    return null;
+  }
+
+  $minValue = max(0, (float) $min);
+  $maxValue = max($minValue, (float) $max);
+
+  $formatCurrency = static function (float $amount): string {
+    if (abs($amount - round($amount)) < 0.01) {
+      return number_format(round($amount), 0);
+    }
+    return number_format($amount, 2);
+  };
+
+  return sprintf('RM %s - RM %s', $formatCurrency($minValue), $formatCurrency($maxValue));
+}
 
 function ensureVisibilityStateColumn(PDO $pdo): void
 {
