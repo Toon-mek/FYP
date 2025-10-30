@@ -253,9 +253,10 @@ function handleCreate(PDO $pdo, array $payload): void
   $description = trim((string) ($payload['description'] ?? ''));
   $phone = trim((string) ($payload['phone'] ?? ''));
   $email = trim((string) ($payload['email'] ?? ''));
+  $priceRange = normalisePriceRangeValue($payload['priceRange'] ?? null);
 
-  if ($operatorId <= 0 || $name === '' || $category === '' || $address === '' || $email === '' || $phone === '') {
-    respond(400, ['error' => 'operatorId, name, category, address, email, and phone are required.']);
+  if ($operatorId <= 0 || $name === '' || $category === '' || $address === '' || $email === '' || $phone === '' || $priceRange === null) {
+    respond(400, ['error' => 'operatorId, name, category, address, email, phone, and priceRange are required.']);
   }
 
   $operatorProfile = fetchOperator($pdo, $operatorId);
@@ -374,6 +375,15 @@ function handleUpdate(PDO $pdo, array $payload): void
     $categoryId = resolveCategoryId($pdo, (string) $payload['category']);
     $fields[] = 'categoryID = :categoryId';
     $params[':categoryId'] = $categoryId;
+  }
+
+  if (array_key_exists('priceRange', $payload)) {
+    $priceRangeValue = normalisePriceRangeValue($payload['priceRange']);
+    if ($priceRangeValue === null) {
+      respond(400, ['error' => 'Invalid price range provided.']);
+    }
+    $fields[] = 'priceRange = :priceRange';
+    $params[':priceRange'] = $priceRangeValue;
   }
 
   if ($fields) {

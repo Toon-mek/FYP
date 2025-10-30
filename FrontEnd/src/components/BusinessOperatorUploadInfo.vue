@@ -1,5 +1,5 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   NAlert,
   NButton,
@@ -9,7 +9,9 @@ import {
   NGrid,
   NGridItem,
   NInput,
+  NInputNumber,
   NSelect,
+  NSlider,
   NSpace,
   NText,
 } from 'naive-ui'
@@ -37,6 +39,10 @@ const categoryOptions = [
   { label: 'Others', value: 'Others' },
 ]
 
+const PRICE_RANGE_MAX = 2000
+const PRICE_RANGE_STEP = 10
+const DEFAULT_PRICE_RANGE = { min: 80, max: 220 }
+
 const formState = reactive({
   name: '',
   category: null,
@@ -47,12 +53,63 @@ const formState = reactive({
   website: '',
   description: '',
   highlights: '',
+  priceRange: { ...DEFAULT_PRICE_RANGE },
 })
 
 const formErrors = reactive({})
 const submissionSuccess = ref('')
 const submissionError = ref('')
 const isSubmittingListing = ref(false)
+
+const priceRangeSliderValue = computed({
+  get: () => [formState.priceRange.min, formState.priceRange.max],
+  set: (value) => {
+    if (!Array.isArray(value) || value.length < 2) return
+    let [min, max] = value
+    min = Number.isFinite(Number(min)) ? Number(min) : 0
+    max = Number.isFinite(Number(max)) ? Number(max) : min
+    min = Math.min(PRICE_RANGE_MAX, Math.max(0, Math.round(min)))
+    max = Math.min(PRICE_RANGE_MAX, Math.max(Math.round(max), min))
+    formState.priceRange.min = min
+    formState.priceRange.max = max
+  },
+})
+
+function sanitisePriceInput(rawValue, fallback) {
+  const numeric = Number(rawValue)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+  return Math.min(PRICE_RANGE_MAX, Math.max(0, Math.round(numeric)))
+}
+
+watch(
+  () => formState.priceRange.min,
+  (value) => {
+    const sanitized = sanitisePriceInput(value, DEFAULT_PRICE_RANGE.min)
+    if (sanitized !== value) {
+      formState.priceRange.min = sanitized
+      return
+    }
+    if (formState.priceRange.max < sanitized) {
+      formState.priceRange.max = sanitized
+    }
+  },
+)
+
+watch(
+  () => formState.priceRange.max,
+  (value) => {
+    const sanitized = sanitisePriceInput(value, formState.priceRange.min)
+    if (sanitized !== value) {
+      formState.priceRange.max = sanitized
+      return
+    }
+    if (sanitized < formState.priceRange.min) {
+      formState.priceRange.min = sanitized
+    }
+  },
+)
 
 function validateForm() {
   const errors = {}
@@ -70,6 +127,16 @@ function validateForm() {
   }
   if (!formState.address.trim()) errors.address = 'Physical address helps travelers locate you.'
   if (!formState.description.trim()) errors.description = 'Describe your services and highlights.'
+  const minPrice = Number(formState.priceRange.min)
+  const maxPrice = Number(formState.priceRange.max)
+  if (
+    !Number.isFinite(minPrice) ||
+    !Number.isFinite(maxPrice) ||
+    minPrice < 0 ||
+    maxPrice <= minPrice
+  ) {
+    errors.priceRange = 'Set a valid minimum and maximum price.'
+  }
 
   Object.keys(formErrors).forEach((key) => delete formErrors[key])
   Object.assign(formErrors, errors)
@@ -87,6 +154,8 @@ function resetForm() {
   formState.website = ''
   formState.description = ''
   formState.highlights = ''
+  formState.priceRange.min = DEFAULT_PRICE_RANGE.min
+  formState.priceRange.max = DEFAULT_PRICE_RANGE.max
   submissionError.value = ''
 }
 
@@ -115,6 +184,10 @@ async function submitListing() {
     email: formState.email.trim(),
     website: formState.website.trim() || null,
     highlights: formState.highlights?.trim() || '',
+    priceRange: {
+      min: formState.priceRange.min,
+      max: formState.priceRange.max,
+    },
   }
 
   try {
@@ -220,6 +293,41 @@ async function submitListing() {
             </n-form-item>
           </n-grid-item>
           <n-grid-item span="2">
+            <n-form-item
+              label="Typical price range (per person)"
+              :feedback="formErrors.priceRange"
+              :validation-status="formErrors.priceRange ? 'error' : undefined"
+            >
+              <div class="price-range-control">
+                <n-slider
+                  v-model:value="priceRangeSliderValue"
+                  range
+                  :step="PRICE_RANGE_STEP"
+                  :min="0"
+                  :max="PRICE_RANGE_MAX"
+                />
+                <n-space :wrap="false" :size="12">
+                  <n-input-number
+                    v-model:value="formState.priceRange.min"
+                    :min="0"
+                    :max="PRICE_RANGE_MAX"
+                    :step="PRICE_RANGE_STEP"
+                    prefix="RM"
+                    size="small"
+                  />
+                  <n-input-number
+                    v-model:value="formState.priceRange.max"
+                    :min="0"
+                    :max="PRICE_RANGE_MAX"
+                    :step="PRICE_RANGE_STEP"
+                    prefix="RM"
+                    size="small"
+                  />
+                </n-space>
+              </div>
+            </n-form-item>
+          </n-grid-item>
+          <n-grid-item span="2">
             <n-form-item label="Service description" :feedback="formErrors.description" :validation-status="formErrors.description ? 'error' : undefined">
               <n-input
                 v-model:value="formState.description"
@@ -286,4 +394,9 @@ async function submitListing() {
 </template>
 
 <style scoped>
+.price-range-control {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 </style>
