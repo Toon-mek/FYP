@@ -38,7 +38,7 @@ const listingItems = ref([])
 watch(
   () => props.listings,
   (value) => {
-    listingItems.value = Array.isArray(value) ? value.map((item) => ({ ...item })) : []
+    listingItems.value = Array.isArray(value) ? value.map(normalizeListingItem) : []
   },
   { immediate: true, deep: true },
 )
@@ -110,6 +110,39 @@ function extractListingId(listing) {
   return null
 }
 
+function normalizeListingItem(raw) {
+  if (!raw || typeof raw !== 'object') return raw
+  const listingId = extractListingId(raw)
+  const visibility = raw.visibility === 'Visible' ? 'Visible' : 'Hidden'
+  const status =
+    raw.status && String(raw.status).trim() !== ''
+      ? raw.status
+      : visibility === 'Visible'
+        ? 'Active'
+        : 'Pending Review'
+  const contact = {
+    ...(raw.contact ?? {}),
+    phone: raw.contact?.phone ?? raw.phone ?? '',
+    email: raw.contact?.email ?? raw.email ?? '',
+  }
+
+  return {
+    ...raw,
+    listingId: listingId ?? raw.listingId ?? null,
+    visibility,
+    status,
+    name: raw.name ?? raw.businessName ?? 'Listing',
+    category: raw.category ?? raw.type ?? 'Uncategorised',
+    address: raw.address ?? raw.location ?? '',
+    highlight: raw.highlight ?? raw.description ?? '',
+    contact,
+  }
+}
+
+function formatVisibilityLabel(visibility) {
+  return visibility === 'Visible' ? 'Visible' : 'Hidden'
+}
+
 const listingColumns = computed(() => [
   {
     title: 'Listing',
@@ -137,11 +170,12 @@ const listingColumns = computed(() => [
     title: 'Visibility',
     key: 'visibility',
     render(row) {
-      const type = row.visibility === 'Visible' ? 'success' : 'default'
+      const isVisible = row.visibility === 'Visible'
+      const type = isVisible ? 'success' : 'error'
       return h(
         NTag,
-        { type, bordered: true },
-        { default: () => row.visibility },
+        { type, bordered: false },
+        { default: () => formatVisibilityLabel(row.visibility) },
       )
     },
   },
@@ -207,7 +241,7 @@ const listingColumns = computed(() => [
 ])
 
 function openPreview(listing) {
-  previewListing.value = { ...listing }
+  previewListing.value = { ...normalizeListingItem(listing) }
   previewModalVisible.value = true
 }
 
@@ -286,7 +320,7 @@ async function saveListingEdits() {
     }
 
     listingItems.value = listingItems.value.map((item) =>
-      extractListingId(item) === result.listing.listingId ? result.listing : item,
+      extractListingId(item) === result.listing.listingId ? normalizeListingItem(result.listing) : item,
     )
     emitListingsUpdate(listingItems.value)
     if (result.operator) {
@@ -319,12 +353,7 @@ async function toggleVisibility(listing) {
   autoSaveMessage.value = ''
 
   const nextVisibility = listing.visibility === 'Visible' ? 'Hidden' : 'Visible'
-  const nextStatus =
-    nextVisibility === 'Visible'
-      ? listing.status === 'Pending Review'
-        ? 'Pending Review'
-        : 'Active'
-      : 'Hidden'
+  const nextStatus = nextVisibility === 'Visible' ? 'Active' : 'Hidden'
 
   try {
     const response = await fetch(`${props.apiBase}/operator/listings.php`, {
@@ -344,14 +373,17 @@ async function toggleVisibility(listing) {
     }
 
     listingItems.value = listingItems.value.map((item) =>
-      extractListingId(item) === result.listing.listingId ? result.listing : item,
+      extractListingId(item) === result.listing.listingId ? normalizeListingItem(result.listing) : item,
     )
     emitListingsUpdate(listingItems.value)
     if (result.operator) {
       emit('operator-updated', result.operator)
     }
     autoSaveMessage.value =
-      result.message ?? `${result.listing.name} visibility updated successfully.`
+      result.message ??
+      (nextVisibility === 'Visible'
+        ? `${result.listing.name} is now visible to travelers.`
+        : `${result.listing.name} has been hidden from travelers.`)
   } catch (error) {
     listingActionError.value =
       error instanceof Error ? error.message : 'Unable to toggle listing visibility.'
@@ -439,7 +471,9 @@ async function deleteListing(listing) {
   <n-modal v-model:show="previewModalVisible" preset="card" :title="previewListing?.name || 'Preview listing'">
     <n-space vertical size="small" v-if="previewListing">
       <n-text depth="3">Category: {{ previewListing.category }}</n-text>
-      <n-text depth="3">Status: {{ previewListing.status }} - Visibility: {{ previewListing.visibility }}</n-text>
+      <n-text depth="3">
+        Status: {{ previewListing.status }} - Visibility: {{ formatVisibilityLabel(previewListing.visibility) }}
+      </n-text>
       <n-text depth="3">Address: {{ previewListing.address }}</n-text>
       <n-text depth="3">Contact: {{ previewListing.contact?.phone }} - {{ previewListing.contact?.email }}</n-text>
       <n-text depth="3">Highlights: {{ previewListing.highlight }}</n-text>

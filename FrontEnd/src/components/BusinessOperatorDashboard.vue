@@ -45,6 +45,7 @@ const props = defineProps({
 })
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api"
+const COLLAPSED_LOGO_SRC = "/Tourism Operator Hub.png"
 
 const defaultOperator = {
   fullName: "Operator",
@@ -204,13 +205,6 @@ const hashToSection = {
   guidelines: "guidelines",
 }
 
-const sectionToHash = Object.entries(hashToSection).reduce((acc, [hash, section]) => {
-  if (!acc[section]) {
-    acc[section] = hash
-  }
-  return acc
-}, {})
-
 const sectionMeta = {
   overview: {
     title: "Tourism Operator Control Center",
@@ -351,10 +345,7 @@ function goToSection(section) {
   if (!section) return
   activeSection.value = section
   if (typeof window !== "undefined") {
-    const hash = sectionToHash[section]
-    if (hash) {
-      window.location.hash = hash
-    }
+    clearOperatorLocationHash()
   }
   scrollContentToTop()
 }
@@ -391,6 +382,13 @@ function resolveSectionFromHash(hash) {
   return hashToSection[value] ?? null
 }
 
+function clearOperatorLocationHash() {
+  if (typeof window === "undefined") return
+  if (!window.location.hash) return
+  const { pathname, search } = window.location
+  window.history.replaceState(null, "", `${pathname}${search}`)
+}
+
 function handleOperatorNavigate(event) {
   const detail = typeof event.detail === "string" ? event.detail : ""
   const section = resolveSectionFromHash(detail)
@@ -402,9 +400,13 @@ function handleOperatorNavigate(event) {
 onMounted(() => {
   if (typeof window === "undefined") return
   window.addEventListener("operator:navigate", handleOperatorNavigate)
-  const initial = resolveSectionFromHash(window.location.hash)
+  const rawHash = window.location.hash
+  const initial = resolveSectionFromHash(rawHash)
   if (initial && initial !== activeSection.value) {
     activeSection.value = initial
+  }
+  if (rawHash) {
+    clearOperatorLocationHash()
   }
 })
 
@@ -564,7 +566,11 @@ function cryptoRandomId() {
 </script>
 
 <template>
-  <n-layout has-sider style="min-height: 100vh; background: var(--body-color);">
+  <n-layout
+    class="operator-shell"
+    has-sider
+    style="min-height: 100vh; background: var(--body-color);"
+  >
     <n-layout-sider
       bordered
       collapse-mode="width"
@@ -579,10 +585,19 @@ function cryptoRandomId() {
         vertical
         size="small"
         :style="sidebarCollapsed ? collapsedSidebarStyle : expandedSidebarStyle"
+        class="sidebar-brand"
       >
-        <n-gradient-text type="info" style="font-size: 1.1rem; font-weight: 600;">
-          {{ sidebarCollapsed ? 'TOH' : 'Tourism Operator Hub' }}
-        </n-gradient-text>
+        <div class="sidebar-brand__logo">
+          <img
+            v-if="sidebarCollapsed"
+            :src="COLLAPSED_LOGO_SRC"
+            alt="Tourism Operator Hub logo"
+            class="sidebar-brand__image"
+          />
+          <n-gradient-text v-else type="info" style="font-size: 1.1rem; font-weight: 600;">
+            Tourism Operator Hub
+          </n-gradient-text>
+        </div>
         <n-text v-if="!sidebarCollapsed" depth="3">Manage Malaysia Sustainable listings</n-text>
         <n-switch v-model:value="sidebarCollapsed" size="small" round />
       </n-space>
@@ -976,6 +991,25 @@ function cryptoRandomId() {
 
 .dashboard-main {
   display: block;
+}
+
+.sidebar-brand__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar-brand__image {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.operator-shell :deep(:not(input):not(textarea)) {
+  caret-color: transparent;
 }
 
 .fade-in-scale-enter-active,
