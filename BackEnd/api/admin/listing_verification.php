@@ -168,9 +168,19 @@ function handleDecision(PDO $pdo): void
     $notifyOperator = array_key_exists('notifyOperator', $payload) ? (bool) $payload['notifyOperator'] : true;
 
     if ($listingId <= 0 || $adminId <= 0) {
-        http_response_code(400);
-        echo json_encode(['error' => 'listingId and adminId are required']);
-        return;
+        $adminId = resolveDefaultAdminId($pdo);
+        if ($listingId <= 0 || $adminId === null) {
+            http_response_code(400);
+            echo json_encode(['error' => 'listingId and adminId are required']);
+            return;
+        }
+    } else {
+        $adminId = resolveAdminId($pdo, $adminId) ?? resolveDefaultAdminId($pdo);
+        if ($adminId === null) {
+            http_response_code(404);
+            echo json_encode(['error' => 'Admin not found']);
+            return;
+        }
     }
 
     $finalStatus = mapDecisionToStatus($decision);
@@ -204,7 +214,7 @@ function handleDecision(PDO $pdo): void
         $pdo->beginTransaction();
 
         updateListingStatus($pdo, $listingId, $finalStatus, $visibilityState);
-        recordVerification($pdo, $listingId, $adminId, $finalStatus, $remarks);
+        recordVerification($pdo, $adminId, $listingId, $finalStatus, $remarks);
 
         if ($notifyOperator) {
             notifyOperator(
@@ -222,7 +232,7 @@ function handleDecision(PDO $pdo): void
             $pdo->rollBack();
         }
         http_response_code(500);
-        echo json_encode(['error' => 'Failed to update listing status']);
+        echo json_encode(['error' => 'Failed to update listing status', 'details' => $e->getMessage()]);
         return;
     }
 
@@ -485,7 +495,7 @@ function updateListingStatus(PDO $pdo, int $listingId, string $status, ?string $
     $stmt->execute($params);
 }
 
-function recordVerification(PDO $pdo, int $listingId, int $adminId, string $status, string $remarks): void
+function recordVerification(PDO $pdo, int $adminId, int $listingId, string $status, string $remarks): void
 {
     $stmt = $pdo->prepare(
         'INSERT INTO ListingVerification (listingID, adminID, verificationStatus, remarks, verifiedDate)
@@ -543,6 +553,21 @@ function mapDecisionToStatus(string $decision): ?string
         'reject', 'rejected' => 'Rejected',
         default => null,
     };
+}
+
+function resolveAdminId(PDO $pdo, int $adminId): ?int
+{
+    $stmt = $pdo->prepare('SELECT adminID FROM Administrator WHERE adminID = :id LIMIT 1');
+    $stmt->execute([':id' => $adminId]);
+    $row = $stmt->fetch();
+    return $row ? (int) $row['adminID'] : null;
+}
+
+function resolveDefaultAdminId(PDO $pdo): ?int
+{
+    $stmt = $pdo->query('SELECT adminID FROM Administrator ORDER BY adminID ASC LIMIT 1');
+    $row = $stmt->fetch();
+    return $row ? (int) $row['adminID'] : null;
 }
 
 function buildAssetUrl(string $relativePath): string

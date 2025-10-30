@@ -2,6 +2,7 @@
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
 import AdminListingVerification from './admin/AdminListingVerification.vue'
+import AdminBusinessListing from './admin/AdminBusinessListing.vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const message = useMessage()
@@ -600,6 +601,10 @@ watch(showUserModal, (visible) => {
 
         <template v-else-if="activeModule === 'verification'">
           <AdminListingVerification :admin-id="props.currentAdminId" />
+        </template>
+
+        <template v-else-if="activeModule === 'business'">
+          <AdminBusinessListing :admin-id="props.currentAdminId" />
         </template>
 
         <template v-else-if="activeModule === 'users'">
