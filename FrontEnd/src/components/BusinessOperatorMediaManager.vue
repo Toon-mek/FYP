@@ -588,6 +588,9 @@ const assetBaseUrl = computed(() => {
 })
 
 function resolveAssetUrl(asset) {
+  if (asset?.absoluteUrl) {
+    return asset.absoluteUrl
+  }
   if (!asset?.url) return null
   if (/^https?:\/\//i.test(asset.url)) {
     return asset.url
@@ -780,6 +783,7 @@ const mediaTableBaseData = computed(() =>
       mimeType: asset.mimeType,
       fileSize: asset.fileSize,
       url: asset.url,
+      absoluteUrl: asset.absoluteUrl,
       asset,
     })),
 )

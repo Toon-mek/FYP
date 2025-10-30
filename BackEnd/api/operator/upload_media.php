@@ -55,6 +55,69 @@ if (!$listing) {
   exit;
 }
 
+function encodePathSegments(string $path): string
+{
+  if ($path === '') {
+    return '';
+  }
+
+  $segments = array_map(
+    static fn(string $segment): string => rawurlencode($segment),
+    array_filter(
+      explode('/', str_replace('\\', '/', $path)),
+      static fn(string $segment): bool => $segment !== ''
+    )
+  );
+
+  return implode('/', $segments);
+}
+
+function buildAssetUrl(string $relativePath): string
+{
+  if ($relativePath === '') {
+    return $relativePath;
+  }
+
+  if (preg_match('#^https?://#i', $relativePath)) {
+    return $relativePath;
+  }
+
+  $relativePath = trim($relativePath, '/');
+  $encodedRelative = encodePathSegments($relativePath);
+
+  $configuredBase = $_ENV['PUBLIC_ASSETS_BASE_URL'] ?? null;
+  if (is_string($configuredBase) && $configuredBase !== '') {
+    return rtrim($configuredBase, '/') . '/' . $encodedRelative;
+  }
+
+  $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+  $scriptDir = $scriptName !== '' ? str_replace('\\', '/', dirname($scriptName)) : '';
+  if ($scriptDir === '.' || $scriptDir === '/') {
+    $scriptDir = '';
+  }
+  if ($scriptDir !== '' && $scriptDir[0] !== '/') {
+    $scriptDir = '/' . $scriptDir;
+  }
+
+  $rootPath = $scriptDir !== '' ? preg_replace('#/api(?:/.*)?$#', '', $scriptDir) : '';
+  if ($rootPath === '/') {
+    $rootPath = '';
+  }
+
+  $publicPath = ($rootPath !== '' ? rtrim($rootPath, '/') : '') . '/public_assets';
+  $encodedPublic = encodePathSegments(trim($publicPath, '/'));
+  $fullPath = '/' . ltrim($encodedPublic . '/' . $encodedRelative, '/');
+
+  $scheme = (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off') ? 'https' : 'http';
+  $host = $_SERVER['HTTP_HOST'] ?? '';
+
+  if ($host !== '') {
+    return sprintf('%s://%s%s', $scheme, $host, $fullPath);
+  }
+
+  return $fullPath;
+}
+
 $uploadDir = realpath(__DIR__ . '/../../public_assets');
 if ($uploadDir === false) {
   http_response_code(500);
@@ -115,6 +178,8 @@ $asset = [
   'mimeType' => $mimeType,
   'fileSize' => $fileSize,
   'url' => $relativePath,
+  'relativeUrl' => $relativePath,
+  'absoluteUrl' => buildAssetUrl($relativePath),
 ];
 
 echo json_encode(['ok' => true, 'asset' => $asset]);
