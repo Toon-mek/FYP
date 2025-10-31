@@ -25,9 +25,13 @@ const props = defineProps({
       href: '#destinations',
     }),
   },
+  secondaryCta: {
+    type: Object,
+    default: () => null,
+  },
 })
 
-const emit = defineEmits(['cta-click', 'brand-click', 'nav-click'])
+const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'nav-click'])
 </script>
 
 <template>
@@ -47,10 +51,29 @@ const emit = defineEmits(['cta-click', 'brand-click', 'nav-click'])
       </a>
     </nav>
 
-    <component :is="props.cta?.href ? 'a' : 'button'" v-if="props.cta?.label" class="btn primary header-cta"
-      :href="props.cta?.href" type="button" @click.prevent="props.cta?.href ? null : emit('cta-click')">
-      {{ props.cta.label }}
-    </component>
+    <div class="header-actions">
+      <component
+        :is="props.secondaryCta?.href ? 'a' : 'button'"
+        v-if="props.secondaryCta?.label"
+        class="btn outline header-cta"
+        :href="props.secondaryCta?.href"
+        type="button"
+        @click.prevent="props.secondaryCta?.href ? null : emit('secondary-cta-click')"
+      >
+        {{ props.secondaryCta.label }}
+      </component>
+
+      <component
+        :is="props.cta?.href ? 'a' : 'button'"
+        v-if="props.cta?.label"
+        class="btn primary header-cta"
+        :href="props.cta?.href"
+        type="button"
+        @click.prevent="props.cta?.href ? null : emit('cta-click')"
+      >
+        {{ props.cta.label }}
+      </component>
+    </div>
   </header>
 </template>
 
@@ -126,6 +149,12 @@ const emit = defineEmits(['cta-click', 'brand-click', 'nav-click'])
   color: #0f3927;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .header-cta {
   white-space: nowrap;
 }
@@ -139,6 +168,10 @@ const emit = defineEmits(['cta-click', 'brand-click', 'nav-click'])
   }
 
   .site-nav {
+    justify-content: center;
+  }
+
+  .header-actions {
     justify-content: center;
   }
 }

@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../helpers/password_hint.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -79,6 +81,11 @@ try {
         ':contactNumber' => $phone !== '' ? $phone : null,
         ':businessType' => $companyName,
     ]);
+
+    $operatorId = (int)$pdo->lastInsertId();
+    if ($operatorId > 0) {
+        storePasswordLastDigit($pdo, 'operator', $operatorId, $password);
+    }
 
     echo json_encode([
         'ok' => true,

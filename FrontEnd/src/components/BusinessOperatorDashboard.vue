@@ -57,23 +57,29 @@ const isDashboardLoading = ref(false)
 const dashboardError = ref(null)
 const lastLoadedOperatorId = ref(null)
 
-const listings = ref(props.listings.length ? cloneRecords(props.listings) : [])
-const mediaLibrary = ref(props.mediaAssets.length ? cloneRecords(props.mediaAssets) : [])
+const listings = ref([])
+const mediaLibrary = ref([])
 
 watch(
   () => props.listings,
   (value) => {
-    listings.value = cloneRecords(value ?? [])
+    if (!Array.isArray(value)) return
+    if (!arraysShallowEqual(value, listings.value)) {
+      listings.value = cloneRecords(value)
+    }
   },
-  { deep: true },
+  { deep: true, immediate: true },
 )
 
 watch(
   () => props.mediaAssets,
   (value) => {
-    mediaLibrary.value = cloneRecords(value ?? [])
+    if (!Array.isArray(value)) return
+    if (!arraysShallowEqual(value, mediaLibrary.value)) {
+      mediaLibrary.value = cloneRecords(value)
+    }
   },
-  { deep: true },
+  { deep: true, immediate: true },
 )
 
 watch(
@@ -453,6 +459,19 @@ async function loadOperatorDashboard(operatorId) {
   }
 }
 
+function arraysShallowEqual(next, current) {
+  if (!Array.isArray(next) || !Array.isArray(current)) return false
+  if (next.length !== current.length) return false
+  for (let index = 0; index < next.length; index += 1) {
+    const a = next[index]
+    const b = current[index]
+    if (JSON.stringify(a) !== JSON.stringify(b)) {
+      return false
+    }
+  }
+  return true
+}
+
 function cloneRecords(items) {
   return Array.isArray(items)
     ? items.map((item) => ({ ...item, contact: item.contact ? { ...item.contact } : undefined }))
@@ -808,6 +827,7 @@ function cryptoRandomId() {
           v-if="activeSection === 'upload-info'"
           :api-base="API_BASE"
           :operator-id="currentOperatorId"
+          :operator-profile="operator"
           @listing-created="handleListingCreated"
           @operator-updated="handleOperatorUpdated"
           @request-scroll-top="handleScrollTopRequest"

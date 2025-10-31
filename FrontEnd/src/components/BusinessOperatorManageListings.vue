@@ -15,6 +15,7 @@ import {
   NTag,
   NText,
 } from 'naive-ui'
+import { useMessage } from 'naive-ui'
 
 const props = defineProps({
   apiBase: {
@@ -61,6 +62,7 @@ const editForm = reactive({
   category: '',
 })
 const editErrors = reactive({})
+const message = useMessage()
 
 const statusOptions = [
   { label: 'Pending Review', value: 'Pending Review' },
@@ -292,12 +294,14 @@ async function saveListingEdits() {
 
   if (!props.operatorId) {
     listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
+    message.error(listingActionError.value)
     return
   }
 
   const listingIdNumeric = extractListingId(editForm)
   if (listingIdNumeric == null) {
     listingActionError.value = 'Unable to identify listing for update.'
+    message.error(listingActionError.value)
     return
   }
 
@@ -337,10 +341,12 @@ async function saveListingEdits() {
     }
     autoSaveMessage.value =
       result.message ?? `${result.listing.name} updated successfully.`
+    message.success(autoSaveMessage.value)
     editModalVisible.value = false
   } catch (error) {
     listingActionError.value =
       error instanceof Error ? error.message : 'Unable to update listing.'
+    message.error(listingActionError.value)
   } finally {
     isListingSaving.value = false
   }
@@ -349,12 +355,14 @@ async function saveListingEdits() {
 async function toggleVisibility(listing) {
   if (!props.operatorId) {
     listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
+    message.error(listingActionError.value)
     return
   }
 
   const listingIdNumeric = extractListingId(listing)
   if (listingIdNumeric == null) {
     listingActionError.value = 'Unable to identify listing for update.'
+    message.error(listingActionError.value)
     return
   }
 
@@ -391,9 +399,11 @@ async function toggleVisibility(listing) {
       (nextVisibility === 'Visible'
         ? `${result.listing.name} is now visible to travelers.`
         : `${result.listing.name} has been hidden from travelers.`)
+    message.success(autoSaveMessage.value)
   } catch (error) {
     listingActionError.value =
       error instanceof Error ? error.message : 'Unable to toggle listing visibility.'
+    message.error(listingActionError.value)
   }
 }
 
@@ -407,12 +417,14 @@ async function deleteListing(listing) {
 
   if (!props.operatorId) {
     listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
+    message.error(listingActionError.value)
     return
   }
 
   const listingIdNumeric = extractListingId(listing)
   if (listingIdNumeric == null) {
     listingActionError.value = 'Unable to delete listing.'
+    message.error(listingActionError.value)
     return
   }
 
@@ -439,12 +451,14 @@ async function deleteListing(listing) {
     )
     emitListingsUpdate(listingItems.value)
     autoSaveMessage.value = result.message ?? `${listing.name} removed from the platform.`
+    message.success(autoSaveMessage.value)
     if (result.operator) {
       emit('operator-updated', result.operator)
     }
   } catch (error) {
     listingActionError.value =
       error instanceof Error ? error.message : 'Unable to delete listing. Please try again.'
+    message.error(listingActionError.value)
   }
 }
 </script>

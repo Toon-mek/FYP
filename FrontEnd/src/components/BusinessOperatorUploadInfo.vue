@@ -14,6 +14,7 @@ import {
   NSlider,
   NSpace,
   NText,
+  useMessage,
 } from 'naive-ui'
 
 const props = defineProps({
@@ -24,6 +25,10 @@ const props = defineProps({
   operatorId: {
     type: [Number, String],
     default: null,
+  },
+  operatorProfile: {
+    type: Object,
+    default: () => null,
   },
 })
 
@@ -60,6 +65,11 @@ const formErrors = reactive({})
 const submissionSuccess = ref('')
 const submissionError = ref('')
 const isSubmittingListing = ref(false)
+const message = useMessage()
+const fixedContact = reactive({
+  phone: '',
+  email: '',
+})
 
 const priceRangeSliderValue = computed({
   get: () => [formState.priceRange.min, formState.priceRange.max],
@@ -111,13 +121,30 @@ watch(
   },
 )
 
+watch(
+  () => ({
+    phone: props.operatorProfile?.contactNumber ?? props.operatorProfile?.phone ?? '',
+    email: props.operatorProfile?.email ?? '',
+  }),
+  (value) => {
+    fixedContact.phone = value.phone ?? ''
+    fixedContact.email = value.email ?? ''
+    formState.phone = fixedContact.phone
+    formState.email = fixedContact.email
+  },
+  { immediate: true },
+)
+
+const phoneLocked = computed(() => fixedContact.phone.trim() !== '')
+const emailLocked = computed(() => fixedContact.email.trim() !== '')
+
 function validateForm() {
   const errors = {}
 
   if (!formState.name.trim()) errors.name = 'Business name is required.'
   if (!formState.category) errors.category = 'Select the category that best fits your service.'
-  if (!formState.phone.trim()) errors.phone = 'Provide a contact number for travelers.'
-  if (!formState.email.trim()) {
+  if (!phoneLocked.value && !formState.phone.trim()) errors.phone = 'Provide a contact number for travelers.'
+  if (!emailLocked.value && !formState.email.trim()) {
     errors.email = 'Email address is required.'
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formState.email)) {
     errors.email = 'Enter a valid email format.'
@@ -148,8 +175,8 @@ function resetForm() {
   formState.name = ''
   formState.category = null
   formState.type = 'Small Business'
-  formState.phone = ''
-  formState.email = ''
+  formState.phone = fixedContact.phone
+  formState.email = fixedContact.email
   formState.address = ''
   formState.website = ''
   formState.description = ''
@@ -160,13 +187,18 @@ function resetForm() {
 }
 
 async function submitListing() {
+  if (isSubmittingListing.value) {
+    return
+  }
   if (!validateForm()) {
     submissionSuccess.value = ''
+    message.warning('Please resolve the highlighted fields before submitting.')
     return
   }
 
   if (!props.operatorId) {
     submissionError.value = 'Operator account not loaded. Please refresh and try again.'
+    message.error(submissionError.value)
     return
   }
 
@@ -202,9 +234,11 @@ async function submitListing() {
       throw new Error(result?.error || `Failed to submit listing (HTTP ${response.status})`)
     }
 
-    submissionSuccess.value =
+    const successMessage =
       result.message ??
       `Listing ${result.listing.id ?? result.listing.listingId ?? ''} submitted successfully. Status set to Pending Review.`
+    submissionSuccess.value = successMessage
+    message.success(successMessage)
     submissionError.value = ''
     emit('listing-created', result.listing)
     if (result.operator) {
@@ -214,6 +248,7 @@ async function submitListing() {
     emit('request-scroll-top')
   } catch (error) {
     submissionError.value = error instanceof Error ? error.message : 'Unable to submit listing.'
+    message.error(submissionError.value)
   } finally {
     isSubmittingListing.value = false
   }
@@ -270,12 +305,26 @@ async function submitListing() {
           </n-grid-item>
           <n-grid-item>
             <n-form-item label="Contact number" :feedback="formErrors.phone" :validation-status="formErrors.phone ? 'error' : undefined">
-              <n-input v-model:value="formState.phone" placeholder="e.g. +60 12-345 6789" />
+              <n-input
+                v-model:value="formState.phone"
+                placeholder="Operator contact number"
+                :disabled="phoneLocked"
+              />
+              <n-text v-if="phoneLocked" depth="3" class="fixed-contact-hint">
+                Contact number is managed by your operator profile.
+              </n-text>
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
             <n-form-item label="Contact email" :feedback="formErrors.email" :validation-status="formErrors.email ? 'error' : undefined">
-              <n-input v-model:value="formState.email" placeholder="e.g. hello@business.my" />
+              <n-input
+                v-model:value="formState.email"
+                placeholder="Operator contact email"
+                :disabled="emailLocked"
+              />
+              <n-text v-if="emailLocked" depth="3" class="fixed-contact-hint">
+                Contact email is managed by your operator profile.
+              </n-text>
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
@@ -398,5 +447,12 @@ async function submitListing() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.fixed-contact-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #7b8794;
 }
 </style>

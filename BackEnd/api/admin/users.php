@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../helpers/password_hint.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
@@ -179,6 +181,7 @@ function saveUser(PDO $pdo): void
                 }
                 $pdo->prepare('UPDATE Traveler SET password = :password WHERE travelerID = :id')
                     ->execute([':password' => password_hash($passwordInput, PASSWORD_DEFAULT), ':id' => $id]);
+                storePasswordLastDigit($pdo, 'traveler', $id, $passwordInput);
             }
             echo json_encode(['ok' => true]);
             return;
@@ -245,6 +248,7 @@ function saveUser(PDO $pdo): void
                 }
                 $pdo->prepare('UPDATE TourismOperator SET password = :password WHERE operatorID = :id')
                     ->execute([':password' => password_hash($passwordInput, PASSWORD_DEFAULT), ':id' => $id]);
+                storePasswordLastDigit($pdo, 'operator', $id, $passwordInput);
             }
             echo json_encode(['ok' => true]);
             return;
@@ -438,6 +442,11 @@ function createTraveler(PDO $pdo, string $name, string $email, string $status, s
         ':status' => $accountStatus,
     ]);
 
+    $travelerId = (int)$pdo->lastInsertId();
+    if ($travelerId > 0) {
+        storePasswordLastDigit($pdo, 'traveler', $travelerId, $temporaryPassword);
+    }
+
     $response = ['ok' => true];
     if ($passwordInput === '') {
         $response['temporaryPassword'] = $temporaryPassword;
@@ -486,6 +495,11 @@ function createOperator(PDO $pdo, string $name, string $email, string $status, s
         ':status' => $accountStatus,
         ':businessType' => $businessType !== '' ? $businessType : null,
     ]);
+
+    $operatorId = (int)$pdo->lastInsertId();
+    if ($operatorId > 0) {
+        storePasswordLastDigit($pdo, 'operator', $operatorId, $temporaryPassword);
+    }
 
     $response = ['ok' => true];
     if ($passwordInput === '') {
