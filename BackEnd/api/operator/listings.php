@@ -312,7 +312,7 @@ function handleCreate(PDO $pdo, array $payload): void
       ':description' => $description,
       ':categoryId' => $categoryId,
       ':location' => $address,
-      ':priceRange' => $payload['priceRange'] ?? null,
+      ':priceRange' => $priceRange,
       ':visibilityState' => 'Hidden',
       ':status' => 'Pending Review',
       ':submittedDate' => date('Y-m-d'),

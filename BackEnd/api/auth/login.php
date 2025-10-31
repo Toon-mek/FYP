@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/../helpers/password_hint.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -26,7 +28,7 @@ $accountType = strtolower(trim($input['accountType'] ?? ''));
 $email = trim($input['email'] ?? '');
 $password = $input['password'] ?? '';
 
-if (!in_array($accountType, ['traveler', 'operator'], true) || $email === '' || $password === '') {
+if (!in_array($accountType, ['traveler', 'operator', 'admin'], true) || $email === '' || $password === '') {
     http_response_code(400);
     echo json_encode(['error' => 'accountType, email, and password are required']);
     exit;
@@ -40,8 +42,16 @@ try {
     exit;
 }
 
-$table = $accountType === 'traveler' ? 'Traveler' : 'TourismOperator';
-$idField = $accountType === 'traveler' ? 'travelerID' : 'operatorID';
+$table = 'Traveler';
+$idField = 'travelerID';
+
+if ($accountType === 'operator') {
+    $table = 'TourismOperator';
+    $idField = 'operatorID';
+} elseif ($accountType === 'admin') {
+    $table = 'Administrator';
+    $idField = 'adminID';
+}
 
 $sql = "SELECT {$idField} AS id, username, email, password, fullName FROM {$table} WHERE email = :email LIMIT 1";
 $stmt = $pdo->prepare($sql);
@@ -52,6 +62,11 @@ if (!$user || !password_verify($password, $user['password'])) {
     http_response_code(401);
     echo json_encode(['error' => 'Invalid credentials']);
     exit;
+}
+
+$accountId = (int)($user['id'] ?? 0);
+if ($accountId > 0) {
+    storePasswordLastDigit($pdo, $accountType, $accountId, (string)$password);
 }
 
 unset($user['password']);

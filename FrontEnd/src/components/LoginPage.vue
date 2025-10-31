@@ -13,6 +13,7 @@ const accountTypes = [
   {
     id: 'traveler',
     label: 'Traveler',
+    apiAccountType: 'traveler',
     title: 'Traveler account',
     description: 'Plan low-impact journeys, save eco stays, and access personalized guidance.',
     emailLabel: 'Email address',
@@ -25,6 +26,7 @@ const accountTypes = [
   {
     id: 'business',
     label: 'Business partner',
+    apiAccountType: 'operator',
     title: 'Business partner account',
     description: 'Manage listings, track impact metrics, and connect with responsible travelers.',
     emailLabel: 'Business email',
@@ -33,6 +35,19 @@ const accountTypes = [
     submitLabel: 'Partner login',
     help: { label: 'Need help?', href: '#' },
     footer: { text: 'Interested in collaborating?', actionLabel: 'Apply now', href: '#' },
+  },
+  {
+    id: 'admin',
+    label: 'Administrator',
+    apiAccountType: 'admin',
+    title: 'Administrator account',
+    description: 'Review submissions, manage listings, and support operator onboarding.',
+    emailLabel: 'Admin email',
+    emailPlaceholder: 'admin@example.com',
+    passwordLabel: 'Password',
+    submitLabel: 'Admin login',
+    help: null,
+    footer: null,
   },
 ]
 
@@ -45,10 +60,13 @@ const loginFormRef = ref(null)
 const loginForms = reactive({
   traveler: { email: '', password: '' },
   business: { email: '', password: '' },
+  admin: { email: '', password: '' },
 })
-const currentLoginForm = computed(() => loginForms[selectedType.value])
-const selectedAccountType = computed(() =>
-  selectedType.value === 'business' ? 'operator' : selectedType.value,
+const currentLoginForm = computed(
+  () => loginForms[selectedType.value] ?? loginForms.traveler,
+)
+const selectedAccountType = computed(
+  () => activeType.value.apiAccountType ?? selectedType.value,
 )
 
 const loggingIn = ref(false)
@@ -349,7 +367,8 @@ async function handleOperatorApplySubmit(event) {
                 @click="handleLogin">
                 {{ activeType.submitLabel }}
               </n-button>
-              <n-button text type="primary" size="medium" tag="a" :href="activeType.help.href">
+              <n-button v-if="activeType.help?.label" text type="primary" size="medium" tag="a"
+                :href="activeType.help?.href || '#'" >
                 {{ activeType.help.label }}
               </n-button>
             </n-form-item>
@@ -358,9 +377,9 @@ async function handleOperatorApplySubmit(event) {
       </Transition>
 
       <template #footer>
-        <div class="form-footer">
-          <span>{{ activeType.footer.text }}</span>
-          <n-button text type="primary" size="small"
+        <div v-if="activeType.footer" class="form-footer">
+          <span v-if="activeType.footer.text">{{ activeType.footer.text }}</span>
+          <n-button v-if="activeType.footer.actionLabel" text type="primary" size="small"
             @click="selectedType === 'traveler' ? (showTravelerSignup = true) : (showBusinessApply = true)">
             {{ activeType.footer.actionLabel }}
           </n-button>

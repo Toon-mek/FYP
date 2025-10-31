@@ -11,6 +11,33 @@ const props = defineProps({
     type: Number,
     default: null,
   },
+  admin: {
+    type: Object,
+    default: () => null,
+  },
+})
+const defaultAdminProfile = {
+  fullName: 'MS Admin',
+  username: 'admin',
+  email: '',
+}
+const adminProfile = computed(() => {
+  const source = props.admin ?? {}
+  const displayName = source.fullName || source.username || defaultAdminProfile.fullName
+  const initials =
+    source.avatarInitials ||
+    displayName
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase()
+  return {
+    ...defaultAdminProfile,
+    ...source,
+    displayName,
+    initials,
+  }
 })
 
 const menuOptions = [
@@ -512,7 +539,10 @@ watch(showUserModal, (visible) => {
   <n-layout id="admin-top" has-sider style="min-height: 100vh;">
     <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="240" show-trigger="bar">
       <n-space vertical size="small" style="padding: 18px 16px;">
-        <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">MS Admin</n-gradient-text>
+        <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">
+          {{ adminProfile.displayName }}
+        </n-gradient-text>
+        <n-text v-if="adminProfile.email" depth="3">{{ adminProfile.email }}</n-text>
         <n-text depth="3">Manage modules</n-text>
       </n-space>
       <div style="padding: 0 8px;">

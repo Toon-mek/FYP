@@ -166,17 +166,16 @@
                       }"
                       @click="(entry.preview.url || resolveAssetUrl(entry.asset)) && openExistingAssetPreview(entry.asset)"
                     >
-                      <div v-if="IS_DEV" class="media-card__debug-url">
-                        {{ resolveAssetUrl(entry.asset) }}
-                      </div>
                       <img
                         v-if="entry.preview.type === 'image'"
                         :src="entry.preview.thumbnail || resolveAssetUrl(entry.asset)"
                         :alt="entry.asset.label"
                       />
                       <div v-else class="media-card__thumb-fallback">
-                        <span v-if="entry.preview.type === 'pdf'">PDF</span>
-                        <span v-else>{{ entry.asset.type || 'Media' }}</span>
+                        <svg v-if="entry.preview.type === 'pdf'" class="media-card__thumb-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path fill="currentColor" d="M6 2h7l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V8h4.5L13 3.5z" />
+                        </svg>
+                        <span v-else>{{ getAssetDisplayLabel(entry.asset, entry.preview) }}</span>
                       </div>
                       <div
                         v-if="entry.asset.isPrimary"
@@ -185,7 +184,6 @@
                         Primary
                       </div>
                     </div>
-
                     <div class="media-card__body">
                       <div class="media-card__header">
                         <div class="media-card__title-block">
@@ -199,9 +197,9 @@
                         </span>
                       </div>
                       <div class="media-card__meta">
-                        <span>{{ entry.asset.type || 'Unknown type' }}</span>
-                        <span v-if="entry.asset.mimeType">• {{ entry.asset.mimeType }}</span>
-                        <span v-if="entry.asset.fileSize">• {{ formatBytes(entry.asset.fileSize) }}</span>
+                        <span>{{ getAssetDisplayLabel(entry.asset, entry.preview) }}</span>
+                        <span v-if="entry.asset.mimeType">&bull; {{ entry.asset.mimeType }}</span>
+                        <span v-if="entry.asset.fileSize">&bull; {{ formatBytes(entry.asset.fileSize) }}</span>
                       </div>
                       <div class="media-card__status">
                         <n-tag
@@ -273,7 +271,7 @@
       preset="card"
       class="media-preview-modal"
       :title="previewContentType === 'pdf' ? 'Preview PDF' : 'Preview Image'"
-      style="width: 720px"
+      style="width: 420px"
     >
       <div v-if="previewContentType === 'image'" class="preview-image-wrapper">
         <img v-if="previewImageUrl" :src="previewImageUrl" alt="Selected media preview" class="preview-image" />
@@ -385,7 +383,7 @@
                   />
                   <div v-else class="media-edit__asset-fallback">
                     <span v-if="entry.preview.type === 'pdf'">PDF</span>
-                    <span v-else>{{ entry.asset.type || 'Media' }}</span>
+                    <span v-else>{{ getAssetDisplayLabel(entry.asset, entry.preview) }}</span>
                   </div>
                   <div class="media-edit__asset-badges">
                     <span v-if="entry.asset.isPrimary" class="media-edit__asset-pill">Primary</span>
@@ -415,9 +413,9 @@
                   </div>
 
                   <div class="media-edit__asset-meta">
-                    <span>{{ entry.asset.type || 'Unknown type' }}</span>
-                    <span v-if="entry.asset.mimeType">• {{ entry.asset.mimeType }}</span>
-                    <span v-if="entry.asset.fileSize">• {{ formatBytes(entry.asset.fileSize) }}</span>
+                    <span>{{ getAssetDisplayLabel(entry.asset, entry.preview) }}</span>
+                    <span v-if="entry.asset.mimeType">&bull; {{ entry.asset.mimeType }}</span>
+                    <span v-if="entry.asset.fileSize">&bull; {{ formatBytes(entry.asset.fileSize) }}</span>
                   </div>
 
                   <div class="media-edit__asset-actions">
@@ -475,6 +473,7 @@ import {
   NTag,
   NText,
   NUpload,
+  useMessage,
 } from 'naive-ui'
 
 const props = defineProps({
@@ -497,6 +496,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:mediaAssets'])
+const message = useMessage()
 
 const IS_DEV = typeof import.meta !== 'undefined' && Boolean(import.meta.env?.DEV)
 
@@ -917,6 +917,26 @@ function getAssetPreview(asset) {
   return { type: 'generic', url: resolvedUrl, thumbnail: null }
 }
 
+function getAssetDisplayLabel(asset, preview) {
+  const previewType = preview?.type ?? null
+  const mime = (asset?.mimeType ?? '').toLowerCase()
+  if (previewType === 'pdf' || mime === 'application/pdf') {
+    return 'PDF'
+  }
+  if (previewType === 'image' || isImageAsset(asset)) {
+    return 'Image'
+  }
+  const providedType = typeof asset?.type === 'string' && asset.type.trim() ? asset.type : null
+  if (providedType) {
+    return providedType
+  }
+  if (mime) {
+    const fragment = mime.split('/').pop() || mime
+    return fragment.toUpperCase()
+  }
+  return 'Media'
+}
+
 function resolveStatusTagType(status) {
   const normalized = String(status ?? '').toLowerCase()
   if (['published', 'active', 'approved', 'live'].includes(normalized)) return 'success'
@@ -1051,17 +1071,20 @@ async function handleEditFileUpload({ file }) {
 
   if (!mediaEditForm.listingId) {
     mediaEditUploadError.value = 'Listing information missing; please close and reopen the editor.'
+    message.error(mediaEditUploadError.value)
     return false
   }
 
   if (rawFile.size > MAX_MEDIA_SIZE_BYTES) {
     mediaEditUploadError.value = 'File exceeds the 5MB limit.'
+    message.error(mediaEditUploadError.value)
     return false
   }
 
   const mimeType = rawFile.type ?? file?.type ?? ''
   if (mimeType && !SUPPORTED_MEDIA_TYPES.includes(mimeType)) {
     mediaEditUploadError.value = MEDIA_VALIDATION_MESSAGE
+    message.error(mediaEditUploadError.value)
     return false
   }
 
@@ -1078,9 +1101,11 @@ async function handleEditFileUpload({ file }) {
     mediaLibrary.value = [asset, ...mediaLibrary.value]
     emitLibraryUpdate()
     mediaEditUploadMessage.value = `${asset.label} added to this listing.`
+    message.success(mediaEditUploadMessage.value)
   } catch (error) {
     mediaEditUploadError.value =
       error instanceof Error ? error.message : 'Failed to upload file.'
+    message.error(mediaEditUploadError.value)
   } finally {
     isMediaEditUploading.value = false
   }
@@ -1100,6 +1125,7 @@ function toggleAttachmentRemoval(attachment) {
   } else {
     next.add(attachment.id)
     mediaEditUploadMessage.value = `${attachment.label} marked for removal. Save changes to confirm.`
+    message.info(mediaEditUploadMessage.value)
   }
   mediaEditPendingRemovals.value = next
 }
@@ -1115,17 +1141,20 @@ function handleMediaFileSelect({ file }) {
 
   if (newMedia.files.length >= MAX_PENDING_FILES) {
     mediaErrors.file = `You can queue up to ${MAX_PENDING_FILES} files at a time.`
+    message.error(mediaErrors.file)
     return false
   }
 
   if (rawFile.size > MAX_MEDIA_SIZE_BYTES) {
     mediaErrors.file = 'File exceeds the 5MB limit.'
+    message.error(mediaErrors.file)
     return false
   }
 
   const mimeType = rawFile.type ?? file?.type ?? ''
   if (mimeType && !SUPPORTED_MEDIA_TYPES.includes(mimeType)) {
     mediaErrors.file = MEDIA_VALIDATION_MESSAGE
+    message.error(mediaErrors.file)
     return false
   }
 
@@ -1217,11 +1246,13 @@ async function addMediaAsset() {
 
   if (Object.keys(errors).length > 0) {
     mediaConfirmation.value = ''
+    message.warning('Please complete the highlighted media fields before uploading.')
     return
   }
 
   if (!props.operatorId) {
     mediaErrors.upload = 'Operator account not loaded. Please refresh and try again.'
+    message.error(mediaErrors.upload)
     return
   }
 
@@ -1261,10 +1292,15 @@ async function addMediaAsset() {
 
     emitLibraryUpdate()
     const uploadedCount = uploadedLabels.length
+    let successMessage = ''
     if (uploadedCount > 1) {
-      mediaConfirmation.value = `${uploadedCount} media files uploaded successfully.`
+      successMessage = `${uploadedCount} media files uploaded successfully.`
     } else if (uploadedCount === 1) {
-      mediaConfirmation.value = `${uploadedLabels[0]} uploaded successfully.`
+      successMessage = `${uploadedLabels[0]} uploaded successfully.`
+    }
+    if (successMessage) {
+      mediaConfirmation.value = successMessage
+      message.success(successMessage)
     }
     clearMediaSelection()
     newMedia.label = ''
@@ -1272,6 +1308,7 @@ async function addMediaAsset() {
     newMedia.isPrimary = false
   } catch (error) {
     mediaErrors.upload = error instanceof Error ? error.message : 'Failed to upload media.'
+    message.error(mediaErrors.upload)
   } finally {
     isMediaSaving.value = false
   }
@@ -1302,6 +1339,7 @@ function saveMediaEdits() {
   Object.assign(mediaEditErrors, errors)
 
   if (Object.keys(errors).length > 0) {
+    message.warning('Please resolve the highlighted fields before saving media details.')
     return
   }
 
@@ -1329,11 +1367,12 @@ function saveMediaEdits() {
     clearAttachmentRemovalMarks()
   }
 
-  if (removalCount > 0) {
-    mediaConfirmation.value = `${mediaEditForm.label.trim()} updated. ${removalCount} file${removalCount > 1 ? 's' : ''} removed.`
-  } else {
-    mediaConfirmation.value = `${mediaEditForm.label.trim()} updated successfully.`
-  }
+  const confirmationMessage =
+    removalCount > 0
+      ? `${mediaEditForm.label.trim()} updated. ${removalCount} file${removalCount > 1 ? 's' : ''} removed.`
+      : `${mediaEditForm.label.trim()} updated successfully.`
+  mediaConfirmation.value = confirmationMessage
+  message.success(confirmationMessage)
   emitLibraryUpdate()
   mediaEditModalVisible.value = false
 }
@@ -1345,12 +1384,14 @@ function markPrimaryMedia(target) {
   }))
   emitLibraryUpdate()
   mediaConfirmation.value = `${target.label} is now marked as the primary visual.`
+  message.success(mediaConfirmation.value)
 }
 
 function removeMediaAsset(target) {
   mediaLibrary.value = mediaLibrary.value.filter((asset) => asset.id !== target.id)
   emitLibraryUpdate()
   mediaConfirmation.value = `${target.label} removed from the gallery.`
+  message.success(mediaConfirmation.value)
   if (mediaEditModalVisible.value && mediaEditForm.id === target.id) {
     mediaEditModalVisible.value = false
   }
@@ -1455,11 +1496,15 @@ function removeMediaAsset(target) {
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 240px;
+  min-height: 180px;
+  padding: 12px;
 }
 
 .preview-image {
-  max-width: 100%;
+  max-width: 320px;
+  max-height: 320px;
+  width: auto;
+  height: auto;
   border-radius: 6px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
 }
@@ -1680,19 +1725,6 @@ function removeMediaAsset(target) {
   transition: transform 0.16s ease, box-shadow 0.16s ease;
 }
 
-.media-card__debug-url {
-  position: absolute;
-  bottom: 4px;
-  left: 4px;
-  right: 4px;
-  padding: 2px 4px;
-  font-size: 10px;
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.6);
-  border-radius: 4px;
-  word-break: break-all;
-}
-
 .media-card__thumb--clickable {
   cursor: pointer;
 }
@@ -1724,8 +1756,10 @@ function removeMediaAsset(target) {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   font-weight: 600;
   font-size: 14px;
   color: #0f172a;
@@ -1735,6 +1769,10 @@ function removeMediaAsset(target) {
 
 .media-card__thumb--pdf .media-card__thumb-fallback {
   color: #d03050;
+}
+
+.media-card__thumb-icon {
+  color: #9aa5b1;
 }
 
 .media-card__badge {
@@ -1817,4 +1855,9 @@ function removeMediaAsset(target) {
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
 }
 </style>
+
+
+
+
+
 
