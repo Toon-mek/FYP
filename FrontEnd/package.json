@@ -19,6 +19,7 @@
     "@vue/server-renderer": "^3.5.22",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^27.0.1",
+    "less": "^4.4.2",
     "playwright": "^1.56.1",
     "vite": "^7.1.7",
     "vitest": "^4.0.4"

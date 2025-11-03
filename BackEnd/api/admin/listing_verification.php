@@ -366,7 +366,6 @@ function formatListingRow(array $row, array $imagesByListing): array
         'description' => $row['description'],
         'status' => $row['status'],
         'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
-        'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
         'submittedDate' => formatDateString($row['submittedDate']),
         'location' => $row['location'],
         'priceRange' => $row['priceRange'],

@@ -1,8 +1,10 @@
-<script setup>
+﻿<script setup>
 import { computed, h, ref, watch } from 'vue'
-import { NIcon } from 'naive-ui'
+import { NIcon, useMessage } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
+import TravelerSocialFeed from './TravelerSocialFeed.vue'
+import TravelerSavedPosts from './TravelerSavedPosts.vue'
 
 const props = defineProps({
   traveler: {
@@ -42,6 +44,14 @@ const props = defineProps({
     default: () => [],
   },
   insights: {
+    type: Array,
+    default: () => [],
+  },
+  communityPosts: {
+    type: Array,
+    default: () => [],
+  },
+  communityCategories: {
     type: Array,
     default: () => [],
   },
@@ -95,10 +105,14 @@ const transport = computed(() => props.transport ?? [])
 const companions = computed(() => props.companions ?? [])
 const integrations = computed(() => props.integrations ?? [])
 const insights = computed(() => props.insights ?? [])
+const communityFeedPosts = computed(() => props.communityPosts ?? [])
+const communityFeedCategories = computed(() => props.communityCategories ?? [])
 
 const sidebarOptions = [
   { key: 'dashboard', label: 'Dashboard overview', icon: renderIcon('ri-compass-3-line') },
   { key: 'weather', label: 'Weather outlook', icon: renderIcon('ri-sun-cloudy-line') },
+  { key: 'community', label: 'Community feed', icon: renderIcon('ri-hashtag') },
+  { key: 'saved-posts', label: 'Saved posts', icon: renderIcon('ri-bookmark-line') },
   { key: 'messages', label: 'Messages', disabled: true, icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', disabled: true, icon: renderIcon('ri-notification-3-line') },
   { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
@@ -107,6 +121,7 @@ const sidebarOptions = [
 ]
 
 const selectedMenu = ref('dashboard')
+const message = useMessage()
 
 const destinationTabs = computed(() => destinationGroups.value.map((group) => group.label))
 const activeDestinationTab = ref(destinationTabs.value[0] ?? null)
@@ -124,6 +139,11 @@ const activeDestinations = computed(() => {
 
 function handleMenuSelect(val) {
   selectedMenu.value = val
+}
+
+function handleCommunityContact(post) {
+  const name = post?.authorName ?? 'traveler'
+  message.success(`Contact request noted for ${name}.`)
 }
 
 const summaryCards = computed(() => [
@@ -169,7 +189,7 @@ const heroStats = computed(() => [
     key: 'carbon',
     label: 'Carbon saved',
     value: metrics.value.carbonSaved,
-    suffix: ' tCO₂e',
+    suffix: ' tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e',
     icon: 'ri-planet-line',
   },
   {
@@ -251,6 +271,20 @@ const hasInsights = computed(() => insights.value.length > 0)
         <div v-if="selectedMenu === 'weather'" class="weather-panel">
           <TravelerWeatherWidget />
         </div>
+        <div v-else-if="selectedMenu === 'community'" class="community-panel">
+          <TravelerSocialFeed
+            :posts="communityFeedPosts"
+            :categories="communityFeedCategories"
+            :current-user="traveler"
+            @contact="handleCommunityContact"
+          />
+        </div>
+        <div v-else-if="selectedMenu === 'saved-posts'" class="community-panel">
+          <TravelerSavedPosts
+            :categories="communityFeedCategories"
+            :current-user="traveler"
+          />
+        </div>
         <div v-else class="dashboard-main">
           <n-space vertical size="large">
             <n-card :segmented="{ content: true }" :style="{
@@ -262,7 +296,7 @@ const hasInsights = computed(() => insights.value.length > 0)
                   <n-space vertical size="small">
                     <n-tag type="success" size="small" bordered>Traveler spotlight</n-tag>
                     <div style="font-size: 1.8rem; font-weight: 700;">
-                      Craft journeys that protect Malaysia’s wild places
+                      Craft journeys that protect MalaysiaÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s wild places
                     </div>
                     <n-text depth="3">
                       Plan flexible itineraries, track your eco impact, and stay in touch with responsible guides.
@@ -362,7 +396,7 @@ const hasInsights = computed(() => insights.value.length > 0)
                               {{ destination.name }}
                             </div>
                             <n-text depth="3">
-                              {{ destination.location }} · {{ destination.duration }}
+                              {{ destination.location }} Ãƒâ€šÃ‚Â· {{ destination.duration }}
                             </n-text>
                             <n-tag v-if="destination.tag" type="success" size="small" bordered>
                               {{ destination.tag }}
@@ -388,7 +422,7 @@ const hasInsights = computed(() => insights.value.length > 0)
                   <template v-if="hasTrips">
                     <n-timeline size="large">
                       <n-timeline-item v-for="trip in upcomingTrips" :key="trip.id ?? trip.title" :title="trip.title"
-                        :time="`${trip.location} · ${trip.duration}`">
+                        :time="`${trip.location} Ãƒâ€šÃ‚Â· ${trip.duration}`">
                         <n-text depth="3">{{ trip.focus }}</n-text>
                         <template #footer>
                           <n-button text type="primary">Open trip board</n-button>
@@ -523,4 +557,19 @@ const hasInsights = computed(() => insights.value.length > 0)
   box-shadow: none;
   border-radius: 16px;
 }
+
+.community-panel {
+  max-width: 1100px;
+  margin: 0 auto;
+}
 </style>
+
+
+
+
+
+
+
+
+
+
