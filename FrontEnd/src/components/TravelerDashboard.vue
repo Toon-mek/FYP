@@ -5,6 +5,7 @@ import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
 import TravelerSocialFeed from './TravelerSocialFeed.vue'
 import TravelerSavedPosts from './TravelerSavedPosts.vue'
+import { extractProfileImage } from '../utils/profileImage.js'
 
 const props = defineProps({
   traveler: {
@@ -86,6 +87,10 @@ const traveler = computed(() => {
     avatarPath,
   }
 })
+
+function deriveAvatarInfo(source) {
+  return extractProfileImage(source)
+}
 
 const metrics = computed(() => ({
   tripsPlanned: Number(props.metrics.tripsPlanned ?? 0),
@@ -573,7 +578,6 @@ const hasInsights = computed(() => insights.value.length > 0)
   margin: 0 auto;
 }
 </style>
-
 
 
 
