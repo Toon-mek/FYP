@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
   NAlert,
   NButton,
@@ -8,7 +8,9 @@ import {
   NInput,
   NModal,
   NSpace,
+  NUpload,
 } from 'naive-ui'
+import { extractProfileImage } from '../utils/profileImage.js'
 
 const props = defineProps({
   modelValue: {
@@ -36,6 +38,8 @@ const base = reactive({
   fullName: '',
   email: '',
   username: '',
+  profileImagePath: '',
+  profileImageUrl: '',
 })
 
 const form = reactive({
@@ -46,6 +50,10 @@ const form = reactive({
   passwordLastDigit: '',
   newPassword: '',
   confirmPassword: '',
+  profileImagePreview: '',
+  profileImageData: '',
+  profileImageName: '',
+  removeProfileImage: false,
 })
 
 const passwordState = reactive({
@@ -109,11 +117,18 @@ const fallbackStatus = computed(() => {
 })
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp'
+const MAX_IMAGE_SIZE = 4 * 1024 * 1024
+function resolveProfileImageFromSource(source) {
+  return extractProfileImage(source)
+}
 
 const accountId = computed(() => {
   const profile = props.profile ?? {}
   return profile.id ?? profile.adminID ?? null
 })
+
+const profileUploadRef = ref(null)
 
 const formErrors = reactive({})
 const submissionError = reactive({ message: '' })
@@ -122,6 +137,15 @@ function resetErrors() {
   Object.keys(formErrors).forEach((key) => delete formErrors[key])
   submissionError.message = ''
   passwordState.error = ''
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('Unable to read the selected image.'))
+    reader.readAsDataURL(file)
+  })
 }
 
 function resetPasswordFlow() {
@@ -136,13 +160,19 @@ function resetPasswordFlow() {
 
 function syncForm(profile) {
   const source = profile && typeof profile === 'object' ? profile : {}
+  const { relative, url } = resolveProfileImageFromSource(source)
   base.fullName = source.fullName ?? ''
   base.email = source.email ?? ''
   base.username = source.username ?? ''
-
+  base.profileImagePath = relative
+  base.profileImageUrl = url
   form.fullName = base.fullName
   form.email = base.email
   form.username = base.username
+  form.profileImagePreview = base.profileImageUrl
+  form.profileImageData = ''
+  form.profileImageName = ''
+  form.removeProfileImage = false
   resetPasswordFlow()
   form.newPassword = ''
   form.confirmPassword = ''
@@ -156,15 +186,69 @@ watch(
   },
   { immediate: true },
 )
+const profileHasPreview = computed(() => Boolean(form.profileImagePreview))
+const hasBaseProfileImage = computed(() => Boolean(base.profileImageUrl))
+const hasNewProfileImage = computed(() => Boolean(form.profileImageData))
+const profileInitials = computed(() => {
+  const source = (form.fullName || base.fullName || form.username || '').trim()
+  return source ? source[0]?.toUpperCase() : ''
+})
 
 watch(show, (visible) => {
   if (!visible) {
     form.newPassword = ''
     form.confirmPassword = ''
+    form.profileImagePreview = base.profileImageUrl
+    form.profileImageData = ''
+    form.profileImageName = ''
+    form.removeProfileImage = false
     resetPasswordFlow()
     resetErrors()
   }
 })
+
+async function handleProfileImageChange({ file }) {
+  const rawFile = file?.file ?? file
+  if (!rawFile) {
+    return
+  }
+  if (rawFile.size > MAX_IMAGE_SIZE) {
+    submissionError.message = 'Profile image must be 4MB or smaller.'
+    return
+  }
+  try {
+    const dataUrl = await fileToDataUrl(rawFile)
+    form.profileImageData = dataUrl
+    form.profileImagePreview = dataUrl
+    form.profileImageName = rawFile.name ?? 'profile-photo'
+    form.removeProfileImage = false
+    submissionError.message = ''
+  } catch (error) {
+    submissionError.message =
+      error instanceof Error ? error.message : 'Unable to read the selected image.'
+  }
+}
+
+function clearProfileImageSelection() {
+  form.profileImageData = ''
+  form.profileImageName = ''
+  form.profileImagePreview = base.profileImageUrl
+  form.removeProfileImage = false
+}
+
+function handleRemoveProfileImage() {
+  form.profileImageData = ''
+  form.profileImageName = ''
+  form.profileImagePreview = ''
+  form.removeProfileImage = true
+}
+
+function undoRemoveProfileImage() {
+  form.profileImageData = ''
+  form.profileImageName = ''
+  form.profileImagePreview = base.profileImageUrl
+  form.removeProfileImage = false
+}
 
 async function verifyCurrentPassword() {
   if (passwordState.verifying || passwordState.method === 'last-digit') {
@@ -336,8 +420,13 @@ function collectPayload() {
     if (passwordState.method === 'current-password') {
       payload.currentPassword = form.currentPassword
     } else if (passwordState.method === 'last-digit') {
-            payload.passwordLastDigit = form.passwordLastDigit.trim()
+      payload.passwordLastDigit = form.passwordLastDigit.trim()
     }
+  }
+  if (form.profileImageData) {
+    payload.profileImageData = form.profileImageData
+  } else if (form.removeProfileImage) {
+    payload.removeProfileImage = true
   }
   return payload
 }
@@ -384,6 +473,64 @@ function handleSubmit() {
 
         <n-form-item label="Username" :feedback="formErrors.username" :validation-status="formErrors.username ? 'error' : undefined">
           <n-input v-model:value="form.username" placeholder="admin username" />
+        </n-form-item>
+
+        <n-form-item label="Profile photo">
+          <div class="profile-photo-field">
+            <div
+              class="profile-photo-preview"
+              :class="{ 'profile-photo-preview--empty': !profileHasPreview && !form.removeProfileImage }"
+            >
+              <img
+                v-if="profileHasPreview && !form.removeProfileImage"
+                :src="form.profileImagePreview"
+                alt="Profile photo preview"
+              />
+              <div v-else class="profile-photo-placeholder">
+                <span v-if="form.removeProfileImage">Photo will be removed</span>
+                <span v-else-if="profileInitials" class="profile-photo-initial">{{ profileInitials }}</span>
+                <span v-else>No photo uploaded</span>
+              </div>
+            </div>
+            <div class="profile-photo-actions">
+              <n-upload
+                ref="profileUploadRef"
+                :show-file-list="false"
+                :default-upload="false"
+                :accept="IMAGE_ACCEPT"
+                :max="1"
+                @change="handleProfileImageChange"
+              >
+                <n-button size="small" tertiary type="primary">Change photo</n-button>
+              </n-upload>
+              <n-button
+                v-if="hasNewProfileImage"
+                size="small"
+                quaternary
+                @click="clearProfileImageSelection"
+              >
+                Clear selection
+              </n-button>
+              <n-button
+                v-else-if="(profileHasPreview || hasBaseProfileImage) && !form.removeProfileImage"
+                size="small"
+                quaternary
+                type="error"
+                @click="handleRemoveProfileImage"
+              >
+                Remove photo
+              </n-button>
+              <n-button
+                v-if="form.removeProfileImage && hasBaseProfileImage"
+                size="small"
+                quaternary
+                type="primary"
+                @click="undoRemoveProfileImage"
+              >
+                Keep existing photo
+              </n-button>
+            </div>
+          </div>
         </n-form-item>
 
         <n-form-item
@@ -474,6 +621,61 @@ function handleSubmit() {
 <style scoped>
 .edit-profile-body {
   gap: 16px;
+}
+
+.profile-photo-field {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.profile-photo-preview {
+  width: 98px;
+  height: 98px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #f1f5f9;
+  border: 1px dashed rgba(15, 23, 42, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.profile-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-photo-preview--empty {
+  background: #f8fafc;
+}
+
+.profile-photo-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  padding: 0 6px;
+}
+
+.profile-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-photo-initial {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1f2937;
 }
 
 .edit-profile-form :deep(.n-form-item) {

@@ -9,6 +9,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost/sustainable_travel-backend',
         changeOrigin: true
+      },
+      '/public_assets': {
+        target: 'http://localhost/sustainable_travel-backend',
+        changeOrigin: true
       }
     }
   },

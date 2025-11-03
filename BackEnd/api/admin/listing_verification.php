@@ -345,11 +345,29 @@ function fetchImages(PDO $pdo, array $listingIds): array
         if (!isset($images[$lid])) {
             $images[$lid] = [];
         }
+        $relativePath = (string) $row['imageURL'];
+        $extension = strtolower(pathinfo($relativePath, PATHINFO_EXTENSION));
+        $type = 'image';
+        $mime = null;
+        if ($extension === 'pdf') {
+            $type = 'pdf';
+            $mime = 'application/pdf';
+        } elseif (in_array($extension, ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'], true)) {
+            $type = 'image';
+            $mime = $extension === 'jpg' ? 'image/jpeg' : "image/{$extension}";
+        } else {
+            $type = 'file';
+        }
+        $filename = basename(str_replace('\\', '/', $relativePath));
+
         $images[$lid][] = [
             'id' => (int) $row['imageID'],
-            'url' => buildAssetUrl((string) $row['imageURL']),
+            'url' => buildAssetUrl($relativePath),
             'caption' => $row['caption'],
             'uploadedDate' => formatDateString($row['uploadedDate']),
+            'type' => $type,
+            'mime' => $mime,
+            'filename' => $filename,
         ];
     }
 

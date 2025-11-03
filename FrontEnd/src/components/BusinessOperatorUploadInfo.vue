@@ -35,12 +35,11 @@ const props = defineProps({
 const emit = defineEmits(['listing-created', 'operator-updated', 'request-scroll-top'])
 
 const categoryOptions = [
-  { label: 'Hotel (Agoda API)', value: 'Hotel (Agoda API)' },
   { label: 'Homestay', value: 'Homestay' },
-  { label: 'Eco-tour', value: 'Eco-tour' },
   { label: 'Food & Beverage', value: 'Food & Beverage' },
-  { label: 'Cultural activity', value: 'Cultural activity' },
   { label: 'Wellness', value: 'Wellness' },
+  { label: 'Entertainment', value: 'Entertainment' },
+  { label: 'Dessert', value: 'Dessert' },
   { label: 'Others', value: 'Others' },
 ]
 

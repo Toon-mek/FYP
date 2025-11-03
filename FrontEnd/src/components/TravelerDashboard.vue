@@ -3,6 +3,17 @@ import { computed, h, ref, watch } from 'vue'
 import { NIcon } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
+import { extractProfileImage } from '../utils/profileImage.js'
+
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const avatarFallbackStyle = {
+  background: 'var(--primary-color-hover)',
+  color: 'white',
+}
+
+function deriveAvatarInfo(source) {
+  return extractProfileImage(source)
+}
 
 const props = defineProps({
   traveler: {
@@ -63,12 +74,17 @@ const traveler = computed(() => {
       .join('')
       .slice(0, 2)
       .toUpperCase()
+  const { relative: derivedAvatarPath, url: derivedAvatarUrl } = deriveAvatarInfo(incoming)
+  const avatarUrl = derivedAvatarUrl || incoming.avatarUrl || ''
+  const avatarPath = derivedAvatarPath || incoming.avatarPath || ''
 
   return {
     ...defaultTraveler,
     ...incoming,
     displayName,
     initials,
+    avatarUrl,
+    avatarPath,
   }
 })
 
@@ -222,8 +238,13 @@ const hasInsights = computed(() => insights.value.length > 0)
       <n-layout-header bordered style="padding: 20px 32px; background: transparent;">
         <n-space justify="space-between" align="center" wrap>
           <n-space align="center" size="large">
-            <n-avatar round size="large" style="background: var(--primary-color-hover); color: white;">
-              {{ traveler.initials }}
+            <n-avatar
+              round
+              size="large"
+              :src="traveler.avatarUrl || undefined"
+              :style="traveler.avatarUrl ? undefined : avatarFallbackStyle"
+            >
+              <template v-if="!traveler.avatarUrl">{{ traveler.initials }}</template>
             </n-avatar>
             <div>
               <n-text depth="3">Hello, traveler</n-text>

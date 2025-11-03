@@ -1,6 +1,7 @@
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { NMessageProvider, createDiscreteApi } from 'naive-ui'
 import AdminDashboard from './components/AdminDashboard.vue'
 import AdminEditProfile from './components/AdminEditProfile.vue'
@@ -12,82 +13,124 @@ import SiteFooter from './components/SiteFooter.vue'
 import SiteHeader from './components/SiteHeader.vue'
 import TravelerDashboard from './components/TravelerDashboard.vue'
 import TravelerEditProfile from './components/TravelerEditProfile.vue'
+import { extractProfileImage } from './utils/profileImage.js'
+import { setLocale, supportedLocaleCodes } from './plugins/i18n'
+import { ensureLocaleMessages } from './utils/translationLoader.js'
+import { setDomTranslationLocale } from './utils/domTranslator.js'
+import brandLogo from './assets/brand-logo.png'
 
-const homeNavLinks = [
-  { label: 'About', href: '#about' },
-  { label: 'Destinations', href: '#destinations' },
-  { label: 'Tips', href: '#tips' },
-  { label: 'Newsletter', href: '#newsletter' },
-]
+const { t, tm, locale } = useI18n()
 
-const travelerNavLinks = [
-  { label: 'Destinations', href: '#destinations' },
-  { label: 'Calendar', href: '#calendar-panel' },
-  { label: 'Resorts', href: '#resorts-panel' },
-  { label: 'Upcoming', href: '#upcoming-panel' },
-]
+const THEME_STORAGE_KEY = 'mst-theme-preference'
+
+function resolveInitialTheme() {
+  if (typeof window === 'undefined') {
+    return 'light'
+  }
+  try {
+    const stored = window.localStorage?.getItem(THEME_STORAGE_KEY)
+    if (stored === 'light' || stored === 'dark') {
+      return stored
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark'
+  }
+  return 'light'
+}
+
+function applyTheme(value) {
+  if (typeof document !== 'undefined') {
+    document.documentElement.setAttribute('data-theme', value === 'dark' ? 'dark' : 'light')
+  }
+}
+
+const theme = ref(resolveInitialTheme())
+const storageAvailable = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
+
+watch(
+  theme,
+  (value) => {
+    applyTheme(value)
+    if (storageAvailable) {
+      try {
+        window.localStorage.setItem(THEME_STORAGE_KEY, value)
+      } catch {
+        /* ignore storage errors */
+      }
+    }
+  },
+  { immediate: true },
+)
+
+const themeToggleLabel = computed(() => (theme.value === 'dark' ? t('theme.light') : t('theme.dark')))
+
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+}
+
+const localeOptions = computed(() =>
+  supportedLocaleCodes.map((code) => ({
+    value: code,
+    label: t(`language.${code}`),
+  })),
+)
+
+const languageLabel = computed(() => t('language.label'))
+
+const homeNavLinks = computed(() => [
+  { label: t('nav.about'), href: '#about' },
+  { label: t('nav.destinations'), href: '#destinations' },
+  { label: t('nav.tips'), href: '#tips' },
+  { label: t('nav.newsletter'), href: '#newsletter' },
+])
+
+const travelerNavLinks = computed(() => [
+  { label: t('nav.destinations'), href: '#destinations' },
+  { label: t('nav.calendar'), href: '#calendar-panel' },
+  { label: t('nav.resorts'), href: '#resorts-panel' },
+  { label: t('nav.upcoming'), href: '#upcoming-panel' },
+])
 
 const adminNavLinks = []
-const operatorNavLinks = [
-  { label: 'Upload Info', href: '#upload-info' },
-  { label: 'Media Manager', href: '#media-manager' },
-  { label: 'Manage Listings', href: '#listings-panel' },
-]
+const operatorNavLinks = computed(() => [
+  { label: t('nav.uploadInfo'), href: '#upload-info' },
+  { label: t('nav.mediaManager'), href: '#media-manager' },
+  { label: t('nav.manageListings'), href: '#listings-panel' },
+])
 const profileComponentMap = {
   admin: AdminEditProfile,
   operator: BusinessOperatorEditProfile,
   traveler: TravelerEditProfile,
 }
 
-const headerBrandBase = {
+const headerBrandBase = computed(() => ({
   initials: 'MS',
-  name: 'Malaysia Sustainable Travel',
-  tagline: 'Explore with care',
-}
+  name: t('header.brandName'),
+  tagline: t('header.tagline'),
+  logo: brandLogo,
+}))
 
-const headerCtaHome = {
-  label: 'Start planning',
-}
+const headerCtaHome = computed(() => ({
+  label: t('header.cta'),
+}))
 
-const footerBrand = {
+const footerBrand = computed(() => ({
   initials: 'MS',
-  title: 'Travel that uplifts Malaysia',
-  description:
-    'Join a community of explorers committed to protecting ecosystems and honouring local wisdom.',
-}
+  name: t('footer.brand.name'),
+  title: t('footer.brand.title'),
+  description: t('footer.brand.description'),
+  logo: brandLogo,
+}))
 
-const footerColumns = [
-  {
-    title: 'Plan your trip',
-    links: [
-      { label: 'Eco-friendly itineraries', href: '#' },
-      { label: 'Responsible tour partners', href: '#' },
-      { label: 'Community homestays', href: '#' },
-    ],
-  },
-  {
-    title: 'Learn & inspire',
-    links: [
-      { label: 'Sustainable travel guides', href: '#' },
-      { label: 'Wildlife conservation stories', href: '#' },
-      { label: 'Climate action toolkit', href: '#' },
-    ],
-  },
-  {
-    title: 'Support',
-    links: [
-      { label: 'About the initiative', href: '#' },
-      { label: 'Volunteer programmes', href: '#' },
-      { label: 'Contact our team', href: '#' },
-    ],
-  },
-]
-
-const socialLinks = [
-  { label: 'Instagram', href: '#' },
-  { label: 'Facebook', href: '#' },
-  { label: 'YouTube', href: '#' },
-]
+const footerColumns = computed(() => tm('footer.columns') ?? [])
+const socialLinks = computed(() => tm('footer.socialLinks') ?? [])
+const footerSocialLabel = computed(() => t('footer.socialLabel'))
+const footerCopy = computed(() =>
+  t('footer.copy', { year: copyrightYear, brand: footerBrand.value.name ?? 'Malaysia Sustainable Travel' }),
+)
 
 const copyrightYear = new Date().getFullYear()
 
@@ -96,11 +139,67 @@ const route = useRoute()
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const currentView = computed(() => route.meta.view ?? 'home')
 
-const storageAvailable = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 const sessionKeys = {
   traveler: 'travelerSession',
   operator: 'operatorSession',
   admin: 'adminSession',
+}
+
+function deriveInitialsFromRecord(record) {
+  if (!record || typeof record !== 'object') {
+    return ''
+  }
+  const candidates = [
+    record.fullName,
+    record.contactPerson,
+    record.contact_person,
+    record.username,
+    record.email,
+  ]
+  const firstAvailable = candidates.find(
+    (value) => typeof value === 'string' && value.trim().length > 0,
+  )
+  if (!firstAvailable) {
+    return ''
+  }
+  return firstAvailable
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
+}
+
+function normaliseAccountRecord(accountType, record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  const normalised = { ...record }
+  const { relative, url } = extractProfileImage(normalised)
+  if (relative) {
+    normalised.profileImagePath = relative
+    if (!normalised.profileImage) {
+      normalised.profileImage = relative
+    }
+  } else if (!normalised.profileImagePath) {
+    normalised.profileImagePath = ''
+  }
+  normalised.profileImageUrl = url || ''
+  if (!normalised.avatarUrl) {
+    normalised.avatarUrl = normalised.profileImageUrl || ''
+  }
+  if (!normalised.avatarInitials) {
+    const initials = deriveInitialsFromRecord(normalised)
+    if (initials) {
+      normalised.avatarInitials = initials
+    }
+  }
+  if (accountType && !normalised.accountType) {
+    normalised.accountType = accountType
+  }
+  return normalised
 }
 
 function readStoredUser(type) {
@@ -109,7 +208,8 @@ function readStoredUser(type) {
   const raw = key ? window.localStorage.getItem(key) : null
   if (!raw) return null
   try {
-    return JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    return normaliseAccountRecord(type, parsed)
   } catch {
     return null
   }
@@ -126,13 +226,16 @@ const loggedInUser = computed({
   get: () => (activeAccountType.value ? sessionState[activeAccountType.value] ?? null : null),
   set: (value) => {
     if (!activeAccountType.value) return
-    sessionState[activeAccountType.value] = value ?? null
-    persistSession(activeAccountType.value, value ?? null)
+    const type = activeAccountType.value
+    const normalisedValue = value ? normaliseAccountRecord(type, value) : null
+    sessionState[type] = normalisedValue
+    persistSession(type, normalisedValue)
   },
 })
 const editProfileVisible = ref(false)
 const editProfileLoading = ref(false)
 const { message } = createDiscreteApi(['message'])
+const adminProfileFetchState = reactive({ loading: false, attempted: false })
 
 function persistSession(accountType, user) {
   if (!storageAvailable || !accountType) return
@@ -165,15 +268,32 @@ watch(activeAccountType, (type) => {
   }
 })
 
-watch(currentView, () => {
+watch(currentView, (view) => {
   editProfileVisible.value = false
+  if (view === 'admin') {
+    refreshAdminProfile()
+  }
+}, { immediate: true })
+
+watch(
+  () => route.fullPath,
+  async () => {
+    await nextTick()
+    await setDomTranslationLocale(locale.value)
+  },
+)
+
+onMounted(async () => {
+  await ensureLocaleMessages(locale.value)
+  await nextTick()
+  await setDomTranslationLocale(locale.value)
 })
 
 const navLinks = computed(() => {
-  if (currentView.value === 'traveler') return travelerNavLinks
-  if (currentView.value === 'operator') return operatorNavLinks
+  if (currentView.value === 'traveler') return travelerNavLinks.value
+  if (currentView.value === 'operator') return operatorNavLinks.value
   if (currentView.value === 'admin') return adminNavLinks
-  return homeNavLinks
+  return homeNavLinks.value
 })
 
 const operatorUser = computed(() => sessionState.operator ?? null)
@@ -190,7 +310,7 @@ const currentAccountUser = computed(() => {
 })
 
 const headerBrand = computed(() => ({
-  ...headerBrandBase,
+  ...headerBrandBase.value,
   href:
     currentView.value === 'traveler'
       ? '#traveler-top'
@@ -202,14 +322,24 @@ const headerBrand = computed(() => ({
 }))
 
 const headerCta = computed(() =>
-  currentAccountUser.value ? { label: 'Log out' } : headerCtaHome,
+  currentAccountUser.value ? { label: t('auth.logout') } : headerCtaHome.value,
 )
 const activeEditComponent = computed(() =>
   currentAccountUser.value ? profileComponentMap[currentView.value] ?? null : null,
 )
 const headerSecondaryCta = computed(() =>
-  currentAccountUser.value && activeEditComponent.value ? { label: 'Edit profile' } : null,
+  currentAccountUser.value && activeEditComponent.value ? { label: t('profile.edit') } : null,
 )
+
+async function handleLocaleChange(nextLocale) {
+  if (!nextLocale || nextLocale === locale.value) {
+    return
+  }
+  await ensureLocaleMessages(nextLocale)
+  setLocale(nextLocale)
+  await nextTick()
+  await setDomTranslationLocale(nextLocale)
+}
 
 function scrollToSection(targetId) {
   if (!targetId) {
@@ -307,6 +437,42 @@ function handleEditProfileClick() {
   editProfileVisible.value = true
 }
 
+async function refreshAdminProfile() {
+  if (adminProfileFetchState.loading) return
+  const admin = sessionState.admin
+  if (!admin) {
+    adminProfileFetchState.attempted = true
+    return
+  }
+  if (admin.profileImageUrl && adminProfileFetchState.attempted) {
+    return
+  }
+  const adminId = admin.id ?? admin.adminID ?? null
+  if (!adminId) {
+    adminProfileFetchState.attempted = true
+    return
+  }
+  adminProfileFetchState.loading = true
+  try {
+    const response = await fetch(
+      `${API_BASE}/admin/profile.php?adminId=${encodeURIComponent(adminId)}`,
+    )
+    const result = await response.json().catch(() => null)
+    if (!response.ok || !result?.ok || !result.admin) {
+      adminProfileFetchState.attempted = true
+      return
+    }
+    const normalised = normaliseAccountRecord('admin', result.admin)
+    sessionState.admin = normalised
+    persistSession('admin', normalised)
+    adminProfileFetchState.attempted = true
+  } catch (error) {
+    adminProfileFetchState.attempted = true
+  } finally {
+    adminProfileFetchState.loading = false
+  }
+}
+
 async function handleProfileSave(changes) {
   const user = currentAccountUser.value
   if (!user || !changes || typeof changes !== 'object') {
@@ -354,8 +520,13 @@ async function handleProfileSave(changes) {
       throw new Error(result?.error || `Failed to update profile (HTTP ${response.status})`)
     }
     const updatedProfile = result[resultKey] ?? result.user ?? null
-    sessionState[view] = { ...(sessionState[view] ?? {}), ...updatedProfile }
-    persistSession(view, sessionState[view])
+    const mergedProfile = { ...(sessionState[view] ?? {}), ...updatedProfile }
+    const normalisedProfile = normaliseAccountRecord(view, mergedProfile)
+    sessionState[view] = normalisedProfile
+    persistSession(view, normalisedProfile)
+    if (view === 'admin') {
+      adminProfileFetchState.attempted = true
+    }
     editProfileVisible.value = false
     message.success('Profile updated successfully.')
   } catch (error) {
@@ -368,8 +539,9 @@ async function handleProfileSave(changes) {
 function handleLoginSuccess(payload) {
   const { accountType, user } = payload
   if (accountType) {
-    sessionState[accountType] = user || null
-    persistSession(accountType, sessionState[accountType])
+    const normalisedUser = user ? normaliseAccountRecord(accountType, user) : null
+    sessionState[accountType] = normalisedUser
+    persistSession(accountType, normalisedUser)
   }
   activeAccountType.value = accountType ?? null
 
@@ -393,10 +565,17 @@ function handleLoginSuccess(payload) {
         :brand="headerBrand"
         :cta="headerCta"
         :secondary-cta="headerSecondaryCta"
+        :language-options="localeOptions"
+        :language-label="languageLabel"
+        :current-locale="locale"
+        :theme="theme"
+        :theme-toggle-label="themeToggleLabel"
         @brand-click="handleBrandClick"
         @nav-click="handleNavClick"
         @cta-click="handleHeaderCta"
         @secondary-cta-click="handleEditProfileClick"
+        @locale-change="handleLocaleChange"
+        @theme-toggle="toggleTheme"
       />
 
       <div class="content">
@@ -416,8 +595,13 @@ function handleLoginSuccess(payload) {
         @save="handleProfileSave"
       />
 
-      <SiteFooter :brand="footerBrand" :columns="footerColumns" :social-links="socialLinks"
-        :copyright-year="copyrightYear" />
+      <SiteFooter
+        :brand="footerBrand"
+        :columns="footerColumns"
+        :social-links="socialLinks"
+        :social-label="footerSocialLabel"
+        :copyright-text="footerCopy"
+      />
     </div>
   </n-message-provider>
 </template>

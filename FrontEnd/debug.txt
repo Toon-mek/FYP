@@ -1,0 +1,260 @@
+<script setup>
+import { computed, reactive, ref, watch } from 'vue'
+import {
+  NAlert,
+  NButton,
+  NForm,
+  NFormItem,
+  NInput,
+  NModal,
+  NSpace,
+  NUpload,
+} from 'naive-ui'
+
+const props = defineProps({
+  modelValue: {
+    type: Boolean,
+    default: false,
+  },
+  profile: {
+    type: Object,
+    default: () => ({}),
+  },
+  loading: {
+    type: Boolean,
+    default: false,
+  },
+})
+
+const emit = defineEmits(['update:modelValue', 'save'])
+
+const show = computed({
+  get: () => props.modelValue,
+  set: (value) => emit('update:modelValue', value),
+})
+
+const base = reactive({
+  contactPerson: '',
+  email: '',
+  username: '',
+  phone: '',
+  profileImagePath: '',
+  profileImageUrl: '',
+})
+
+const form = reactive({
+  contactPerson: '',
+  email: '',
+  username: '',
+  phone: '',
+  currentPassword: '',
+  passwordLastDigit: '',
+  newPassword: '',
+  confirmPassword: '',
+  profileImagePreview: '',
+  profileImageData: '',
+  profileImageName: '',
+  removeProfileImage: false,
+})
+
+const passwordState = reactive({
+  verified: false,
+  verifying: false,
+  attempts: 0,
+  method: 'current-password',
+  error: '',
+})
+
+const showFallbackPrompt = computed(
+  () => !passwordState.verified && passwordState.attempts >= 3,
+)
+
+const canEditPassword = computed(() => passwordState.verified)
+
+const currentPasswordFeedback = computed(() => {
+  if (formErrors.currentPassword) {
+    return formErrors.currentPassword
+  }
+  if (passwordState.error) {
+    return passwordState.error
+  }
+  if (passwordState.verified && passwordState.method === 'current-password') {
+    return 'Current password verified.'
+  }
+  return ''
+})
+
+const currentPasswordStatus = computed(() => {
+  if (formErrors.currentPassword || passwordState.error) {
+    return 'error'
+  }
+  if (passwordState.verified && passwordState.method === 'current-password') {
+    return 'success'
+  }
+  return undefined
+})
+
+const fallbackFeedback = computed(() => {
+  if (formErrors.passwordLastDigit) {
+    return formErrors.passwordLastDigit
+  }
+  if (passwordState.method === 'last-digit' && passwordState.verified) {
+    return 'Last digit accepted.'
+  }
+  if (showFallbackPrompt.value) {
+    return 'Unable to verify your current password? Enter the last digit you remember.'
+  }
+  return ''
+})
+
+const fallbackStatus = computed(() => {
+  if (formErrors.passwordLastDigit) {
+    return 'error'
+  }
+  if (passwordState.method === 'last-digit' && passwordState.verified) {
+    return 'success'
+  }
+  return undefined
+})
+
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp'
+const MAX_IMAGE_SIZE = 4 * 1024 * 1024
+const PUBLIC_ASSET_BASE = (() => {
+  const root = API_BASE.replace(/\/api\/?$/, '')
+  if (!root || root === '/') {
+    return '/public_assets/'
+  }
+  return `${root.replace(/\/$/, '')}/public_assets/`
+})()
+
+function resolveProfileImageUrl(path) {
+  if (!path) return ''
+  if (/^https?:\/\/|^data:/i.test(path)) {
+    return path
+  }
+  const normalised = String(path).replace(/^\/+/, '')
+  return `${PUBLIC_ASSET_BASE}${normalised}`
+}
+
+function resolveProfileImageFromSource(source) {
+  const explicit =
+    source?.profileImageUrl ??
+    source?.profileImageURL ??
+    source?.profile_image_url ??
+    source?.avatarUrl ??
+    '';
+  const relative =
+    source?.profileImage ?? source?.profile_image ?? source?.avatarPath ?? '';
+  const url = explicit || (relative ? resolveProfileImageUrl(relative) : '');
+  return { relative, url }
+}
+
+
+const accountId = computed(() => {
+  const profile = props.profile ?? {}
+  return profile.id ?? profile.operatorID ?? null
+})
+
+const profileUploadRef = ref(null)
+
+const formErrors = reactive({})
+const submissionError = reactive({ message: '' })
+
+function resetErrors() {
+  Object.keys(formErrors).forEach((key) => delete formErrors[key])
+  submissionError.message = ''
+  passwordState.error = ''
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('Unable to read the selected image.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function resetPasswordFlow() {
+  passwordState.verified = false
+  passwordState.verifying = false
+  passwordState.attempts = 0
+  passwordState.method = 'current-password'
+  passwordState.error = ''
+  form.currentPassword = ''
+  form.passwordLastDigit = ''
+}
+
+function syncForm(profile) {
+  const source = profile && typeof profile === 'object' ? profile : {}
+  const { relative, url } = resolveProfileImageFromSource(source)
+  base.contactPerson = source.fullName ?? source.contactPerson ?? ''
+  base.email = source.email ?? ''
+  base.username = source.username ?? ''
+  base.phone = source.contactNumber ?? source.phone ?? ''
+  base.profileImagePath = relative
+  base.profileImageUrl = url
+  form.contactPerson = base.contactPerson
+  form.email = base.email
+  form.username = base.username
+  form.phone = base.phone
+  form.profileImagePreview = base.profileImageUrl
+  form.profileImageData = ''
+  form.profileImageName = ''
+  form.removeProfileImage = false
+  resetPasswordFlow()
+  form.newPassword = ''
+  form.confirmPassword = ''
+  resetErrors()
+}
+
+watch(
+  () => props.profile,
+  (value) => {
+    syncForm(value ?? {})
+  },
+  { immediate: true },
+)
+
+watch(show, (visible) => {
+  if (!visible) {
+    form.newPassword = ''
+    form.confirmPassword = ''
+    form.profileImagePreview = base.profileImageUrl
+    form.profileImageData = ''
+    form.profileImageName = ''
+    form.removeProfileImage = false
+    resetPasswordFlow()
+    resetErrors()
+  }
+})
+
+const profileHasPreview = computed(() => Boolean(form.profileImagePreview))
+const hasBaseProfileImage = computed(() => Boolean(base.profileImageUrl))
+const profileInitials = computed(() => {
+  const source = (form.contactPerson || base.contactPerson || form.username || '').trim()
+  return source ? source[0]?.toUpperCase() : ''
+}
+
+const hasNewProfileImage = computed(() => Boolean(form.profileImageData))
+
+async function handleProfileImageChange({ file }) {
+  const rawFile = file?.file ?? file
+  if (!rawFile) {
+    return
+  }
+  if (rawFile.size > MAX_IMAGE_SIZE) {
+    submissionError.message = 'Profile image must be 4MB or smaller.'
+    return
+  }
+  try {
+    const dataUrl = await fileToDataUrl(rawFile)
+    form.profileImageData = dataUrl
+    form.profileImagePreview = dataUrl
+    form.profileImageName = rawFile.name ?? 'profile-photo'
+    form.removeProfileImage = false
+    submissionError.message = ''
+  } catch (error) {
+    submissionError.message =
+      error instanceof Error ? error.message : 'Unable to read the selected image.'

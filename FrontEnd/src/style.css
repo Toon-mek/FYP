@@ -1,11 +1,14 @@
 @import url('https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css');
 
 :root {
+  --color-text-base: #0b1f16;
+  --color-bg-base: #f2f7f4;
+
   font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.6;
   font-weight: 400;
-  color: #0b1f16;
-  background-color: #f2f7f4;
+  color: var(--color-text-base);
+  background-color: var(--color-bg-base);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -23,6 +26,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: linear-gradient(180deg, #f6fbf8, #eaf3ed);
+  color: var(--color-text-base);
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 a {
@@ -33,6 +38,7 @@ a {
   max-width: 1200px;
   margin: 0 auto;
   padding: 3rem 1.5rem 4rem;
+  transition: filter 0.3s ease;
 }
 
 .btn {
@@ -70,4 +76,24 @@ a {
 .btn.ghost:hover {
   transform: translateY(-2px);
   border-color: rgba(244, 249, 246, 0.8);
+}
+
+html[data-theme='dark'] {
+  --color-text-base: #e9f7ef;
+  --color-bg-base: #0f1713;
+  color-scheme: dark;
+}
+
+html[data-theme='dark'] body {
+  background: linear-gradient(180deg, #0c1411, #121d17);
+}
+
+html[data-theme='dark'] #app {
+  filter: invert(0.92) hue-rotate(180deg);
+}
+
+html[data-theme='dark'] img,
+html[data-theme='dark'] video,
+html[data-theme='dark'] svg {
+  filter: invert(1) hue-rotate(180deg);
 }
