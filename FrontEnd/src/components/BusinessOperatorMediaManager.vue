@@ -57,21 +57,57 @@
             <div class="media-upload__card">
               <n-upload
                 multiple
-                list-type="image-card"
+                directory-dnd
                 :file-list="pendingUploadFileInfos"
                 :max="MAX_PENDING_FILES"
                 :accept="SUPPORTED_MEDIA_TYPES.join(',')"
                 :default-upload="false"
                 :on-before-upload="handleMediaFileSelect"
                 :on-remove="handlePendingUploadRemove"
+                :show-file-list="false"
                 @preview="handlePendingPreview"
               >
-                <div class="media-upload__trigger">
-                  <span class="media-upload__trigger-plus">+</span>
-                  <span class="media-upload__trigger-text">Click to Upload</span>
-                </div>
+                <n-upload-dragger class="media-upload__dragger">
+                  <div style="margin-bottom: 12px">
+                    <n-icon size="48" :depth="3">
+                      <ArchiveOutline />
+                    </n-icon>
+                  </div>
+                  <n-text style="font-size: 16px">
+                    Click or drag a file to this area to upload
+                  </n-text>
+                  <n-p depth="3" style="margin: 8px 0 0 0">
+                    Strictly prohibit from uploading sensitive information. For example,
+                    your bank card PIN or your credit card expiry date.
+                  </n-p>
+                </n-upload-dragger>
               </n-upload>
-              <n-divider dashed class="media-upload__divider" />
+              <ul v-if="pendingUploadFileInfos.length" class="media-upload__file-list">
+                <li
+                  v-for="file in pendingUploadFileInfos"
+                  :key="file.id"
+                  class="media-upload__file-item"
+                >
+                  <button
+                    type="button"
+                    class="media-upload__file-link"
+                    @click="handlePendingPreview(file)"
+                  >
+                    {{ file.name }}
+                  </button>
+                  <n-text v-if="file.sizeLabel" depth="3" class="media-upload__file-size">
+                    {{ file.sizeLabel }}
+                  </n-text>
+                  <n-button
+                    text
+                    type="error"
+                    size="tiny"
+                    @click="removePendingMediaFile(file.id)"
+                  >
+                    Remove
+                  </n-button>
+                </li>
+              </ul>
               <n-text depth="3" class="media-hint">
                 {{ MEDIA_VALIDATION_MESSAGE }}
               </n-text>
@@ -472,9 +508,13 @@ import {
   NSpace,
   NTag,
   NText,
+  NIcon,
   NUpload,
+  NUploadDragger,
+  NP,
   useMessage,
 } from 'naive-ui'
+import { ArchiveOutline } from '@vicons/ionicons5'
 
 const props = defineProps({
   apiBase: {
@@ -1012,27 +1052,39 @@ function handlePendingUploadRemove(option) {
 }
 
 function handlePendingPreview(file) {
-  const source = file?.url || file?.thumbnailUrl
-  const mimeType = file?.type || ''
-  const isPdf = mimeType === 'application/pdf' || file?.extension?.toUpperCase() === 'PDF'
+  const pendingMatch =
+    file?.id != null ? newMedia.files.find((item) => item.id === file.id) ?? null : null
+  let resolvedUrl = file?.url || file?.thumbnailUrl || pendingMatch?.previewUrl || ''
+  if (!resolvedUrl && pendingMatch?.file) {
+    const generatedUrl = createPreviewUrl(pendingMatch.file)
+    if (generatedUrl) {
+      pendingMatch.previewUrl = generatedUrl
+      resolvedUrl = generatedUrl
+    }
+  }
+  const mimeType = (file?.type || pendingMatch?.mimeType || '').toLowerCase()
+  const extension = (file?.extension || pendingMatch?.extension || '').toUpperCase()
+  const isPdf = mimeType === 'application/pdf' || extension === 'PDF'
 
   previewImageUrl.value = ''
   previewPdfUrl.value = ''
+  previewSourceUrl.value = ''
 
-  if (source) {
-    previewSourceUrl.value = source
+  if (resolvedUrl) {
+    previewSourceUrl.value = resolvedUrl
     if (isPdf) {
       previewContentType.value = 'pdf'
-      previewPdfUrl.value = source
+      previewPdfUrl.value = resolvedUrl
     } else {
       previewContentType.value = 'image'
-      previewImageUrl.value = source
+      previewImageUrl.value = resolvedUrl
     }
     previewModalVisible.value = true
-    return
+  } else {
+    previewModalVisible.value = false
   }
 
-  previewModalVisible.value = false
+  return false
 }
 
 function openExistingAssetPreview(asset) {
@@ -1426,6 +1478,62 @@ function removeMediaAsset(target) {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
+}
+
+.media-upload__dragger {
+  border: 1px dashed rgba(15, 23, 42, 0.18);
+  border-radius: 12px;
+  padding: 36px 24px;
+  background: rgba(24, 160, 88, 0.04);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.media-upload__dragger :deep(.n-upload-dragger-icon) {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.media-upload__dragger:hover {
+  border-color: rgba(24, 160, 88, 0.4);
+  background: rgba(24, 160, 88, 0.08);
+}
+
+.media-upload__file-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.media-upload__file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: #1f2d3d;
+}
+
+.media-upload__file-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #18a058;
+  cursor: pointer;
+  text-align: left;
+}
+
+.media-upload__file-link:hover,
+.media-upload__file-link:focus {
+  text-decoration: underline;
+  outline: none;
+}
+
+.media-upload__file-size {
+  font-size: 12px;
 }
 
 .media-upload__card :deep(.n-upload-trigger.n-upload-trigger--image-card) {
@@ -1855,6 +1963,9 @@ function removeMediaAsset(target) {
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.05);
 }
 </style>
+
+
+
 
 
 

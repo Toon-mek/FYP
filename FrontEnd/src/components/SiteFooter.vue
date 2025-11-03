@@ -7,6 +7,7 @@ const props = defineProps({
       title: 'Travel that uplifts Malaysia',
       description:
         'Join a community of explorers committed to protecting ecosystems and honouring local wisdom.',
+      logo: null,
     }),
   },
   columns: {
@@ -46,9 +47,13 @@ const props = defineProps({
       { label: 'YouTube', href: '#' },
     ],
   },
-  copyrightYear: {
-    type: Number,
-    default: () => new Date().getFullYear(),
+  socialLabel: {
+    type: String,
+    default: () => 'Connect with us:',
+  },
+  copyrightText: {
+    type: String,
+    default: () => '',
   },
 })
 </script>
@@ -57,7 +62,13 @@ const props = defineProps({
   <footer class="site-footer">
     <div class="footer-top">
       <div class="footer-brand">
-        <span class="brand-mark">{{ props.brand.initials }}</span>
+        <img
+          v-if="props.brand.logo"
+          class="brand-logo"
+          :src="props.brand.logo"
+          :alt="props.brand.title"
+        />
+        <span v-else class="brand-mark">{{ props.brand.initials }}</span>
         <div>
           <p class="footer-title">{{ props.brand.title }}</p>
           <p class="footer-subtitle">{{ props.brand.description }}</p>
@@ -78,12 +89,12 @@ const props = defineProps({
 
     <div class="footer-bottom">
       <div v-if="props.socialLinks.length" class="footer-social">
-        <span>Connect with us:</span>
+        <span>{{ props.socialLabel }}</span>
         <a v-for="link in props.socialLinks" :key="link.label" :href="link.href">
           {{ link.label }}
         </a>
       </div>
-      <p class="footer-copy">© {{ props.copyrightYear }} Malaysia Sustainable Travel. All rights reserved.</p>
+      <p class="footer-copy">{{ props.copyrightText }}</p>
     </div>
   </footer>
 </template>
@@ -111,6 +122,14 @@ const props = defineProps({
   display: flex;
   gap: 1rem;
   max-width: 320px;
+}
+
+.brand-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  object-fit: cover;
+  box-shadow: 0 6px 14px rgba(15, 59, 39, 0.35);
 }
 
 .brand-mark {

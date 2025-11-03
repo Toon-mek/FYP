@@ -1,10 +1,19 @@
 <script setup>
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
-import { NButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
+import { NAvatar, NButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
 import AdminListingVerification from './admin/AdminListingVerification.vue'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
+import { extractProfileImage } from '../utils/profileImage.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const avatarFallbackStyle = {
+  background: 'var(--primary-color-hover)',
+  color: 'white',
+}
+
+function deriveAvatarInfo(source) {
+  return extractProfileImage(source)
+}
 const message = useMessage()
 const props = defineProps({
   currentAdminId: {
@@ -32,11 +41,16 @@ const adminProfile = computed(() => {
       .join('')
       .slice(0, 2)
       .toUpperCase()
+  const { relative: derivedAvatarPath, url: derivedAvatarUrl } = deriveAvatarInfo(source)
+  const avatarUrl = derivedAvatarUrl || source.avatarUrl || ''
+  const avatarPath = derivedAvatarPath || source.avatarPath || ''
   return {
     ...defaultAdminProfile,
     ...source,
     displayName,
     initials,
+    avatarUrl,
+    avatarPath,
   }
 })
 
@@ -539,10 +553,22 @@ watch(showUserModal, (visible) => {
   <n-layout id="admin-top" has-sider style="min-height: 100vh;">
     <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="240" show-trigger="bar">
       <n-space vertical size="small" style="padding: 18px 16px;">
-        <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">
-          {{ adminProfile.displayName }}
-        </n-gradient-text>
-        <n-text v-if="adminProfile.email" depth="3">{{ adminProfile.email }}</n-text>
+        <n-space align="center" size="small">
+          <n-avatar
+            round
+            size="large"
+            :src="adminProfile.avatarUrl || undefined"
+            :style="adminProfile.avatarUrl ? undefined : avatarFallbackStyle"
+          >
+            <template v-if="!adminProfile.avatarUrl">{{ adminProfile.initials }}</template>
+          </n-avatar>
+          <div>
+            <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">
+              {{ adminProfile.displayName }}
+            </n-gradient-text>
+            <n-text v-if="adminProfile.email" depth="3">{{ adminProfile.email }}</n-text>
+          </div>
+        </n-space>
         <n-text depth="3">Manage modules</n-text>
       </n-space>
       <div style="padding: 0 8px;">

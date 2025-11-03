@@ -28,6 +28,7 @@ import BusinessOperatorGuidelines from "./BusinessOperatorGuidelines.vue"
 import BusinessOperatorManageListings from "./BusinessOperatorManageListings.vue"
 import BusinessOperatorMediaManager from "./BusinessOperatorMediaManager.vue"
 import BusinessOperatorUploadInfo from "./BusinessOperatorUploadInfo.vue"
+import { extractProfileImage } from "../utils/profileImage.js"
 
 const props = defineProps({
   operator: {
@@ -46,6 +47,14 @@ const props = defineProps({
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api"
 const COLLAPSED_LOGO_SRC = "/Tourism Operator Hub.png"
+const avatarFallbackStyle = {
+  background: "var(--primary-color-hover)",
+  color: "white",
+}
+
+function deriveAvatarInfo(source) {
+  return extractProfileImage(source)
+}
 
 const defaultOperator = {
   fullName: "Operator",
@@ -112,11 +121,16 @@ const operator = computed(() => {
       .join("")
       .slice(0, 2)
       .toUpperCase()
+  const { relative: derivedAvatarPath, url: derivedAvatarUrl } = deriveAvatarInfo(incoming)
+  const avatarUrl = derivedAvatarUrl || incoming.avatarUrl || ""
+  const avatarPath = derivedAvatarPath || incoming.avatarPath || ""
 
   return {
     ...incoming,
     displayName,
     initials,
+    avatarUrl,
+    avatarPath,
   }
 })
 
@@ -638,8 +652,13 @@ function cryptoRandomId() {
           <div class="operator-header__card">
             <div class="operator-header__identity-block">
               <div class="operator-header__identity">
-                <n-avatar round size="large" style="background: var(--primary-color-hover); color: white;">
-                  {{ operator.initials }}
+                <n-avatar
+                  round
+                  size="large"
+                  :src="operator.avatarUrl || undefined"
+                  :style="operator.avatarUrl ? undefined : avatarFallbackStyle"
+                >
+                  <template v-if="!operator.avatarUrl">{{ operator.initials }}</template>
                 </n-avatar>
                 <div class="operator-header__details">
                   <n-text depth="3">Hello, tourism operator</n-text>

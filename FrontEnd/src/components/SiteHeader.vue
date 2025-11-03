@@ -16,6 +16,7 @@ const props = defineProps({
       name: 'Malaysia Sustainable Travel',
       tagline: 'Explore with care',
       href: '#hero',
+      logo: null,
     }),
   },
   cta: {
@@ -29,15 +30,41 @@ const props = defineProps({
     type: Object,
     default: () => null,
   },
+  languageOptions: {
+    type: Array,
+    default: () => [],
+  },
+  languageLabel: {
+    type: String,
+    default: () => 'Language',
+  },
+  currentLocale: {
+    type: String,
+    default: () => 'en',
+  },
+  theme: {
+    type: String,
+    default: () => 'light',
+  },
+  themeToggleLabel: {
+    type: String,
+    default: () => 'Toggle theme',
+  },
 })
 
-const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'nav-click'])
+const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'nav-click', 'locale-change', 'theme-toggle'])
 </script>
 
 <template>
   <header class="site-header">
     <a class="brand" :href="props.brand.href" @click.prevent="emit('brand-click')">
-      <span class="brand-mark">{{ props.brand.initials }}</span>
+      <img
+        v-if="props.brand.logo"
+        class="brand-logo"
+        :src="props.brand.logo"
+        :alt="props.brand.name"
+      />
+      <span v-else class="brand-mark">{{ props.brand.initials }}</span>
       <span class="brand-text">
         <span class="brand-name">{{ props.brand.name }}</span>
         <span class="brand-tagline">{{ props.brand.tagline }}</span>
@@ -52,6 +79,28 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
     </nav>
 
     <div class="header-actions">
+      <button
+        type="button"
+        class="btn outline header-cta theme-toggle"
+        @click="emit('theme-toggle')"
+      >
+        <span class="theme-toggle__label">{{ props.themeToggleLabel }}</span>
+      </button>
+
+      <div v-if="props.languageOptions.length" class="language-selector">
+        <label class="language-label" for="site-language-picker">{{ props.languageLabel }}</label>
+        <select
+          id="site-language-picker"
+          class="language-select"
+          :value="props.currentLocale"
+          @change="emit('locale-change', $event.target.value)"
+        >
+          <option v-for="option in props.languageOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
+
       <component
         :is="props.secondaryCta?.href ? 'a' : 'button'"
         v-if="props.secondaryCta?.label"
@@ -96,6 +145,14 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
   gap: 0.75rem;
   text-decoration: none;
   color: inherit;
+}
+
+.brand-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  object-fit: cover;
+  box-shadow: 0 6px 14px rgba(15, 59, 39, 0.2);
 }
 
 .brand-mark {
@@ -159,6 +216,43 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
   white-space: nowrap;
 }
 
+.theme-toggle {
+  gap: 0.4rem;
+  padding-inline: 1.25rem;
+}
+
+.theme-toggle__label {
+  font-size: 0.9rem;
+}
+
+.language-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.language-label {
+  font-size: 0.85rem;
+  color: #5b7c67;
+}
+
+.language-select {
+  border-radius: 999px;
+  border: 1px solid #cfd9d3;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  color: #0b3b26;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: #1c6f4f;
+  box-shadow: 0 0 0 2px rgba(28, 111, 79, 0.2);
+}
+
 @media (max-width: 720px) {
   .site-header {
     flex-wrap: wrap;
@@ -172,6 +266,11 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
   }
 
   .header-actions {
+    justify-content: center;
+  }
+
+  .language-selector {
+    flex-wrap: wrap;
     justify-content: center;
   }
 }

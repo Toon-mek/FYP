@@ -36,6 +36,53 @@ const detailLoading = ref(false)
 const showDetailDrawer = ref(false)
 const remarksDraft = ref('')
 const decisionLoading = ref(false)
+const pdfPreview = reactive({
+  show: false,
+  media: null,
+})
+
+function isImageMedia(media) {
+  if (!media) return true
+  const type = String(media.type ?? '').toLowerCase()
+  const mime = String(media.mime ?? '').toLowerCase()
+  const filename = String(media.filename ?? media.url ?? '').toLowerCase()
+
+  if (type === 'image') return true
+  if (type.startsWith('image/')) return true
+  if (mime.startsWith('image/')) return true
+  return /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/.test(filename)
+}
+
+function isPdfMedia(media) {
+  if (!media) return false
+  const type = String(media.type ?? '').toLowerCase()
+  const mime = String(media.mime ?? '').toLowerCase()
+  const filename = String(media.filename ?? media.url ?? '').toLowerCase()
+  return type === 'pdf' || mime === 'application/pdf' || filename.endsWith('.pdf')
+}
+
+function openMedia(url) {
+  if (!url) return
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function previewPdf(media) {
+  if (!media?.url) return
+  pdfPreview.media = media
+  pdfPreview.show = true
+}
+
+function closePdfPreview() {
+  pdfPreview.show = false
+  pdfPreview.media = null
+}
+
+function buildPdfViewerSrc(url) {
+  if (!url) return ''
+  const hasHash = url.includes('#')
+  const separator = hasHash ? '&' : '#'
+  return `${url}${separator}toolbar=1&navpanes=0&view=FitH`
+}
 
 const columns = computed(() => [
   {
@@ -426,14 +473,43 @@ function statusBadgeType(status) {
             </section>
 
             <section class="listing-verification__section">
-              <h3>Image gallery</h3>
+              <h3>Submitted media</h3>
               <template v-if="selectedListing.images?.length">
-                <n-space wrap size="small" class="image-grid">
-                  <n-image v-for="image in selectedListing.images" :key="image.id" :src="image.url"
-                    :alt="image.caption || selectedListing.businessName" width="140" lazy />
+                <n-space wrap size="small" class="media-grid">
+                  <template v-for="media in selectedListing.images" :key="media.id ?? media.url">
+                    <n-image
+                      v-if="isImageMedia(media)"
+                      :src="media.url"
+                      :alt="media.caption || media.filename || selectedListing.businessName"
+                      width="140"
+                      lazy
+                    />
+                    <div v-else class="pdf-preview-card" @click="previewPdf(media)">
+                      <iframe
+                        v-if="isPdfMedia(media)"
+                        :src="buildPdfViewerSrc(media.url)"
+                        class="pdf-preview-card__frame"
+                        title="PDF preview"
+                      />
+                      <div v-else class="pdf-preview-card__fallback">
+                        <span class="pdf-preview-card__icon">PDF</span>
+                        <span class="pdf-preview-card__name">
+                          {{ media.filename || 'PDF document' }}
+                        </span>
+                      </div>
+                      <div class="pdf-preview-card__footer">
+                        <span class="pdf-preview-card__name">
+                          {{ media.filename || media.caption || 'Document' }}
+                        </span>
+                        <n-button size="tiny" tertiary type="primary" @click.stop="openMedia(media.url)">
+                          Open
+                        </n-button>
+                      </div>
+                    </div>
+                  </template>
                 </n-space>
               </template>
-              <n-empty v-else description="No images uploaded for this listing." />
+              <n-empty v-else description="No media uploads for this listing." />
             </section>
 
             <section class="listing-verification__section">
@@ -451,6 +527,40 @@ function statusBadgeType(status) {
         </n-spin>
       </n-drawer-content>
     </n-drawer>
+    <n-modal
+      v-model:show="pdfPreview.show"
+      preset="card"
+      style="max-width: 820px; width: 90%;"
+      :mask-closable="false"
+      :trap-focus="false"
+      @after-leave="closePdfPreview"
+    >
+      <template #header>
+        {{ pdfPreview.media?.filename || pdfPreview.media?.caption || 'PDF preview' }}
+      </template>
+      <div class="pdf-preview-modal">
+        <iframe
+          v-if="pdfPreview.media"
+          :src="buildPdfViewerSrc(pdfPreview.media.url)"
+          class="pdf-preview-modal__frame"
+          title="PDF preview"
+        />
+        <div v-else class="pdf-preview-modal__fallback">
+          <p>Preview unavailable. You can open the document in a new tab.</p>
+          <n-button type="primary" @click="openMedia(pdfPreview.media?.url)">
+            Open original
+          </n-button>
+        </div>
+      </div>
+      <template #footer>
+        <n-space justify="end">
+          <n-button quaternary @click="closePdfPreview">Close</n-button>
+          <n-button type="primary" @click="openMedia(pdfPreview.media?.url)">
+            Open original
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -563,8 +673,85 @@ function statusBadgeType(status) {
   color: #111827;
 }
 
-.image-grid :deep(.n-image) {
+.media-grid :deep(.n-image) {
   border-radius: 8px;
   overflow: hidden;
+}
+
+.pdf-preview-card {
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 8px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.pdf-preview-card__frame {
+  width: 100%;
+  height: 180px;
+  border: none;
+  border-radius: 4px;
+  background: #f8fafc;
+  pointer-events: none;
+}
+
+.pdf-preview-card__fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 6px;
+  color: #475569;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 12px;
+}
+
+.pdf-preview-card__icon {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.08em;
+}
+
+.pdf-preview-card__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pdf-preview-card__name {
+  font-size: 0.78rem;
+  color: #334155;
+  word-break: break-word;
+}
+
+.pdf-preview-modal {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+.pdf-preview-modal__frame {
+  width: 100%;
+  min-height: 70vh;
+  border: none;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.pdf-preview-modal__fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  color: #475569;
 }
 </style>

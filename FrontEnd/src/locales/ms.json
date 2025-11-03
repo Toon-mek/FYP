@@ -1,0 +1,38 @@
+﻿{
+  "language": {
+    "label": "Bahasa",
+    "en": "Inggeris",
+    "zh": "Cina",
+    "ms": "Bahasa Melayu",
+    "ta": "Tamil"
+  },
+  "nav": {
+    "about": "Tentang",
+    "destinations": "Destinasi",
+    "tips": "Tip",
+    "newsletter": "Surat berita",
+    "calendar": "Kalendar",
+    "resorts": "Resort",
+    "upcoming": "Akan datang",
+    "uploadInfo": "Muat naik maklumat",
+    "mediaManager": "Pengurus Media",
+    "manageListings": "Urus Senarai"
+  },
+  "header": {
+    "brandName": "Pelancongan Lestari Malaysia",
+    "tagline": "Terokai dengan penuh prihatin",
+    "cta": "Mula merancang",
+    "secondaryCta": "Sunting profil"
+  },
+  "auth": {
+    "logout": "Log keluar"
+  },
+  "profile": {
+    "edit": "Sunting profil"
+  },
+  "theme": {
+    "label": "Tema",
+    "light": "Mod cerah",
+    "dark": "Mod gelap"
+  }
+}

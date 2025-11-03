@@ -1,0 +1,150 @@
+﻿{
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "zh": "Chinese",
+    "ms": "Malay",
+    "ta": "Tamil"
+  },
+  "nav": {
+    "about": "About",
+    "destinations": "Destinations",
+    "tips": "Tips",
+    "newsletter": "Newsletter",
+    "calendar": "Calendar",
+    "resorts": "Resorts",
+    "upcoming": "Upcoming",
+    "uploadInfo": "Upload Info",
+    "mediaManager": "Media Manager",
+    "manageListings": "Manage Listings"
+  },
+  "header": {
+    "brandName": "Malaysia Sustainable Travel",
+    "tagline": "Explore with care",
+    "cta": "Start planning",
+    "secondaryCta": "Edit profile"
+  },
+  "auth": {
+    "logout": "Log out"
+  },
+  "profile": {
+    "edit": "Edit profile"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light mode",
+    "dark": "Dark mode"
+  },
+  "footer": {
+    "brand": {
+      "name": "Malaysia Sustainable Travel",
+      "title": "Travel that uplifts Malaysia",
+      "description": "Join a community of explorers committed to protecting ecosystems and honouring local wisdom."
+    },
+    "columns": [
+      {
+        "title": "Plan your trip",
+        "links": [
+          { "label": "Eco-friendly itineraries", "href": "#" },
+          { "label": "Responsible tour partners", "href": "#" },
+          { "label": "Community homestays", "href": "#" }
+        ]
+      },
+      {
+        "title": "Learn & inspire",
+        "links": [
+          { "label": "Sustainable travel guides", "href": "#" },
+          { "label": "Wildlife conservation stories", "href": "#" },
+          { "label": "Climate action toolkit", "href": "#" }
+        ]
+      },
+      {
+        "title": "Support",
+        "links": [
+          { "label": "About the initiative", "href": "#" },
+          { "label": "Volunteer programmes", "href": "#" },
+          { "label": "Contact our team", "href": "#" }
+        ]
+      }
+    ],
+    "socialLabel": "Connect with us:",
+    "socialLinks": [
+      { "label": "Instagram", "href": "#" },
+      { "label": "Facebook", "href": "#" },
+      { "label": "YouTube", "href": "#" }
+    ],
+    "copy": "© {year} {brand}. All rights reserved."
+  },
+  "home": {
+    "hero": {
+      "tagline": "Discover Malaysia responsibly",
+      "title": "Malaysia Sustainable Travel",
+      "subtitle": "Craft eco-forward journeys that celebrate biodiversity, protect cultural heritage, and leave a gentle footprint.",
+      "primaryCta": "Explore destinations",
+      "secondaryCta": "Learn sustainable tips"
+    },
+    "highlightsSection": {
+      "title": "Why travel sustainably in Malaysia?",
+      "subtitle": "Sustainable choices protect lush rainforests, coral reefs, and vibrant cultures that make Malaysia extraordinary."
+    },
+    "highlights": [
+      {
+        "title": "Eco-certified stays",
+        "description": "Stay in accommodations that prioritize energy efficiency, water conservation, and positive community impact."
+      },
+      {
+        "title": "Low-impact adventures",
+        "description": "Choose guided experiences that protect fragile ecosystems while showcasing Malaysia's natural wonders."
+      },
+      {
+        "title": "Support local communities",
+        "description": "Spend with intention to preserve cultural heritage and uplift indigenous storytellers and artisans."
+      }
+    ],
+    "destinationsSection": {
+      "title": "Featured eco-destinations",
+      "subtitle": "Start with curated escapes that meet conservation goals and uplift local champions."
+    },
+    "destinations": [
+      {
+        "name": "Perhentian Islands",
+        "location": "Terengganu",
+        "description": "Crystal-clear waters, thriving coral gardens, and marine conservation projects led by local NGOs.",
+        "tags": ["Marine sanctuary", "Community tours", "No-plastic pledge"]
+      },
+      {
+        "name": "Belum Rainforest Reserve",
+        "location": "Perak",
+        "description": "Ancient rainforest teeming with wildlife, eco-lodges, and guided treks with Orang Asli naturalists.",
+        "tags": ["Rainforest", "Wildlife watching", "Indigenous guides"]
+      },
+      {
+        "name": "Kota Kinabalu Wetlands",
+        "location": "Sabah",
+        "description": "Urban mangrove haven offering boardwalk trails and birdwatching while funding habitat restoration.",
+        "tags": ["Mangrove trails", "Birding", "Restoration"]
+      }
+    ],
+    "tipsSection": {
+      "kicker": "Responsible travel checklist",
+      "title": "Small changes, lasting impact",
+      "subtitle": "Empower your itinerary with mindful habits that protect wildlife, steward resources, and amplify local voices."
+    },
+    "travelTips": [
+      "Pack reef-safe sunscreen and reusable essentials for plastic-free adventures.",
+      "Offset your carbon footprint by supporting Malaysian reforestation programmes.",
+      "Respect cultural norms and learn simple Malay phrases to connect with hosts.",
+      "Book with tour operators certified by Travelife or the Global Sustainable Tourism Council."
+    ],
+    "newsletter": {
+      "title": "Plan your sustainable escape",
+      "subtitle": "Be the first to know about new eco-stays, volunteer projects, and slow travel itineraries across Malaysia.",
+      "form": {
+        "label": "Email address",
+        "placeholder": "Enter your email",
+        "cta": "Notify me"
+      },
+      "finePrint": "We'll share only trip ideas and meaningful impact stories - no spam, ever."
+    }
+  }
+}

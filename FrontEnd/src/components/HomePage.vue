@@ -1,78 +1,42 @@
 <script setup>
-const highlights = [
-  {
-    title: 'Eco-certified stays',
-    description:
-      'Stay in accommodations that prioritize energy efficiency, water conservation, and positive community impact.',
-  },
-  {
-    title: 'Low-impact adventures',
-    description:
-      'Choose guided experiences that protect fragile ecosystems while showcasing Malaysia\'s natural wonders.',
-  },
-  {
-    title: 'Support local communities',
-    description:
-      'Spend with intention to preserve cultural heritage and uplift indigenous storytellers and artisans.',
-  },
-]
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
-const destinations = [
-  {
-    name: 'Perhentian Islands',
-    location: 'Terengganu',
-    description:
-      'Crystal-clear waters, thriving coral gardens, and marine conservation projects led by local NGOs.',
-    tags: ['Marine sanctuary', 'Community tours', 'No-plastic pledge'],
-  },
-  {
-    name: 'Belum Rainforest Reserve',
-    location: 'Perak',
-    description:
-      'Ancient rainforest teeming with wildlife, eco-lodges, and guided treks with Orang Asli naturalists.',
-    tags: ['Rainforest', 'Wildlife watching', 'Indigenous guides'],
-  },
-  {
-    name: 'Kota Kinabalu Wetlands',
-    location: 'Sabah',
-    description:
-      'Urban mangrove haven offering boardwalk trails and birdwatching while funding habitat restoration.',
-    tags: ['Mangrove trails', 'Birding', 'Restoration'],
-  },
-]
+const { t, tm } = useI18n()
 
-const travelTips = [
-  'Pack reef-safe sunscreen and reusable essentials for plastic-free adventures.',
-  'Offset your carbon footprint by supporting Malaysian reforestation programmes.',
-  'Respect cultural norms and learn simple Malay phrases to connect with hosts.',
-  'Book with tour operators certified by Travelife or the Global Sustainable Tourism Council.',
-]
-
+const hero = computed(() => tm('home.hero') ?? {})
+const highlights = computed(() => tm('home.highlights') ?? [])
+const highlightsHeader = computed(() => tm('home.highlightsSection') ?? {})
+const destinations = computed(() => tm('home.destinations') ?? [])
+const destinationsHeader = computed(() => tm('home.destinationsSection') ?? {})
+const tipsSection = computed(() => tm('home.tipsSection') ?? {})
+const travelTips = computed(() => tm('home.travelTips') ?? [])
+const newsletter = computed(() => tm('home.newsletter') ?? {})
+const newsletterForm = computed(() => tm('home.newsletter.form') ?? {})
+const finePrint = computed(() => t('home.newsletter.finePrint'))
 </script>
 
 <template>
   <main class="home">
     <section class="hero" id="hero">
       <div class="hero-surface">
-        <p class="hero-tag">Discover Malaysia responsibly</p>
-        <h1>Malaysia Sustainable Travel</h1>
+        <p class="hero-tag">{{ hero.tagline }}</p>
+        <h1>{{ hero.title }}</h1>
         <p class="hero-subtitle">
-          Craft eco-forward journeys that celebrate biodiversity, protect cultural heritage, and leave a gentle
-          footprint.
+          {{ hero.subtitle }}
         </p>
         <div class="hero-actions">
-          <a class="btn primary" href="#destinations">Explore destinations</a>
-          <a class="btn ghost" href="#tips">Learn sustainable tips</a>
+          <a class="btn primary" href="#destinations">{{ hero.primaryCta }}</a>
+          <a class="btn ghost" href="#tips">{{ hero.secondaryCta }}</a>
         </div>
       </div>
     </section>
 
     <section class="panel highlights" id="about">
       <header class="panel-header">
-        <h2>Why travel sustainably in Malaysia?</h2>
+        <h2>{{ highlightsHeader.title }}</h2>
         <p>
-          Sustainable choices protect lush rainforests, coral reefs, and vibrant cultures that make Malaysia
-          extraordinary.
+          {{ highlightsHeader.subtitle }}
         </p>
       </header>
       <div class="grid">
@@ -85,8 +49,8 @@ const travelTips = [
 
     <section class="panel destinations" id="destinations">
       <header class="panel-header">
-        <h2>Featured eco-destinations</h2>
-        <p>Start with curated escapes that meet conservation goals and uplift local champions.</p>
+        <h2>{{ destinationsHeader.title }}</h2>
+        <p>{{ destinationsHeader.subtitle }}</p>
       </header>
       <div class="grid">
         <article v-for="destination in destinations" :key="destination.name" class="destination-card">
@@ -105,11 +69,10 @@ const travelTips = [
     <section class="panel tips" id="tips">
       <div class="tips-layout">
         <div>
-          <p class="panel-kicker">Responsible travel checklist</p>
-          <h2>Small changes, lasting impact</h2>
+          <p class="panel-kicker">{{ tipsSection.kicker }}</p>
+          <h2>{{ tipsSection.title }}</h2>
           <p>
-            Empower your itinerary with mindful habits that protect wildlife, steward resources, and amplify local
-            voices.
+            {{ tipsSection.subtitle }}
           </p>
         </div>
         <ul class="tips-list">
@@ -120,16 +83,16 @@ const travelTips = [
 
     <section class="panel cta" id="newsletter">
       <div class="cta-card">
-        <h2>Plan your sustainable escape</h2>
+        <h2>{{ newsletter.title }}</h2>
         <p>
-          Be the first to know about new eco-stays, volunteer projects, and slow travel itineraries across Malaysia.
+          {{ newsletter.subtitle }}
         </p>
         <form class="cta-form" novalidate>
-          <label class="sr-only" for="cta-email">Email address</label>
-          <input id="cta-email" type="email" placeholder="Enter your email" />
-          <button type="submit" class="btn primary">Notify me</button>
+          <label class="sr-only" for="cta-email">{{ newsletterForm.label }}</label>
+          <input id="cta-email" type="email" :placeholder="newsletterForm.placeholder" />
+          <button type="submit" class="btn primary">{{ newsletterForm.cta }}</button>
         </form>
-        <p class="fine-print">We'll share only trip ideas and meaningful impact stories - no spam, ever.</p>
+        <p class="fine-print">{{ finePrint }}</p>
       </div>
     </section>
   </main>

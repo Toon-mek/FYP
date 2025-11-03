@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/password_hint.php';
+require_once __DIR__ . '/../helpers/profile_image.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -43,7 +44,7 @@ try {
 }
 
 $currentStmt = $pdo->prepare(
-    'SELECT password FROM Traveler WHERE travelerID = :id LIMIT 1'
+    'SELECT password, profileImage FROM Traveler WHERE travelerID = :id LIMIT 1'
 );
 $currentStmt->execute([':id' => $travelerId]);
 $currentAccount = $currentStmt->fetch(PDO::FETCH_ASSOC);
@@ -53,6 +54,13 @@ if (!$currentAccount) {
     exit;
 }
 $currentPasswordHash = $currentAccount['password'] ?? null;
+$currentProfileImage = $currentAccount['profileImage'] ?? null;
+$profileImageData = array_key_exists('profileImageData', $payload)
+    ? trim((string)$payload['profileImageData'])
+    : null;
+$removeProfileImage = filter_var($payload['removeProfileImage'] ?? false, FILTER_VALIDATE_BOOLEAN);
+$newProfileImagePath = null;
+$newImageCreated = false;
 
 $fields = [];
 $params = [':id' => $travelerId];
@@ -154,6 +162,27 @@ if (array_key_exists('password', $payload)) {
     storePasswordLastDigit($pdo, 'traveler', $travelerId, $password);
 }
 
+if ($profileImageData !== null && $profileImageData !== '') {
+    try {
+        $newProfileImagePath = saveProfileImageFromData('traveler', $travelerId, $profileImageData);
+        $newImageCreated = true;
+        $fields[] = 'profileImage = :profileImage';
+        $params[':profileImage'] = $newProfileImagePath;
+        $removeProfileImage = false;
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode(['error' => $e->getMessage()]);
+        if ($newProfileImagePath) {
+            deleteProfileImage($newProfileImagePath);
+        }
+        exit;
+    }
+}
+
+if ($removeProfileImage && !$newImageCreated) {
+    $fields[] = 'profileImage = NULL';
+}
+
 if (!$fields) {
     http_response_code(400);
     echo json_encode(['error' => 'No valid changes provided']);
@@ -162,9 +191,30 @@ if (!$fields) {
 
 $sql = 'UPDATE Traveler SET ' . implode(', ', $fields) . ' WHERE travelerID = :id';
 $stmt = $pdo->prepare($sql);
-$stmt->execute($params);
 
-$fetch = $pdo->prepare('SELECT travelerID AS id, username, email, fullName, contactNumber FROM Traveler WHERE travelerID = :id LIMIT 1');
+try {
+    $stmt->execute($params);
+} catch (PDOException $e) {
+    if ($newImageCreated && $newProfileImagePath) {
+        deleteProfileImage($newProfileImagePath);
+    }
+    if ($e->getCode() === '23000') {
+        http_response_code(409);
+        echo json_encode(['error' => 'Email or username is already in use']);
+    } else {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to update profile details']);
+    }
+    exit;
+}
+
+if ($newImageCreated && $currentProfileImage && $currentProfileImage !== $newProfileImagePath) {
+    deleteProfileImage($currentProfileImage);
+} elseif ($removeProfileImage && $currentProfileImage) {
+    deleteProfileImage($currentProfileImage);
+}
+
+$fetch = $pdo->prepare('SELECT travelerID AS id, username, email, fullName, contactNumber, profileImage FROM Traveler WHERE travelerID = :id LIMIT 1');
 $fetch->execute([':id' => $travelerId]);
 $updated = $fetch->fetch();
 
@@ -173,6 +223,8 @@ if (!$updated) {
     echo json_encode(['error' => 'Traveler not found']);
     exit;
 }
+
+$updated['profileImageUrl'] = profileImagePublicUrl($updated['profileImage'] ?? null);
 
 echo json_encode([
     'ok' => true,

@@ -1,5 +1,8 @@
 <?php
+declare(strict_types=1);
+
 require_once __DIR__ . '/../helpers/password_hint.php';
+require_once __DIR__ . '/../helpers/profile_image.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -17,6 +20,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+if (stripos($contentType, 'application/json') === false) {
+    http_response_code(415);
+    echo json_encode(['error' => 'Only JSON payloads are accepted for operator registration']);
+    exit;
+}
+
 $data = json_decode(file_get_contents('php://input'), true);
 if (!is_array($data)) {
     http_response_code(400);
@@ -24,12 +34,12 @@ if (!is_array($data)) {
     exit;
 }
 
-$companyName = trim($data['companyName'] ?? '');
-$contactPerson = trim($data['contactPerson'] ?? '');
-$email = trim($data['email'] ?? '');
-$phone = trim($data['phone'] ?? '');
-$website = trim($data['website'] ?? '');
+$companyName = trim((string)($data['companyName'] ?? ''));
+$contactPerson = trim((string)($data['contactPerson'] ?? ''));
+$email = trim((string)($data['email'] ?? ''));
+$phone = trim((string)($data['phone'] ?? ''));
 $password = (string)($data['password'] ?? '');
+$profileImageData = isset($data['profileImageData']) ? (string)$data['profileImageData'] : null;
 
 if ($companyName === '' || $contactPerson === '' || $email === '' || $password === '') {
     http_response_code(400);
@@ -59,39 +69,71 @@ if ($username === '') {
 
 try {
     $suffix = substr(bin2hex(random_bytes(2)), 0, 4);
-} catch (Exception $e) {
+} catch (Throwable $e) {
     try {
         $suffix = (string)random_int(1000, 9999);
-    } catch (Exception $nested) {
+    } catch (Throwable $nested) {
         $suffix = (string)mt_rand(1000, 9999);
     }
 }
 $username = substr($username, 0, 24) . '_' . $suffix;
 
-$hashed = password_hash($password, PASSWORD_DEFAULT);
+$hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+$profileImagePath = null;
 
 try {
-    $stmt = $pdo->prepare('INSERT INTO TourismOperator (username, email, password, fullName, contactNumber, registeredDate, accountStatus, businessType)
-        VALUES (:username, :email, :password, :fullName, :contactNumber, CURDATE(), "Pending", :businessType)');
+    $pdo->beginTransaction();
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO TourismOperator (username, email, password, fullName, contactNumber, registeredDate, accountStatus, businessType)
+         VALUES (:username, :email, :password, :fullName, :contactNumber, CURDATE(), "Pending", :businessType)'
+    );
     $stmt->execute([
         ':username' => $username,
         ':email' => $email,
-        ':password' => $hashed,
+        ':password' => $hashedPassword,
         ':fullName' => $contactPerson,
         ':contactNumber' => $phone !== '' ? $phone : null,
         ':businessType' => $companyName,
     ]);
 
     $operatorId = (int)$pdo->lastInsertId();
-    if ($operatorId > 0) {
+    if ($operatorId <= 0) {
+        throw new RuntimeException('Unable to determine operator identifier.');
+    }
+
+    if ($profileImageData !== null && $profileImageData !== '') {
+        $profileImagePath = saveProfileImageFromData('operator', $operatorId, $profileImageData);
+        $updateImage = $pdo->prepare(
+            'UPDATE TourismOperator SET profileImage = :profileImage WHERE operatorID = :id LIMIT 1'
+        );
+        $updateImage->execute([
+            ':profileImage' => $profileImagePath,
+            ':id' => $operatorId,
+        ]);
+    }
+
+    $pdo->commit();
+
+    try {
         storePasswordLastDigit($pdo, 'operator', $operatorId, $password);
+    } catch (Throwable $hintError) {
+        error_log('[register_operator] Failed to update password digit hint: ' . $hintError->getMessage());
     }
 
     echo json_encode([
         'ok' => true,
-        'message' => 'Application submitted. We will get in touch soon.',
+        'message' => 'Application submitted.',
+        'profileImage' => $profileImagePath,
+        'operatorId' => $operatorId,
     ]);
 } catch (PDOException $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    if ($profileImagePath) {
+        deleteProfileImage($profileImagePath);
+    }
     if ($e->getCode() === '23000') {
         http_response_code(409);
         echo json_encode(['error' => 'Email is already registered']);
@@ -99,4 +141,14 @@ try {
         http_response_code(500);
         echo json_encode(['error' => 'Database error', 'details' => $e->getMessage()]);
     }
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    if ($profileImagePath) {
+        deleteProfileImage($profileImagePath);
+    }
+    $status = $e instanceof InvalidArgumentException ? 400 : 500;
+    http_response_code($status);
+    echo json_encode(['error' => $e->getMessage()]);
 }
