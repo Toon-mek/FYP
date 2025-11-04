@@ -13,6 +13,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+const SESSION_HISTORY_LIMIT = 5;
+
 try {
     /** @var PDO $pdo */
     $pdo = require __DIR__ . '/../../config/db.php';
@@ -43,7 +45,74 @@ function getUsers(PDO $pdo): void
 {
     $users = [];
 
-    $travelerStmt = $pdo->query('SELECT travelerID, fullName, email, contactNumber, accountStatus FROM Traveler ORDER BY travelerID DESC');
+    $travelerHistoryStmt = $pdo->prepare(
+        sprintf(
+            'SELECT logID, travelerID, loginTimestamp, logoutTimestamp,
+                    TIMESTAMPDIFF(SECOND, loginTimestamp, logoutTimestamp) AS durationSeconds,
+                    ipAddress, deviceInfo
+             FROM TravelerLoginLog
+             WHERE travelerID = :id AND logoutTimestamp IS NOT NULL
+             ORDER BY loginTimestamp DESC
+             LIMIT %d',
+            SESSION_HISTORY_LIMIT
+        )
+    );
+
+    $operatorHistoryStmt = $pdo->prepare(
+        sprintf(
+            'SELECT logID, operatorID, loginTimestamp, logoutTimestamp,
+                    TIMESTAMPDIFF(SECOND, loginTimestamp, logoutTimestamp) AS durationSeconds,
+                    ipAddress, deviceInfo
+             FROM OperatorLoginLog
+             WHERE operatorID = :id AND logoutTimestamp IS NOT NULL
+             ORDER BY loginTimestamp DESC
+             LIMIT %d',
+            SESSION_HISTORY_LIMIT
+        )
+    );
+
+    $adminHistoryStmt = $pdo->prepare(
+        sprintf(
+            'SELECT logID, adminID, loginTimestamp, logoutTimestamp,
+                    TIMESTAMPDIFF(SECOND, loginTimestamp, logoutTimestamp) AS durationSeconds,
+                    ipAddress, deviceInfo
+             FROM AdminLoginLog
+             WHERE adminID = :id AND logoutTimestamp IS NOT NULL
+             ORDER BY loginTimestamp DESC
+             LIMIT %d',
+            SESSION_HISTORY_LIMIT
+        )
+    );
+
+    $travelerStmt = $pdo->query(
+        'SELECT
+            t.travelerID,
+            t.fullName,
+            t.email,
+            t.contactNumber,
+            t.accountStatus,
+            log.loginTimestamp AS lastLoginAt,
+            log.logoutTimestamp AS lastLogoutAt,
+            log.isActive AS lastIsActive,
+            log.ipAddress AS lastIpAddress,
+            log.deviceInfo AS lastDeviceInfo
+         FROM Traveler t
+         LEFT JOIN (
+            SELECT ranked.travelerID,
+                   ranked.loginTimestamp,
+                   ranked.logoutTimestamp,
+                   ranked.isActive,
+                   ranked.ipAddress,
+                   ranked.deviceInfo
+            FROM (
+                SELECT tl.*,
+                       ROW_NUMBER() OVER (PARTITION BY tl.travelerID ORDER BY tl.loginTimestamp DESC, tl.logID DESC) AS rn
+                FROM TravelerLoginLog tl
+            ) ranked
+            WHERE ranked.rn = 1
+         ) log ON log.travelerID = t.travelerID
+         ORDER BY t.travelerID DESC'
+    );
     while ($row = $travelerStmt->fetch()) {
         $users[] = [
             'id' => (int) $row['travelerID'],
@@ -54,10 +123,45 @@ function getUsers(PDO $pdo): void
             'status' => $row['accountStatus'] ?? 'Pending',
             'phone' => $row['contactNumber'] ?? '',
             'businessType' => null,
+            'lastLoginAt' => $row['lastLoginAt'] ?? null,
+            'lastLogoutAt' => $row['lastLogoutAt'] ?? null,
+            'activeSession' => isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null,
+            'lastIpAddress' => $row['lastIpAddress'] ?? null,
+            'lastDeviceInfo' => $row['lastDeviceInfo'] ?? null,
+            'sessionHistory' => fetchSessionHistory($travelerHistoryStmt, (int) $row['travelerID']),
         ];
     }
 
-    $operatorStmt = $pdo->query('SELECT operatorID, fullName, email, contactNumber, businessType, accountStatus FROM TourismOperator ORDER BY operatorID DESC');
+    $operatorStmt = $pdo->query(
+        'SELECT
+            o.operatorID,
+            o.fullName,
+            o.email,
+            o.contactNumber,
+            o.businessType,
+            o.accountStatus,
+            log.loginTimestamp AS lastLoginAt,
+            log.logoutTimestamp AS lastLogoutAt,
+            log.isActive AS lastIsActive,
+            log.ipAddress AS lastIpAddress,
+            log.deviceInfo AS lastDeviceInfo
+         FROM TourismOperator o
+         LEFT JOIN (
+            SELECT ranked.operatorID,
+                   ranked.loginTimestamp,
+                   ranked.logoutTimestamp,
+                   ranked.isActive,
+                   ranked.ipAddress,
+                   ranked.deviceInfo
+            FROM (
+                SELECT ol.*,
+                       ROW_NUMBER() OVER (PARTITION BY ol.operatorID ORDER BY ol.loginTimestamp DESC, ol.logID DESC) AS rn
+                FROM OperatorLoginLog ol
+            ) ranked
+            WHERE ranked.rn = 1
+         ) log ON log.operatorID = o.operatorID
+         ORDER BY o.operatorID DESC'
+    );
     while ($row = $operatorStmt->fetch()) {
         $users[] = [
             'id' => (int) $row['operatorID'],
@@ -68,13 +172,43 @@ function getUsers(PDO $pdo): void
             'status' => $row['accountStatus'] ?? 'Pending',
             'phone' => $row['contactNumber'] ?? '',
             'businessType' => $row['businessType'] ?? '',
+            'lastLoginAt' => $row['lastLoginAt'] ?? null,
+            'lastLogoutAt' => $row['lastLogoutAt'] ?? null,
+            'activeSession' => isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null,
+            'lastIpAddress' => $row['lastIpAddress'] ?? null,
+            'lastDeviceInfo' => $row['lastDeviceInfo'] ?? null,
+            'sessionHistory' => fetchSessionHistory($operatorHistoryStmt, (int) $row['operatorID']),
         ];
     }
 
     $adminStmt = $pdo->query(
-        'SELECT a.adminID, a.fullName, a.email, a.status, ur.roleName
+        'SELECT
+            a.adminID,
+            a.fullName,
+            a.email,
+            a.status,
+            ur.roleName,
+            log.loginTimestamp AS lastLoginAt,
+            log.logoutTimestamp AS lastLogoutAt,
+            log.isActive AS lastIsActive,
+            log.ipAddress AS lastIpAddress,
+            log.deviceInfo AS lastDeviceInfo
          FROM Administrator a
          LEFT JOIN UserRole ur ON ur.roleID = a.roleID
+         LEFT JOIN (
+            SELECT ranked.adminID,
+                   ranked.loginTimestamp,
+                   ranked.logoutTimestamp,
+                   ranked.isActive,
+                   ranked.ipAddress,
+                   ranked.deviceInfo
+            FROM (
+                SELECT al.*,
+                       ROW_NUMBER() OVER (PARTITION BY al.adminID ORDER BY al.loginTimestamp DESC, al.logID DESC) AS rn
+                FROM AdminLoginLog al
+            ) ranked
+            WHERE ranked.rn = 1
+         ) log ON log.adminID = a.adminID
          ORDER BY a.adminID DESC'
     );
     while ($row = $adminStmt->fetch()) {
@@ -87,10 +221,36 @@ function getUsers(PDO $pdo): void
             'status' => $row['status'] ?? 'Active',
             'phone' => null,
             'businessType' => null,
+            'lastLoginAt' => $row['lastLoginAt'] ?? null,
+            'lastLogoutAt' => $row['lastLogoutAt'] ?? null,
+            'activeSession' => isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null,
+            'lastIpAddress' => $row['lastIpAddress'] ?? null,
+            'lastDeviceInfo' => $row['lastDeviceInfo'] ?? null,
+            'sessionHistory' => fetchSessionHistory($adminHistoryStmt, (int) $row['adminID']),
         ];
     }
 
     echo json_encode(['users' => $users]);
+}
+
+function fetchSessionHistory(\PDOStatement $statement, int $id): array
+{
+    $statement->execute([':id' => $id]);
+    $history = [];
+
+    while ($row = $statement->fetch(PDO::FETCH_ASSOC)) {
+        $history[] = [
+            'logId' => isset($row['logID']) ? (int) $row['logID'] : null,
+            'loginTimestamp' => $row['loginTimestamp'] ?? null,
+            'logoutTimestamp' => $row['logoutTimestamp'] ?? null,
+            'durationSeconds' => isset($row['durationSeconds']) ? (int) $row['durationSeconds'] : null,
+            'ipAddress' => $row['ipAddress'] ?? null,
+            'deviceInfo' => $row['deviceInfo'] ?? null,
+        ];
+    }
+
+    $statement->closeCursor();
+    return $history;
 }
 
 function saveUser(PDO $pdo): void

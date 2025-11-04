@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/password_hint.php';
 require_once __DIR__ . '/../helpers/profile_image.php';
+require_once __DIR__ . '/../helpers/login_logger.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -92,8 +93,52 @@ if (!isset($record['profileImage']) && $profileImageRelative !== null) {
 
 unset($record['password']);
 
+$ipAddress = resolveClientIp();
+$deviceInfo = $_SERVER['HTTP_USER_AGENT'] ?? null;
+$loginLogId = record_login_event($pdo, $accountType, $accountId, 'Success', $ipAddress, $deviceInfo);
+
 echo json_encode([
     'ok' => true,
     'accountType' => $accountType,
     'user' => $record,
+    'loginLogId' => $loginLogId,
 ]);
+function resolveClientIp(): ?string
+{
+    $headerCandidates = [
+        'HTTP_CF_CONNECTING_IP',
+        'HTTP_X_FORWARDED_FOR',
+        'HTTP_X_REAL_IP',
+        'HTTP_CLIENT_IP',
+        'HTTP_X_FORWARDED',
+        'HTTP_FORWARDED_FOR',
+        'HTTP_FORWARDED',
+        'HTTP_VIA',
+    ];
+
+    foreach ($headerCandidates as $header) {
+        if (empty($_SERVER[$header])) {
+            continue;
+        }
+        $raw = (string) $_SERVER[$header];
+        $parts = explode(',', $raw);
+        $candidate = trim($parts[0]);
+        if (filter_var($candidate, FILTER_VALIDATE_IP)) {
+            return $candidate;
+        }
+    }
+
+    $remote = $_SERVER['REMOTE_ADDR'] ?? null;
+    if ($remote && filter_var($remote, FILTER_VALIDATE_IP)) {
+        if ($remote === '::1' || $remote === '127.0.0.1') {
+            $hostIp = getHostByName(gethostname());
+            if ($hostIp && filter_var($hostIp, FILTER_VALIDATE_IP) && $hostIp !== $remote) {
+                return $hostIp;
+            }
+            return $remote === '::1' ? '127.0.0.1' : $remote;
+        }
+        return $remote;
+    }
+
+    return null;
+}

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../helpers/polyfills.php';
+require_once __DIR__ . '/../helpers/profile_image.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -107,11 +110,25 @@ function handleGetPosts(PDO $pdo): void
       cs.likes,
       cs.comments,
       cs.saves,
-      t.username,
-      t.fullName,
-      t.contactNumber
+      t.travelerID AS resolvedTravelerID,
+      t.username AS travelerUsername,
+      t.fullName AS travelerFullName,
+      t.contactNumber,
+      t.profileImage AS travelerProfileImage,
+      op.operatorID,
+      op.username AS operatorUsername,
+      op.fullName AS operatorFullName,
+      op.profileImage AS operatorProfileImage,
+      COALESCE(t.fullName, op.fullName, t.username, op.username) AS authorDisplayName,
+      COALESCE(t.username, op.username) AS authorHandle,
+      COALESCE(t.profileImage, op.profileImage) AS authorProfileImage,
+      CASE
+        WHEN op.operatorID IS NOT NULL THEN 'operator'
+        ELSE 'traveler'
+      END AS authorType
     FROM community_story cs
-    INNER JOIN Traveler t ON t.travelerID = cs.travelerID
+    LEFT JOIN Traveler t ON t.travelerID = cs.travelerID
+    LEFT JOIN TourismOperator op ON op.operatorID = cs.travelerID
     $categoryJoin
     ORDER BY cs.createdAt DESC
     LIMIT :limit OFFSET :offset
@@ -683,14 +700,37 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
         'type' => $story['mediaType'] ?? 'image',
         'url' => buildAssetUrl($story['mediaPath'] ?? ''),
       ];
+      $timeline = buildStoryTimelineMeta($story);
+
+      $authorType = strtolower((string) ($story['authorType'] ?? 'traveler'));
+      $travelerId = (int) ($story['resolvedTravelerID'] ?? $story['travelerID'] ?? 0);
+      $operatorId = (int) ($story['operatorID'] ?? 0);
+      $profile = resolveStoryAuthorProfileImage($story, $authorType, $travelerId, $operatorId);
+
+      $authorName =
+        $story['authorDisplayName']
+        ?? $story['travelerFullName']
+        ?? $story['operatorFullName']
+        ?? $story['travelerUsername']
+        ?? $story['operatorUsername']
+        ?? 'Traveler';
+      $authorUsername =
+        $story['authorHandle']
+        ?? $story['travelerUsername']
+        ?? $story['operatorUsername']
+        ?? '';
+
+      $authorId = $authorType === 'operator' && $operatorId > 0 ? $operatorId : $travelerId;
 
       return [
         'id' => $storyId,
-        'authorId' => (int) $story['travelerID'],
-        'authorName' => $story['fullName'] ?: ($story['username'] ?? 'Traveler'),
-        'authorUsername' => $story['username'] ?? '',
-        'authorAvatar' => null,
-        'authorInitials' => computeInitials($story['fullName'] ?: ($story['username'] ?? 'Traveler')),
+        'authorId' => $authorId,
+        'authorType' => $authorType,
+        'authorName' => $authorName,
+        'authorUsername' => $authorUsername,
+        'authorAvatar' => $profile['public'],
+        'profileImage' => $profile['relative'],
+        'authorInitials' => computeInitials($authorName ?: ($authorUsername ?: 'Traveler')),
         'location' => $story['location'] ?? '',
         'media' => $mediaItems,
         'mediaCount' => count($mediaItems),
@@ -699,6 +739,12 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
         'caption' => $story['caption'],
         'postedAt' => $story['createdAt'],
         'postedAtLabel' => buildRelativeTimeLabel($story['createdAt']),
+        'createdAt' => $story['createdAt'],
+        'createdAtLabel' => $timeline['created'],
+        'updatedAt' => $story['updatedAt'],
+        'updatedAtLabel' => $timeline['updated'],
+        'timelineLabel' => $timeline['label'],
+        'timelineType' => $timeline['type'],
         'likes' => (int) $story['likes'],
         'comments' => (int) $story['comments'],
         'saves' => (int) $story['saves'],
@@ -715,7 +761,8 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
 function fetchStoryRow(PDO $pdo, int $storyId): ?array
 {
   $stmt = $pdo->prepare(
-    'SELECT
+    <<<SQL
+    SELECT
       cs.id,
       cs.travelerID,
       cs.caption,
@@ -727,13 +774,28 @@ function fetchStoryRow(PDO $pdo, int $storyId): ?array
       cs.likes,
       cs.comments,
       cs.saves,
-      t.username,
-      t.fullName,
-      t.contactNumber
+      t.travelerID AS resolvedTravelerID,
+      t.username AS travelerUsername,
+      t.fullName AS travelerFullName,
+      t.contactNumber,
+      t.profileImage AS travelerProfileImage,
+      op.operatorID,
+      op.username AS operatorUsername,
+      op.fullName AS operatorFullName,
+      op.profileImage AS operatorProfileImage,
+      COALESCE(t.fullName, op.fullName, t.username, op.username) AS authorDisplayName,
+      COALESCE(t.username, op.username) AS authorHandle,
+      COALESCE(t.profileImage, op.profileImage) AS authorProfileImage,
+      CASE
+        WHEN op.operatorID IS NOT NULL THEN 'operator'
+        ELSE 'traveler'
+      END AS authorType
     FROM community_story cs
-    INNER JOIN Traveler t ON t.travelerID = cs.travelerID
+    LEFT JOIN Traveler t ON t.travelerID = cs.travelerID
+    LEFT JOIN TourismOperator op ON op.operatorID = cs.travelerID
     WHERE cs.id = :id
-    LIMIT 1'
+    LIMIT 1
+    SQL
   );
   $stmt->execute([':id' => $storyId]);
   $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1235,6 +1297,13 @@ function buildAssetUrl(string $relativePath): string
   }
 
   $normalised = ltrim(str_replace('\\', '/', $trimmed), '/');
+  if (stripos($normalised, 'backend/public_assets/') === 0) {
+    $normalised = substr($normalised, strlen('backend/public_assets/'));
+  }
+  if (stripos($normalised, 'public_assets/') === 0) {
+    $normalised = substr($normalised, strlen('public_assets/'));
+  }
+
   return $normalised;
 }
 
@@ -1273,6 +1342,79 @@ function buildRelativeTimeLabel(string $dateTime): string
   }
 
   return $timestamp->format('M j, Y');
+}
+
+function buildStoryTimelineMeta(array $story): array
+{
+  $createdRaw = $story['createdAt'] ?? '';
+  $updatedRaw = $story['updatedAt'] ?? '';
+
+  $createdDt = parseDateTimeValue($createdRaw);
+  $updatedDt = parseDateTimeValue($updatedRaw);
+
+  $createdLabel = $createdDt ? formatAbsoluteDateTime($createdDt) : ($createdRaw ?: '');
+  $updatedLabel = $updatedDt ? formatAbsoluteDateTime($updatedDt) : ($updatedRaw ?: '');
+
+  $hasUpdate = $updatedDt && $createdDt && $updatedDt > $createdDt;
+
+  $type = $hasUpdate ? 'updated' : 'created';
+  $labelSource = $hasUpdate ? $updatedLabel : $createdLabel;
+  $label = $labelSource !== '' ? ucfirst($type) . ' ' . $labelSource : '';
+
+  return [
+    'type' => $type,
+    'label' => $label,
+    'created' => $createdLabel,
+    'updated' => $updatedLabel,
+  ];
+}
+
+function parseDateTimeValue(?string $value): ?DateTimeImmutable
+{
+  if (!$value) {
+    return null;
+  }
+
+  try {
+    return new DateTimeImmutable($value);
+  } catch (Throwable $e) {
+    return null;
+  }
+}
+
+function formatAbsoluteDateTime(DateTimeImmutable $date): string
+{
+  return $date->format('M j, Y \\a\\t g:i A');
+}
+
+function resolveStoryAuthorProfileImage(array $story, string $authorType, int $travelerId, int $operatorId): array
+{
+  $candidates = [];
+  $primary = $story['authorProfileImage'] ?? $story['profileImage'] ?? null;
+
+  if ($authorType === 'operator' && $operatorId > 0) {
+    $candidates[] = resolveProfileImageReference('operator', $operatorId, $primary);
+  }
+
+  if ($travelerId > 0) {
+    $candidates[] = resolveProfileImageReference('traveler', $travelerId, $primary);
+    $candidates[] = resolveProfileImageReference('traveler', $travelerId, $story['travelerProfileImage'] ?? null);
+  }
+
+  if ($authorType !== 'operator' && $operatorId > 0) {
+    $candidates[] = resolveProfileImageReference('operator', $operatorId, $story['operatorProfileImage'] ?? null);
+  }
+
+  foreach ($candidates as $candidate) {
+    if (!empty($candidate['public']) || !empty($candidate['relative'])) {
+      return $candidate;
+    }
+  }
+
+  return [
+    'relative' => '',
+    'public' => '',
+  ];
 }
 
 function computeInitials(string $name): string

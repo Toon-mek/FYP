@@ -21,55 +21,7 @@ import brandLogo from './assets/brand-logo.png'
 
 const { t, tm, locale } = useI18n()
 
-const THEME_STORAGE_KEY = 'mst-theme-preference'
-
-function resolveInitialTheme() {
-  if (typeof window === 'undefined') {
-    return 'light'
-  }
-  try {
-    const stored = window.localStorage?.getItem(THEME_STORAGE_KEY)
-    if (stored === 'light' || stored === 'dark') {
-      return stored
-    }
-  } catch {
-    /* ignore storage errors */
-  }
-  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-    return 'dark'
-  }
-  return 'light'
-}
-
-function applyTheme(value) {
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('data-theme', value === 'dark' ? 'dark' : 'light')
-  }
-}
-
-const theme = ref(resolveInitialTheme())
 const storageAvailable = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
-
-watch(
-  theme,
-  (value) => {
-    applyTheme(value)
-    if (storageAvailable) {
-      try {
-        window.localStorage.setItem(THEME_STORAGE_KEY, value)
-      } catch {
-        /* ignore storage errors */
-      }
-    }
-  },
-  { immediate: true },
-)
-
-const themeToggleLabel = computed(() => (theme.value === 'dark' ? t('theme.light') : t('theme.dark')))
-
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-}
 
 const localeOptions = computed(() =>
   supportedLocaleCodes.map((code) => ({
@@ -114,8 +66,15 @@ const headerBrandBase = computed(() => ({
 }))
 
 const headerCtaHome = computed(() => ({
+  key: 'cta-start',
   label: t('header.cta'),
 }))
+
+const headerTone = computed(() => {
+  if (currentView.value === 'operator') return 'operator'
+  if (currentView.value === 'traveler') return 'traveler'
+  return 'default'
+})
 
 const footerBrand = computed(() => ({
   initials: 'MS',
@@ -143,6 +102,44 @@ const sessionKeys = {
   traveler: 'travelerSession',
   operator: 'operatorSession',
   admin: 'adminSession',
+}
+
+const sessionLogKeys = {
+  traveler: 'travelerLoginLogId',
+  operator: 'operatorLoginLogId',
+  admin: 'adminLoginLogId',
+}
+
+const sessionLogStorageAvailable =
+  typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
+
+function readStoredLoginLog(type) {
+  if (!sessionLogStorageAvailable || !type) return null
+  const key = sessionLogKeys[type]
+  if (!key) return null
+  try {
+    const value = window.sessionStorage.getItem(key)
+    if (!value) return null
+    const parsed = Number.parseInt(value, 10)
+    return Number.isNaN(parsed) ? null : parsed
+  } catch {
+    return null
+  }
+}
+
+function persistLoginLog(type, logId) {
+  if (!sessionLogStorageAvailable || !type) return
+  const key = sessionLogKeys[type]
+  if (!key) return
+  try {
+    if (logId && Number.isInteger(logId)) {
+      window.sessionStorage.setItem(key, String(logId))
+    } else {
+      window.sessionStorage.removeItem(key)
+    }
+  } catch {
+    /* ignore session storage errors */
+  }
 }
 
 function deriveInitialsFromRecord(record) {
@@ -202,6 +199,24 @@ function normaliseAccountRecord(accountType, record) {
   return normalised
 }
 
+function resolveAccountId(accountType, record) {
+  if (!record || typeof record !== 'object') {
+    return null
+  }
+  if (accountType === 'operator') {
+    return (
+      record.id ?? record.operatorID ?? record.operatorId ?? record.operator_id ?? null
+    )
+  }
+  if (accountType === 'traveler') {
+    return record.id ?? record.travelerID ?? record.travelerId ?? record.traveler_id ?? null
+  }
+  if (accountType === 'admin') {
+    return record.id ?? record.adminID ?? record.adminId ?? record.admin_id ?? null
+  }
+  return record.id ?? null
+}
+
 function readStoredUser(type) {
   if (!storageAvailable || !type) return null
   const key = sessionKeys[type]
@@ -220,6 +235,11 @@ const sessionState = reactive({
   traveler: readStoredUser('traveler'),
   operator: readStoredUser('operator'),
   admin: readStoredUser('admin'),
+})
+const loginLogIds = reactive({
+  traveler: readStoredLoginLog('traveler'),
+  operator: readStoredLoginLog('operator'),
+  admin: readStoredLoginLog('admin'),
 })
 const activeAccountType = ref(storedAccountType ?? null)
 const loggedInUser = computed({
@@ -242,7 +262,11 @@ function persistSession(accountType, user) {
   const key = sessionKeys[accountType]
   if (!key) return
   if (user) {
-    window.localStorage.setItem(key, JSON.stringify(user))
+    const payload = { ...user }
+    if ('loginLogId' in payload) {
+      delete payload.loginLogId
+    }
+    window.localStorage.setItem(key, JSON.stringify(payload))
   } else {
     window.localStorage.removeItem(key)
   }
@@ -322,13 +346,15 @@ const headerBrand = computed(() => ({
 }))
 
 const headerCta = computed(() =>
-  currentAccountUser.value ? { label: t('auth.logout') } : headerCtaHome.value,
+  currentAccountUser.value ? { key: 'cta-logout', label: t('auth.logout') } : headerCtaHome.value,
 )
 const activeEditComponent = computed(() =>
   currentAccountUser.value ? profileComponentMap[currentView.value] ?? null : null,
 )
 const headerSecondaryCta = computed(() =>
-  currentAccountUser.value && activeEditComponent.value ? { label: t('profile.edit') } : null,
+  currentAccountUser.value && activeEditComponent.value
+    ? { key: 'cta-edit-profile', label: t('profile.edit') }
+    : null,
 )
 
 async function handleLocaleChange(nextLocale) {
@@ -367,8 +393,34 @@ function goToLogin() {
   router.push('/login')
 }
 
-function logout(targetType = activeAccountType.value) {
+async function logout(targetType = activeAccountType.value) {
   if (!targetType) return
+
+  const user = sessionState[targetType] ?? null
+  const accountId = resolveAccountId(targetType, user)
+  const logId = loginLogIds[targetType] ?? null
+
+  if (accountId) {
+    try {
+      const response = await fetch(`${API_BASE}/auth/logout.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountType: targetType,
+          accountId,
+          logId,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+    } catch (error) {
+      message.warning('Unable to update login status on the server. You have been logged out locally.')
+    }
+  }
+
+  loginLogIds[targetType] = null
+  persistLoginLog(targetType, null)
   sessionState[targetType] = null
   persistSession(targetType, null)
 
@@ -376,7 +428,8 @@ function logout(targetType = activeAccountType.value) {
     activeAccountType.value = null
     editProfileVisible.value = false
     editProfileLoading.value = false
-    router.push('/').then(() => scrollToSection('#hero'))
+    await router.push('/')
+    scrollToSection('#hero')
     return
   }
 
@@ -386,9 +439,9 @@ function logout(targetType = activeAccountType.value) {
   }
 }
 
-function handleHeaderCta() {
+async function handleHeaderCta() {
   if (currentAccountUser.value) {
-    logout(currentView.value)
+    await logout(currentView.value)
     return
   }
   if (currentView.value !== 'login') {
@@ -542,6 +595,8 @@ function handleLoginSuccess(payload) {
     const normalisedUser = user ? normaliseAccountRecord(accountType, user) : null
     sessionState[accountType] = normalisedUser
     persistSession(accountType, normalisedUser)
+    loginLogIds[accountType] = payload?.loginLogId ?? null
+    persistLoginLog(accountType, loginLogIds[accountType])
   }
   activeAccountType.value = accountType ?? null
 
@@ -568,14 +623,12 @@ function handleLoginSuccess(payload) {
         :language-options="localeOptions"
         :language-label="languageLabel"
         :current-locale="locale"
-        :theme="theme"
-        :theme-toggle-label="themeToggleLabel"
+        :tone="headerTone"
         @brand-click="handleBrandClick"
         @nav-click="handleNavClick"
         @cta-click="handleHeaderCta"
         @secondary-cta-click="handleEditProfileClick"
         @locale-change="handleLocaleChange"
-        @theme-toggle="toggleTheme"
       />
 
       <div class="content">

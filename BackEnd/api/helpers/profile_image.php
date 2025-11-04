@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/polyfills.php';
+
 /**
  * Store a profile image supplied as a base64 data URI and return the relative path.
  *
@@ -167,4 +169,74 @@ function profileImagePublicUrl(?string $relativePath): string
     $prefix = $basePath === '' ? '' : '/' . $basePath;
 
     return sprintf('%s://%s%s/public_assets/%s', $scheme, $host, $prefix, $relative);
+}
+
+function resolveProfileImageReference(string $accountType, int $accountId, ?string $storedPath = null): array
+{
+    $accountId = max(0, $accountId);
+    $relative = normaliseProfileImagePath($storedPath);
+    if ($relative === '' && $accountId > 0) {
+        $relative = locateStoredProfileImage($accountType, $accountId);
+    }
+    if ($relative === '') {
+        return [
+            'relative' => '',
+            'public' => '',
+        ];
+    }
+
+    return [
+        'relative' => $relative,
+        'public' => profileImagePublicUrl($relative),
+    ];
+}
+
+function locateStoredProfileImage(string $accountType, int $accountId): string
+{
+    $accountId = max(0, $accountId);
+    if ($accountId === 0) {
+        return '';
+    }
+
+    try {
+        $directoryName = profileImageDirectoryName($accountType);
+    } catch (InvalidArgumentException $e) {
+        return '';
+    }
+
+    $baseDirectory = profileImageBaseDirectory();
+    $pattern = sprintf('%s/%s_%d_*.*', $directoryName, strtolower($directoryName), $accountId);
+    $globPattern = $baseDirectory . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $pattern);
+    $matches = glob($globPattern);
+    if (!$matches) {
+        return '';
+    }
+
+    sort($matches);
+    $first = $matches[0];
+    $relative = str_replace('\\', '/', ltrim(substr($first, strlen(rtrim($baseDirectory, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR)), '/'));
+
+    return normaliseProfileImagePath($relative);
+}
+
+function normaliseProfileImagePath(?string $path): string
+{
+    $trimmed = trim((string)$path);
+    if ($trimmed === '') {
+        return '';
+    }
+
+    $relative = ltrim(str_replace('\\', '/', $trimmed), '/');
+    if (stripos($relative, 'backend/public_assets/') === 0) {
+        $relative = substr($relative, strlen('backend/public_assets/'));
+    }
+    if (stripos($relative, 'public_assets/') === 0) {
+        $relative = substr($relative, strlen('public_assets/'));
+    }
+
+    if (!preg_match('#^(travelerProfilePic|businessoperatorProfilePic|adminProfilePic)/#i', $relative)) {
+        return '';
+    }
+
+    return $relative;
 }
