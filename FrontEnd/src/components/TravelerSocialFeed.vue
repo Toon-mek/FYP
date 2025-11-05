@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <n-dialog-provider>
     <div class="social-feed">
       <n-page-header
@@ -784,6 +784,9 @@ function normalisePost(post, index = 0) {
       ? post.hasCommented
       : viewerCommentCount > 0
 
+  const createdAt = post.createdAt || post.postedAt || ''
+  const updatedAt = post.updatedAt || ''
+  const timeline = deriveTimelineMeta(post)
   return {
     ...post,
     id,

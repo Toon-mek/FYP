@@ -94,6 +94,13 @@ function handleGetPosts(PDO $pdo): void
     ':offset' => $offset,
   ];
 
+  $categoryJoin = '';
+  if ($categoryFilter !== '') {
+    $categoryJoin = 'INNER JOIN community_story_category csc_filter
+      ON csc_filter.storyId = cs.id AND csc_filter.category = :filterCategory';
+    $params[':filterCategory'] = $categoryFilter;
+  }
+
   if (($savedOnly || $likedOnly || $commentedOnly) && !$viewerId) {
     echo json_encode(['posts' => [], 'total' => 0]);
     return;
