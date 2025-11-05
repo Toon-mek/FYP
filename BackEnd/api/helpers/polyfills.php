@@ -31,3 +31,13 @@ if (!function_exists('mb_strtoupper')) {
         return strtoupper($string);
     }
 }
+
+if (!function_exists('mb_strtolower')) {
+    /**
+     * Basic multibyte strtolower polyfill for environments without the mbstring extension.
+     */
+    function mb_strtolower(string $string, ?string $encoding = null): string
+    {
+        return strtolower($string);
+    }
+}

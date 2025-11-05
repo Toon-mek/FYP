@@ -1,8 +1,9 @@
 <script setup>
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { NAvatar, NButton, NSpace, NTag, NText, NIcon, NEmpty, useMessage } from 'naive-ui'
-import AdminListingVerification from './admin/AdminListingVerification.vue'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
+import AdminCommunityModeration from './admin/AdminCommunityModeration.vue'
+import AdminListingVerification from './admin/AdminListingVerification.vue'
 import { extractProfileImage } from '../utils/profileImage.js'
 import { RefreshOutline } from '@vicons/ionicons5'
 
@@ -963,6 +964,10 @@ watch(showUserModal, (visible) => {
 
         <template v-else-if="activeModule === 'business'">
           <AdminBusinessListing :admin-id="props.currentAdminId" />
+        </template>
+
+        <template v-else-if="activeModule === 'community'">
+          <AdminCommunityModeration :admin-id="props.currentAdminId" />
         </template>
 
         <template v-else-if="activeModule === 'users'">

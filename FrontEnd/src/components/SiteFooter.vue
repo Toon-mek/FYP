@@ -101,6 +101,7 @@ const props = defineProps({
 
 <style scoped>
 .site-footer {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 2.5rem;

@@ -35,9 +35,11 @@ a {
 }
 
 #app {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
   padding: 3rem 1.5rem 4rem;
+  box-sizing: border-box;
   transition: filter 0.3s ease;
 }
 

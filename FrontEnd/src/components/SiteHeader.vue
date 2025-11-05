@@ -121,7 +121,8 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
 </template>
 
 <style scoped>
- .site-header {
+.site-header {
+  width: 100%;
   z-index: 10;
   display: flex;
   justify-content: center;

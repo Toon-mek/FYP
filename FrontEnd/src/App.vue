@@ -661,6 +661,7 @@ function handleLoginSuccess(payload) {
 
 <style scoped>
 .page {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 3.5rem;
