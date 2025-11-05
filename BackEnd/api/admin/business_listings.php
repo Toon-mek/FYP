@@ -6,6 +6,8 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
+require_once __DIR__ . '/../helpers/notifications.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
@@ -167,6 +169,12 @@ function handleDelete(PDO $pdo): void
         return;
     }
 
+    if ($reason === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Please include a short note explaining why the listing was removed.']);
+        return;
+    }
+
     $stmt = $pdo->prepare(
         'SELECT listingID, operatorID, businessName FROM BusinessListing WHERE listingID = :listingId LIMIT 1'
     );
@@ -185,14 +193,12 @@ function handleDelete(PDO $pdo): void
         $delete = $pdo->prepare('DELETE FROM BusinessListing WHERE listingID = :listingId');
         $delete->execute([':listingId' => $listingId]);
 
-        if ($adminId > 0) {
-            recordRemovalNotification(
-                $pdo,
-                (int) $listing['operatorID'],
-                (string) $listing['businessName'],
-                $reason
-            );
-        }
+        recordRemovalNotification(
+            $pdo,
+            (int) $listing['operatorID'],
+            (string) $listing['businessName'],
+            $reason
+        );
 
         $pdo->commit();
     } catch (Throwable) {
@@ -541,16 +547,7 @@ function recordRemovalNotification(PDO $pdo, int $operatorId, string $listingNam
 
     $message = implode(' ', $messageParts);
 
-    $stmt = $pdo->prepare(
-        'INSERT INTO Notification (recipientType, recipientID, title, message, createdAt, isRead)
-         VALUES (\'Operator\', :recipientID, :title, :message, :createdAt, 0)'
-    );
-    $stmt->execute([
-        ':recipientID' => $operatorId,
-        ':title' => $title,
-        ':message' => $message,
-        ':createdAt' => (new DateTimeImmutable())->format('Y-m-d H:i:s'),
-    ]);
+    recordNotification($pdo, 'Operator', $operatorId, $title, $message);
 }
 
 function buildAssetUrl(string $relativePath): string

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/polyfills.php';
+require_once __DIR__ . '/../helpers/notifications.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -99,6 +100,12 @@ function handleDelete(PDO $pdo): void
         return;
     }
 
+    if ($reason === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Please include a short note explaining why the story was removed.']);
+        return;
+    }
+
     $storyRow = fetchStoryRow($pdo, $postId);
     if ($storyRow === null) {
         http_response_code(404);
@@ -119,6 +126,7 @@ function handleDelete(PDO $pdo): void
         $stmt->execute([':id' => $postId]);
 
         logStoryRemoval($pdo, $postId, $adminId, $reason);
+        notifyStoryRemoval($pdo, $storyRow, $reason);
 
         $pdo->commit();
     } catch (Throwable $e) {
@@ -135,6 +143,31 @@ function handleDelete(PDO $pdo): void
         'ok' => true,
         'message' => 'Post removed successfully.',
     ]);
+}
+
+function notifyStoryRemoval(PDO $pdo, array $storyRow, string $reason): void
+{
+    $isOperator = !empty($storyRow['operatorID']);
+    $recipientId = $isOperator
+        ? (int) ($storyRow['operatorID'] ?? 0)
+        : (int) ($storyRow['travelerId'] ?? 0);
+
+    if ($recipientId <= 0) {
+        return;
+    }
+
+    $title = 'Community post removed';
+    $caption = trim((string) ($storyRow['caption'] ?? ''));
+    $postLabel = $caption !== '' ? sprintf('"%s"', mb_substr($caption, 0, 80)) : 'your story';
+
+    $message = sprintf(
+        'Your community post %s was removed by an administrator. Reason: %s',
+        $postLabel,
+        $reason
+    );
+
+    $recipientType = $isOperator ? 'Operator' : 'Traveler';
+    recordNotification($pdo, $recipientType, $recipientId, $title, $message);
 }
 
 function loadSinglePost(PDO $pdo, int $postId): ?array

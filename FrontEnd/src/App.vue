@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { NMessageProvider, createDiscreteApi } from 'naive-ui'
+import { NMessageProvider, NNotificationProvider, createDiscreteApi } from 'naive-ui'
 import AdminDashboard from './components/AdminDashboard.vue'
 import AdminEditProfile from './components/AdminEditProfile.vue'
 import BusinessOperatorDashboard from './components/BusinessOperatorDashboard.vue'
@@ -613,8 +613,9 @@ function handleLoginSuccess(payload) {
 </script>
 
 <template>
-  <n-message-provider>
-    <div class="page" :class="`page--${currentView}`">
+  <n-notification-provider>
+    <n-message-provider>
+      <div class="page" :class="`page--${currentView}`">
       <SiteHeader
         :nav-links="navLinks"
         :brand="headerBrand"
@@ -655,8 +656,9 @@ function handleLoginSuccess(payload) {
         :social-label="footerSocialLabel"
         :copyright-text="footerCopy"
       />
-    </div>
-  </n-message-provider>
+      </div>
+    </n-message-provider>
+  </n-notification-provider>
 </template>
 
 <style scoped>

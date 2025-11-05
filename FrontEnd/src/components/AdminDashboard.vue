@@ -1,9 +1,12 @@
 <script setup>
-import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { NAvatar, NButton, NSpace, NTag, NText, NIcon, NEmpty, useMessage } from 'naive-ui'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
 import AdminCommunityModeration from './admin/AdminCommunityModeration.vue'
 import AdminListingVerification from './admin/AdminListingVerification.vue'
+import AdminNotificationOutbox from './admin/AdminNotificationOutbox.vue'
+import PaginatedTable from './shared/PaginatedTable.vue'
+import { notificationFeedSymbol, useNotificationFeed } from '../composables/useNotificationFeed.js'
 import { extractProfileImage } from '../utils/profileImage.js'
 import { RefreshOutline } from '@vicons/ionicons5'
 
@@ -19,7 +22,7 @@ function deriveAvatarInfo(source) {
 
 
 const message = useMessage()
-const SESSION_HISTORY_LIMIT = 5
+const SESSION_HISTORY_LIMIT = 10
 
 function formatDateTime(value) {
   if (!value) return null
@@ -93,6 +96,30 @@ const adminProfile = computed(() => {
     avatarPath,
   }
 })
+
+const adminRecipientId = computed(() => {
+  if (typeof props.currentAdminId === 'number' && props.currentAdminId > 0) {
+    return props.currentAdminId
+  }
+  const source = props.admin ?? {}
+  const possibleKeys = ['adminId', 'adminID', 'id', 'userId', 'userID']
+  for (const key of possibleKeys) {
+    const value = Number(source[key])
+    if (Number.isFinite(value) && value > 0) {
+      return value
+    }
+  }
+  return null
+})
+
+const adminNotificationFeed = useNotificationFeed({
+  recipientType: computed(() => 'Admin'),
+  recipientId: adminRecipientId,
+  listLimit: 25,
+  pollInterval: 60000,
+  announce: true,
+})
+provide(notificationFeedSymbol, adminNotificationFeed)
 
 const menuOptions = [
   { key: 'overview', label: 'Dashboard overview' },
@@ -970,6 +997,10 @@ watch(showUserModal, (visible) => {
           <AdminCommunityModeration :admin-id="props.currentAdminId" />
         </template>
 
+        <template v-else-if="activeModule === 'notifications'">
+          <AdminNotificationOutbox />
+        </template>
+
         <template v-else-if="activeModule === 'users'">
           <n-space vertical size="large">
             <n-card title="Account directory" :segmented="{ content: true }">
@@ -1038,19 +1069,27 @@ watch(showUserModal, (visible) => {
             </n-card>
 
             <n-card title="Recent session durations" :segmented="{ content: true }">
-              <n-data-table
-                size="small"
+              <PaginatedTable
                 :columns="sessionHistoryColumns"
-                :data="sessionHistoryRows"
-                :bordered="false"
+                :rows="sessionHistoryRows"
+                :page-size="SESSION_HISTORY_LIMIT"
                 :loading="loadingUsers"
                 :row-key="(row) => row.key"
-              />
-              <template #footer>
-                <n-text depth="3" style="font-size: 0.75rem;">
-                  Showing up to {{ SESSION_HISTORY_LIMIT }} recent completed sessions per user.
-                </n-text>
-              </template>
+                :bordered="false"
+                :pagination-props="{ simple: true }"
+                :empty-message="'No session activity recorded yet.'"
+              >
+                <template #range="{ start, end, total }">
+                  <n-text depth="3" style="font-size: 0.75rem;">
+                    Showing {{ total === 0 ? 0 : start }} - {{ total === 0 ? 0 : end }} of {{ total }} session logs.
+                  </n-text>
+                </template>
+                <template #footer>
+                  <n-text depth="3" style="font-size: 0.75rem;">
+                    Showing up to {{ SESSION_HISTORY_LIMIT }} recent completed sessions per user.
+                  </n-text>
+                </template>
+              </PaginatedTable>
             </n-card>
           </n-space>
 

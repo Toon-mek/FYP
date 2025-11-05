@@ -6,6 +6,8 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
+require_once __DIR__ . '/../helpers/notifications.php';
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
@@ -551,16 +553,7 @@ function notifyOperator(PDO $pdo, int $operatorId, string $listingName, string $
 
     $message = implode(' ', $messageParts);
 
-    $stmt = $pdo->prepare(
-        'INSERT INTO Notification (recipientType, recipientID, title, message, createdAt, isRead)
-         VALUES (\'Operator\', :recipientId, :title, :message, :createdAt, 0)'
-    );
-    $stmt->execute([
-        ':recipientId' => $operatorId,
-        ':title' => $title,
-        ':message' => $message,
-        ':createdAt' => (new DateTimeImmutable('now'))->format('Y-m-d H:i:s'),
-    ]);
+    recordNotification($pdo, 'Operator', $operatorId, $title, $message);
 }
 
 function mapDecisionToStatus(string $decision): ?string

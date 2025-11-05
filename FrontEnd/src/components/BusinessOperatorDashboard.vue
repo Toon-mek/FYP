@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue"
 import {
   NAlert,
   NAvatar,
@@ -29,6 +29,8 @@ import BusinessOperatorManageListings from "./BusinessOperatorManageListings.vue
 import BusinessOperatorMediaManager from "./BusinessOperatorMediaManager.vue"
 import BusinessOperatorUploadInfo from "./BusinessOperatorUploadInfo.vue"
 import { extractProfileImage } from "../utils/profileImage.js"
+import NotificationCenter from "./NotificationCenter.vue"
+import { notificationFeedSymbol, useNotificationFeed } from "../composables/useNotificationFeed.js"
 
 const props = defineProps({
   operator: {
@@ -138,6 +140,15 @@ const currentOperatorId = computed(
   () => operator.value?.id ?? props.operator?.id ?? remoteOperator.value?.id ?? null,
 )
 
+const operatorNotificationFeed = useNotificationFeed({
+  recipientType: computed(() => "Operator"),
+  recipientId: currentOperatorId,
+  listLimit: 25,
+  pollInterval: 60000,
+  announce: true,
+})
+provide(notificationFeedSymbol, operatorNotificationFeed)
+
 const renderIcon = (name) => () => h(NIcon, null, { default: () => h("i", { class: name }) })
 
 const sidebarOptions = computed(() => [
@@ -145,6 +156,7 @@ const sidebarOptions = computed(() => [
   { key: "upload-info", label: "Upload business info", icon: renderIcon("ri-file-add-line") },
   { key: "media-manager", label: "Upload photos / media", icon: renderIcon("ri-image-add-line") },
   { key: "manage-listings", label: "Manage listings", icon: renderIcon("ri-list-settings-line") },
+  { key: "notifications", label: "Notifications", icon: renderIcon("ri-notification-3-line") },
   { key: "guidelines", label: "Operator guidelines", icon: renderIcon("ri-graduation-cap-line") },
 ])
 
@@ -222,6 +234,7 @@ const hashToSection = {
   "media-manager": "media-manager",
   "listings-panel": "manage-listings",
   "manage-listings": "manage-listings",
+  notifications: "notifications",
   guidelines: "guidelines",
 }
 
@@ -241,6 +254,10 @@ const sectionMeta = {
   "manage-listings": {
     title: "Listing Management",
     subtitle: "Edit details, toggle visibility, and maintain up-to-date information.",
+  },
+  notifications: {
+    title: "Notifications",
+    subtitle: "Track admin decisions and account updates shared with your team.",
   },
   guidelines: {
     title: "Operator Guidelines",
@@ -866,6 +883,14 @@ function cryptoRandomId() {
           :operator-id="currentOperatorId"
           v-model:listings="listings"
           @operator-updated="handleOperatorUpdated"
+        />
+
+        <NotificationCenter
+          v-else-if="activeSection === 'notifications'"
+          recipient-type="Operator"
+          :recipient-id="currentOperatorId"
+          title="Operator notifications"
+          description="Admins share verification feedback and listing decisions here."
         />
 
         <BusinessOperatorGuidelines v-else />

@@ -1,11 +1,13 @@
 <script setup>
-import { computed, h, reactive, ref, watch, nextTick } from 'vue'
+import { computed, h, reactive, ref, watch, nextTick, provide } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
 import TravelerSocialFeed from './TravelerSocialFeed.vue'
 import TravelerSavedPosts from './TravelerSavedPosts.vue'
 import TravelerMessages from './TravelerMessages.vue'
+import NotificationCenter from './NotificationCenter.vue'
+import { notificationFeedSymbol, useNotificationFeed } from '../composables/useNotificationFeed.js'
 import { extractProfileImage } from '../utils/profileImage.js'
 
 const props = defineProps({
@@ -132,6 +134,15 @@ const currentTravelerId = computed(() => {
   )
 })
 
+const travelerNotificationFeed = useNotificationFeed({
+  recipientType: computed(() => 'Traveler'),
+  recipientId: currentTravelerId,
+  listLimit: 25,
+  pollInterval: 60000,
+  announce: true,
+})
+provide(notificationFeedSymbol, travelerNotificationFeed)
+
 const currentTravelerType = 'Traveler'
 const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -162,7 +173,7 @@ const sidebarOptions = [
   { key: 'community', label: 'Community feed', icon: renderIcon('ri-hashtag') },
   { key: 'saved-posts', label: 'Saved posts', icon: renderIcon('ri-bookmark-line') },
   { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
-  { key: 'notifications', label: 'Notifications', disabled: true, icon: renderIcon('ri-notification-3-line') },
+  { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
   { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
   { key: 'saved', label: 'Saved places', disabled: true, icon: renderIcon('ri-heart-3-line') },
   { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
@@ -663,6 +674,14 @@ const hasInsights = computed(() => insights.value.length > 0)
         <div v-else-if="selectedMenu === 'messages'" class="messages-panel">
           <TravelerMessages :current-user="traveler" />
         </div>
+        <div v-else-if="selectedMenu === 'notifications'" class="notifications-panel">
+          <NotificationCenter
+            recipient-type="Traveler"
+            :recipient-id="currentTravelerId"
+            title="Traveler notifications"
+            description="Admins and operators share updates with you here."
+          />
+        </div>
         <div v-else class="dashboard-main">
           <n-space vertical size="large">
             <n-card :segmented="{ content: true }" :style="{
@@ -1033,6 +1052,12 @@ const hasInsights = computed(() => insights.value.length > 0)
 
 .messages-panel {
   max-width: 1100px;
+  margin: 0 auto;
+  padding-bottom: 24px;
+}
+
+.notifications-panel {
+  max-width: 960px;
   margin: 0 auto;
   padding-bottom: 24px;
 }
