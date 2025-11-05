@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <n-dialog-provider>
     <div class="social-feed">
       <n-page-header
@@ -55,8 +55,14 @@
                     <span v-if="post.location"> - {{ post.location }}</span>
                   </n-text>
                 </div>
-                <n-tag v-if="post.postedAtLabel" size="small" round type="info" bordered>
-                  {{ post.postedAtLabel }}
+                <n-tag
+                  v-if="post.timelineLabel"
+                  size="small"
+                  round
+                  :type="post.timelineType === 'updated' ? 'warning' : 'info'"
+                  bordered
+                >
+                  {{ post.timelineLabel }}
                 </n-tag>
               </div>
             </template>
@@ -166,8 +172,14 @@
             </n-text>
           </div>
           <div class="detail-header-actions">
-            <n-tag v-if="expandedPost.postedAtLabel" size="small" round type="info" bordered>
-              {{ expandedPost.postedAtLabel }}
+            <n-tag
+              v-if="expandedPost.timelineLabel"
+              size="small"
+              round
+              :type="expandedPost.timelineType === 'updated' ? 'warning' : 'info'"
+              bordered
+            >
+              {{ expandedPost.timelineLabel }}
             </n-tag>
             <TravelerPostActions v-if="expandedPost.isOwn" :post="expandedPost"
               :disabled="isDeletingPost(expandedPost.id)" @edit="handleEditPostFromDetail"
@@ -277,67 +289,159 @@
       </div>
     </n-modal>
 
-    <n-modal v-model:show="storyModalVisible" class="story-modal" preset="card" :title="storyModalTitle"
-      :mask-closable="false">
-      <n-form ref="storyFormRef" :model="storyForm" :rules="storyRules" label-placement="top" size="large"
-        class="story-form">
-        <n-form-item label="Caption" path="caption">
-          <n-input v-model:value="storyForm.caption" type="textarea" maxlength="1000" show-count
-            placeholder="Tell the community about your sustainable travel moment."
-            :autosize="{ minRows: 3, maxRows: 5 }" />
-        </n-form-item>
-
-        <n-form-item label="Media file" path="mediaFile">
-          <n-upload :max="1" accept="image/*,video/*" :default-upload="false" :show-file-list="false"
-            :disabled="isEditingStory" :file-list="mediaFileList" @update:file-list="handleUploadChange">
-            <n-upload-dragger>
-              <n-space vertical align="center" size="small">
-                <n-icon size="32">
-                  <i class="ri-upload-cloud-2-line" />
-                </n-icon>
-                <n-text depth="3">Drop a JPG, PNG, or video file here</n-text>
-                <n-text depth="3">or click to browse</n-text>
-                <n-button size="tiny" type="primary" quaternary>Select file</n-button>
-              </n-space>
-            </n-upload-dragger>
-          </n-upload>
-          <div v-if="storyForm.mediaPreview" class="media-preview">
-            <img v-if="storyForm.mediaType === 'image'" :src="storyForm.mediaPreview" alt="Story media preview" />
-            <video v-else :src="storyForm.mediaPreview" controls preload="metadata" />
-            <n-button class="media-remove" circle size="small" type="error" quaternary @click="removeMedia">
-              <template #icon>
-                <n-icon>
-                  <i class="ri-close-line" />
-                </n-icon>
-              </template>
-            </n-button>
+    <n-modal
+      v-model:show="storyModalVisible"
+      class="story-modal"
+      preset="card"
+      :title="storyModalTitle"
+      :mask-closable="false"
+      :style="{ maxWidth: '880px', marginTop: '40px', marginBottom: '40px' }"
+    >
+      <div class="story-card">
+        <section class="story-card__header">
+          <div class="story-card__badge">
+            <n-icon size="16"><i class="ri-seedling-line" /></n-icon>
+            <span>Sustainable spotlight</span>
           </div>
-          <div v-else-if="isEditingStory && storyForm.existingMediaUrl" class="media-preview existing-media">
-            <img v-if="storyForm.existingMediaType === 'image'" :src="storyForm.existingMediaUrl"
-              alt="Current story media" />
-            <video v-else :src="storyForm.existingMediaUrl" controls preload="metadata" muted />
-            <div class="media-note">Existing media is kept. Media updates will be available soon.</div>
+          <div class="story-card__heading">
+            <h3>Inspire travelers with eco-positive moments</h3>
+            <p>
+              Add captions, locations, and tags to surface your sustainable experiences.
+              Thoughtful context paired with rich media helps your story reach eco-focused explorers.
+            </p>
           </div>
-        </n-form-item>
+          <ul class="story-card__tips">
+            <li>
+              <n-icon size="16"><i class="ri-check-line" /></n-icon>
+              2-3 sentences describing the positive impact
+            </li>
+            <li>
+              <n-icon size="16"><i class="ri-check-line" /></n-icon>
+              Add locations, tags, and categories for discoverability
+            </li>
+            <li>
+              <n-icon size="16"><i class="ri-check-line" /></n-icon>
+              Use clear, well-lit photos or short video clips
+            </li>
+          </ul>
+        </section>
 
-        <n-form-item label="Location" path="location">
-          <n-input v-model:value="storyForm.location" placeholder="City, Country" clearable />
-        </n-form-item>
+        <n-form
+          ref="storyFormRef"
+          :model="storyForm"
+          :rules="storyRules"
+          label-placement="top"
+          size="large"
+          class="story-card__form"
+        >
+          <n-form-item label="Caption" path="caption">
+            <n-input
+              v-model:value="storyForm.caption"
+              type="textarea"
+              maxlength="1000"
+              show-count
+              placeholder="Tell the community about your sustainable travel moment."
+              :autosize="{ minRows: 3, maxRows: 5 }"
+            />
+          </n-form-item>
 
-        <n-form-item label="Tags" path="tags">
-          <n-input v-model:value="storyForm.tags" placeholder="Separate with commas e.g. reef, cleanup" clearable />
-        </n-form-item>
+          <n-form-item label="Media file" path="mediaFile">
+            <div class="story-upload-card">
+              <n-upload
+                :max="1"
+                accept="image/*,video/*"
+                :default-upload="false"
+                :show-file-list="false"
+                :disabled="isEditingStory"
+                :file-list="mediaFileList"
+                @update:file-list="handleUploadChange"
+              >
+                <n-upload-dragger>
+                  <n-space vertical align="center" size="small">
+                    <div class="story-upload-card__icon">
+                      <n-icon size="26">
+                        <i class="ri-upload-cloud-2-line" />
+                      </n-icon>
+                    </div>
+                    <n-text depth="3">Drag a JPG, PNG, or video file here</n-text>
+                    <n-text depth="3">or browse from your device</n-text>
+                    <n-button size="tiny" type="primary" quaternary>Select file</n-button>
+                    <n-text depth="3" class="story-upload-card__hint">
+                      Optimal size: 1080x1080px, max 50MB
+                    </n-text>
+                  </n-space>
+                </n-upload-dragger>
+              </n-upload>
 
-        <n-form-item label="Categories" path="categories">
-          <n-select v-model:value="storyForm.categories" :options="categorySelectOptions" multiple tag
-            placeholder="Pick or create categories" />
-        </n-form-item>
-      </n-form>
+              <div v-if="storyForm.mediaPreview" class="story-preview story-preview--active">
+                <img
+                  v-if="storyForm.mediaType === 'image'"
+                  :src="storyForm.mediaPreview"
+                  alt="Story media preview"
+                />
+                <video v-else :src="storyForm.mediaPreview" controls preload="metadata" />
+                <n-button class="story-preview__remove" circle size="small" type="error" quaternary @click="removeMedia">
+                  <template #icon>
+                    <n-icon><i class="ri-close-line" /></n-icon>
+                  </template>
+                </n-button>
+              </div>
+              <div
+                v-else-if="isEditingStory && storyForm.existingMediaUrl"
+                class="story-preview story-preview--existing"
+              >
+                <img
+                  v-if="storyForm.existingMediaType === 'image'"
+                  :src="storyForm.existingMediaUrl"
+                  alt="Current story media"
+                />
+                <video v-else :src="storyForm.existingMediaUrl" controls preload="metadata" muted />
+                <div class="story-preview__note">
+                  Existing media is retained for this update.
+                </div>
+              </div>
+            </div>
+          </n-form-item>
+
+          <n-grid cols="1 m:2" :x-gap="12">
+            <n-grid-item>
+              <n-form-item label="Location" path="location">
+                <n-input
+                  v-model:value="storyForm.location"
+                  placeholder="e.g. Perhentian Islands, Malaysia"
+                  clearable
+                />
+              </n-form-item>
+            </n-grid-item>
+            <n-grid-item>
+              <n-form-item label="Tags" path="tags">
+                <n-input
+                  v-model:value="storyForm.tags"
+                  placeholder="Separate with commas e.g. reef, cleanup"
+                  clearable
+                />
+              </n-form-item>
+            </n-grid-item>
+          </n-grid>
+
+          <n-form-item label="Categories" path="categories">
+            <n-select
+              v-model:value="storyForm.categories"
+              :options="categorySelectOptions"
+              multiple
+              tag
+              placeholder="Pick or create categories"
+            />
+          </n-form-item>
+        </n-form>
+      </div>
 
       <template #action>
         <n-space justify="end" :size="12">
           <n-button tertiary @click="handleStoryCancel" :disabled="storySubmitting">Cancel</n-button>
-          <n-button type="primary" @click="handleStorySubmit" :loading="storySubmitting">{{ isEditingStory ? 'Update story' : 'Post story' }}</n-button>
+          <n-button type="primary" @click="handleStorySubmit" :loading="storySubmitting">
+            {{ isEditingStory ? 'Update story' : 'Post story' }}
+          </n-button>
         </n-space>
       </template>
     </n-modal>
@@ -356,6 +460,8 @@ import {
   NEmpty,
   NForm,
   NFormItem,
+  NGrid,
+  NGridItem,
   NIcon,
   NInput,
   NDivider,
@@ -408,9 +514,7 @@ const shouldAutoFetch = computed(() => !props.disableFetch)
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const COMMUNITY_ENDPOINT = `${API_BASE}/community/posts.php`
 const COMMUNITY_MEDIA_ENDPOINT = `${API_BASE}/community/media.php`
-const PUBLIC_ASSETS_BASE = normaliseBaseUrl(
-  import.meta.env.VITE_PUBLIC_ASSETS_BASE || ''
-)
+const PUBLIC_ASSETS_BASE = normaliseBaseUrl(import.meta.env.VITE_PUBLIC_ASSETS_BASE || '')
 const PLACEHOLDER_IMAGE = `data:image/svg+xml;utf8,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">
     <defs>
@@ -542,6 +646,56 @@ const basePosts = computed(() => {
   return []
 })
 
+const storyDateFormatter = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+})
+
+function formatAbsoluteDateLabel(value) {
+  if (!value) return ''
+  const normalized = String(value).trim()
+  const isoCandidate = normalized.includes('T') ? normalized : normalized.replace(' ', 'T')
+  const date = new Date(isoCandidate)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+  return storyDateFormatter.format(date)
+}
+
+function deriveTimelineMeta(post) {
+  const createdRaw = post.createdAt ?? post.postedAt ?? ''
+  const updatedRaw = post.updatedAt ?? ''
+
+  const createdLabel = post.createdAtLabel || formatAbsoluteDateLabel(createdRaw)
+  const updatedLabel = post.updatedAtLabel || formatAbsoluteDateLabel(updatedRaw)
+
+  const typeFromApi = post.timelineType || post.timelineStatus || ''
+  const hasUpdate =
+    (typeFromApi && typeFromApi === 'updated') ||
+    (updatedRaw && updatedRaw !== createdRaw && updatedLabel)
+
+  const type = hasUpdate ? 'updated' : 'created'
+
+  let label = post.timelineLabel || ''
+  if (!label) {
+    const baseLabel = type === 'updated' ? updatedLabel : createdLabel
+    if (baseLabel) {
+      const prefix = type === 'updated' ? 'Updated' : 'Created'
+      label = `${prefix} ${baseLabel}`
+    }
+  }
+
+  return {
+    type,
+    label,
+    createdLabel,
+    updatedLabel,
+  }
+}
+
 function ensureStringArray(value) {
   if (!value) return []
   if (Array.isArray(value)) {
@@ -599,6 +753,16 @@ function normalisePost(post, index = 0) {
     post.travelerId ??
     post.travelerID ??
     null
+
+  const authorTypeRaw =
+    post.authorType ??
+    post.author_type ??
+    post.authorRole ??
+    (post.operatorID ? 'operator' : 'traveler')
+  const authorType =
+    typeof authorTypeRaw === 'string' && authorTypeRaw.trim()
+      ? authorTypeRaw.trim().toLowerCase()
+      : 'traveler'
   const isOwn =
     typeof post.isOwn === 'boolean'
       ? post.isOwn
@@ -632,9 +796,22 @@ function normalisePost(post, index = 0) {
       'Share your sustainable travel highlight to inspire the community.',
     authorName: post.authorName || 'Traveler',
     authorUsername: post.authorUsername || post.username || '',
-    authorAvatar: post.authorAvatar || '',
+    authorAvatar: resolveAssetUrl(post.authorAvatar || post.profileImage || ''),
+    authorType,
     authorInitials: computeInitials(post.authorName || post.authorUsername || 'Traveler'),
-    postedAtLabel: post.postedAtLabel || post.postedAt || post.createdAt || '',
+    postedAtLabel:
+      timeline.label ||
+      post.timelineLabel ||
+      post.postedAtLabel ||
+      createdAt ||
+      '',
+    postedAtRelativeLabel: post.postedAtLabel || '',
+    timelineType: timeline.type,
+    timelineLabel: timeline.label,
+    createdAt,
+    createdAtLabel: timeline.createdLabel || createdAt,
+    updatedAt,
+    updatedAtLabel: timeline.updatedLabel || updatedAt,
     location: post.location || '',
     authorId,
     isOwn,
@@ -1525,27 +1702,21 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 .feed-grid {
-  column-count: 1;
-  column-gap: 18px;
-}
-
-@media (min-width: 640px) {
-  .feed-grid {
-    column-count: 2;
-  }
-}
-
-@media (min-width: 1024px) {
-  .feed-grid {
-    column-count: 3;
-  }
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+  align-items: stretch;
 }
 
 .post-card {
-  display: inline-block;
   width: 100%;
-  margin: 0 0 18px;
-  break-inside: avoid;
+  display: flex;
+}
+
+.post-card :deep(.n-card) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .post-media {
@@ -1571,6 +1742,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
 }
 
 .post-footer {
@@ -1588,6 +1760,267 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.story-modal :deep(.n-card) {
+  border-radius: 18px;
+  box-shadow: 0 28px 46px rgba(15, 23, 42, 0.16);
+  border: 1px solid rgba(15, 59, 39, 0.08);
+  overflow: visible;
+}
+
+.story-modal :deep(.n-card-header) {
+  padding-bottom: 4px;
+}
+
+.story-modal :deep(.n-card-header__title) {
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.story-modal :deep(.n-card__content) {
+  padding: 10px 0 0;
+}
+
+.story-modal :deep(.n-card__action) {
+  padding: 12px 18px 18px;
+}
+
+.story-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (min-width: 900px) {
+  .story-card {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 32px;
+  }
+}
+
+.story-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(28, 111, 79, 0.14);
+  background: linear-gradient(145deg, rgba(28, 111, 79, 0.09), rgba(28, 111, 79, 0.03));
+  width: 100%;
+}
+
+@media (min-width: 720px) {
+  .story-card__header {
+    padding: 14px 18px;
+  }
+}
+
+@media (min-width: 900px) {
+  .story-card__header {
+    flex: 0 0 220px;
+    position: sticky;
+    top: 18px;
+  }
+}
+
+.story-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgba(28, 111, 79, 0.12);
+  color: #1d5239;
+  font-weight: 600;
+  font-size: 0.78rem;
+  padding: 5px 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.story-card__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.story-card__heading h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #153f2d;
+}
+
+.story-card__heading p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: #3e5d4d;
+  line-height: 1.5;
+}
+
+.story-card__tips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (min-width: 720px) {
+  .story-card__tips {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+  }
+}
+
+.story-card__tips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #2a4f3c;
+}
+
+.story-card__tips li :deep(.n-icon) {
+  color: #1c6f4f;
+}
+
+.story-card__form {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 59, 39, 0.08);
+  box-shadow: 0 14px 28px rgba(15, 59, 39, 0.08);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+@media (max-width: 719px) {
+  .story-card__form {
+    padding: 16px;
+  }
+}
+
+@media (min-width: 900px) {
+  .story-card__form {
+    flex: 1;
+    padding: 20px 28px;
+  }
+}
+
+.story-card__form :deep(.n-form-item) {
+  margin-bottom: 0;
+}
+
+.story-card__form :deep(.n-form-item + .n-form-item) {
+  margin-top: 6px;
+}
+
+.story-card__form :deep(.n-form-item .n-form-item-label) {
+  font-weight: 600;
+  color: #1b4a34;
+}
+
+.story-card__form :deep(.n-input),
+.story-card__form :deep(.n-select),
+.story-card__form :deep(.n-upload) {
+  border-radius: 12px;
+  background: #f9fcf9;
+}
+
+.story-card__form :deep(.n-input.n-input--textarea .n-input__textarea-el) {
+  padding: 10px 14px;
+  line-height: 1.5;
+  text-align: left;
+  text-indent: 0;
+  font-size: 0.92rem;
+}
+
+.story-card__form :deep(.n-upload-dragger) {
+  border-radius: 12px;
+  border: 1px dashed rgba(28, 111, 79, 0.22);
+  background: #fbfdfb;
+  padding: 16px;
+}
+
+.story-card__form :deep(.n-upload-dragger:hover) {
+  border-color: rgba(28, 111, 79, 0.4);
+  background: #f4faf6;
+}
+
+.story-card__form :deep(.n-input.n-input--textarea .n-input__textarea-el::placeholder) {
+  color: #6a8577;
+  opacity: 0.8;
+}
+
+.story-upload-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.story-upload-card__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: rgba(28, 111, 79, 0.14);
+  color: #1c6f4f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.story-upload-card__hint {
+  font-size: 0.78rem;
+  color: #4e6a5a;
+}
+
+.story-preview {
+  position: relative;
+  border-radius: 14px;
+  border: 1px dashed rgba(28, 111, 79, 0.2);
+  background: #f4faf6;
+  min-height: 120px;
+  aspect-ratio: 1 / 1;
+  max-height: 260px;
+  overflow: hidden;
+}
+
+.story-preview--active {
+  border-style: solid;
+  border-color: rgba(28, 111, 79, 0.3);
+}
+
+.story-preview--existing {
+  border-style: solid;
+  border-color: rgba(12, 30, 21, 0.12);
+  background: #f7f9f8;
+}
+
+.story-preview img,
+.story-preview video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.story-preview__remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(220, 53, 69, 0.08);
+  backdrop-filter: blur(6px);
+}
+
+.story-preview__note {
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  color: #486150;
+  background: rgba(12, 30, 21, 0.05);
+}
 .story-form {
   display: flex;
   flex-direction: column;
@@ -1677,3 +2110,4 @@ detail-media video {
   flex-direction: column;
 }
 </style>
+

@@ -37,6 +37,41 @@ switch ($method) {
         echo json_encode(['error' => 'Method not allowed']);
 }
 
+function tableExists(PDO $pdo, string $tableName): bool
+{
+    static $cache = [];
+    if (array_key_exists($tableName, $cache)) {
+        return $cache[$tableName];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table'
+    );
+    $stmt->execute([':table' => $tableName]);
+    $cache[$tableName] = (bool) $stmt->fetchColumn();
+    return $cache[$tableName];
+}
+
+function tableHasColumn(PDO $pdo, string $tableName, string $columnName): bool
+{
+    static $cache = [];
+    $key = $tableName . ':' . $columnName;
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table AND COLUMN_NAME = :column'
+    );
+    $stmt->execute([':table' => $tableName, ':column' => $columnName]);
+    $cache[$key] = (bool) $stmt->fetchColumn();
+    return $cache[$key];
+}
+
 function getRoles(PDO $pdo): void
 {
     $stmt = $pdo->query(
@@ -50,16 +85,81 @@ function getRoles(PDO $pdo): void
         $roleName = strtolower($row['roleName']);
         $members = 0;
 
-        if ($roleName === 'traveler') {
-            $countStmt = $pdo->query('SELECT COUNT(*) FROM Traveler');
-            $members = (int) $countStmt->fetchColumn();
-        } elseif ($roleName === 'operator') {
-            $countStmt = $pdo->query('SELECT COUNT(*) FROM TourismOperator');
-            $members = (int) $countStmt->fetchColumn();
-        } else {
-            $countStmt = $pdo->prepare('SELECT COUNT(*) FROM Administrator WHERE roleID = :roleID');
-            $countStmt->execute([':roleID' => $row['roleID']]);
-            $members = (int) $countStmt->fetchColumn();
+        $activeSessions = 0;
+        $lastLoginAt = null;
+
+        try {
+            if ($roleName === 'traveler') {
+                $countStmt = $pdo->query('SELECT COUNT(*) FROM Traveler');
+                $members = (int) $countStmt->fetchColumn();
+
+                if (tableExists($pdo, 'TravelerLoginLog')) {
+                    if (tableHasColumn($pdo, 'TravelerLoginLog', 'isActive')) {
+                        $activeStmt = $pdo->query('SELECT COUNT(*) FROM TravelerLoginLog WHERE isActive = 1');
+                        $activeSessions = (int) $activeStmt->fetchColumn();
+                    } else {
+                        $activeSessions = null;
+                    }
+                    $lastStmt = $pdo->query(
+                        'SELECT loginTimestamp FROM TravelerLoginLog ORDER BY loginTimestamp DESC LIMIT 1'
+                    );
+                    $lastLoginAt = $lastStmt->fetchColumn() ?: null;
+                } else {
+                    $activeSessions = null;
+                }
+            } elseif ($roleName === 'operator') {
+                $countStmt = $pdo->query('SELECT COUNT(*) FROM TourismOperator');
+                $members = (int) $countStmt->fetchColumn();
+
+                if (tableExists($pdo, 'OperatorLoginLog')) {
+                    if (tableHasColumn($pdo, 'OperatorLoginLog', 'isActive')) {
+                        $activeStmt = $pdo->query('SELECT COUNT(*) FROM OperatorLoginLog WHERE isActive = 1');
+                        $activeSessions = (int) $activeStmt->fetchColumn();
+                    } else {
+                        $activeSessions = null;
+                    }
+                    $lastStmt = $pdo->query(
+                        'SELECT loginTimestamp FROM OperatorLoginLog ORDER BY loginTimestamp DESC LIMIT 1'
+                    );
+                    $lastLoginAt = $lastStmt->fetchColumn() ?: null;
+                } else {
+                    $activeSessions = null;
+                }
+            } else {
+                $countStmt = $pdo->prepare('SELECT COUNT(*) FROM Administrator WHERE roleID = :roleID');
+                $countStmt->execute([':roleID' => $row['roleID']]);
+                $members = (int) $countStmt->fetchColumn();
+
+                if (tableExists($pdo, 'AdminLoginLog')) {
+                    if (tableHasColumn($pdo, 'AdminLoginLog', 'isActive')) {
+                        $activeStmt = $pdo->prepare(
+                            'SELECT COUNT(*) FROM AdminLoginLog l
+                             INNER JOIN Administrator a ON a.adminID = l.adminID
+                             WHERE a.roleID = :roleID AND l.isActive = 1'
+                        );
+                        $activeStmt->execute([':roleID' => $row['roleID']]);
+                        $activeSessions = (int) $activeStmt->fetchColumn();
+                    } else {
+                        $activeSessions = null;
+                    }
+
+                    $lastStmt = $pdo->prepare(
+                        'SELECT l.loginTimestamp
+                         FROM AdminLoginLog l
+                         INNER JOIN Administrator a ON a.adminID = l.adminID
+                         WHERE a.roleID = :roleID
+                         ORDER BY l.loginTimestamp DESC
+                         LIMIT 1'
+                    );
+                    $lastStmt->execute([':roleID' => $row['roleID']]);
+                    $lastLoginAt = $lastStmt->fetchColumn() ?: null;
+                } else {
+                    $activeSessions = null;
+                }
+            }
+        } catch (Throwable $e) {
+            $activeSessions = null;
+            $lastLoginAt = null;
         }
 
         $roles[] = [
@@ -67,6 +167,8 @@ function getRoles(PDO $pdo): void
             'name' => $row['roleName'],
             'description' => $row['permissions'] ?? '',
             'members' => $members,
+            'activeSessions' => $activeSessions,
+            'lastLoginAt' => $lastLoginAt,
         ];
     }
 

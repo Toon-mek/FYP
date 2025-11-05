@@ -1,9 +1,10 @@
 <script setup>
-import { computed, h, onMounted, reactive, ref, watch } from 'vue'
-import { NAvatar, NButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
+import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { NAvatar, NButton, NSpace, NTag, NText, NIcon, NEmpty, useMessage } from 'naive-ui'
 import AdminListingVerification from './admin/AdminListingVerification.vue'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
 import { extractProfileImage } from '../utils/profileImage.js'
+import { RefreshOutline } from '@vicons/ionicons5'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const avatarFallbackStyle = {
@@ -14,7 +15,45 @@ const avatarFallbackStyle = {
 function deriveAvatarInfo(source) {
   return extractProfileImage(source)
 }
+
+
 const message = useMessage()
+const SESSION_HISTORY_LIMIT = 5
+
+function formatDateTime(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date)
+  } catch {
+    return date.toLocaleString()
+  }
+}
+
+function formatDuration(milliseconds) {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) {
+    return null
+  }
+  const totalSeconds = Math.floor(milliseconds / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const pad = (value) => String(value).padStart(2, '0')
+  if (days > 0) {
+    return `${days}d ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+  }
+  if (hours > 0) {
+    return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+  }
+  return `${pad(minutes)}:${pad(seconds)}`
+}
 const props = defineProps({
   currentAdminId: {
     type: Number,
@@ -190,6 +229,64 @@ const approvalColumns = [
   },
 ]
 
+const sessionHistoryColumns = [
+  {
+    title: 'User',
+    key: 'user',
+    minWidth: 220,
+    render(row) {
+      const lines = [
+        h(NText, { strong: true }, { default: () => row.name }),
+      ]
+      if (row.email) {
+        lines.push(
+          h(
+            NText,
+            { depth: 3, style: 'font-size: 0.85rem;' },
+            { default: () => row.email },
+          ),
+        )
+      }
+      lines.push(
+        h(
+          NText,
+          { depth: 3, style: 'font-size: 0.75rem; color: #6b7280;' },
+          { default: () => row.role },
+        ),
+      )
+      return h('div', { style: 'display:flex;flex-direction:column;gap:0.25rem;' }, lines)
+    },
+  },
+  {
+    title: 'Login time',
+    key: 'loginDisplay',
+    minWidth: 160,
+    render(row) {
+      return h(NText, { depth: 3 }, { default: () => row.loginDisplay || '--' })
+    },
+  },
+  {
+    title: 'Logout time',
+    key: 'logoutDisplay',
+    minWidth: 160,
+    render(row) {
+      return h(NText, { depth: 3 }, { default: () => row.logoutDisplay || '--' })
+    },
+  },
+  {
+    title: 'Duration',
+    key: 'durationDisplay',
+    minWidth: 120,
+    render(row) {
+      return h(
+        NText,
+        { depth: 3, style: 'font-variant-numeric: tabular-nums;' },
+        { default: () => row.durationDisplay || '--' },
+      )
+    },
+  },
+]
+
 const activeModule = ref('overview')
 const activeModuleMeta = computed(() => moduleMeta[activeModule.value] ?? moduleMeta.overview)
 
@@ -205,8 +302,26 @@ const savingUser = ref(false)
 const userSearchTerm = ref('')
 const userTypeFilter = ref('all')
 const statusFilter = ref('all')
-const page = ref(2)
+const page = ref(1)
 const pageSize = 10
+
+const sessionTicker = ref(Date.now())
+let sessionTickerHandle = null
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    sessionTickerHandle = window.setInterval(() => {
+      sessionTicker.value = Date.now()
+    }, 1000)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (sessionTickerHandle) {
+    window.clearInterval(sessionTickerHandle)
+    sessionTickerHandle = null
+  }
+})
 
 const userTypeFilterOptions = [
   { label: 'All types', value: 'all' },
@@ -239,6 +354,84 @@ const paginatedUsers = computed(() => {
   return filteredUsers.value.slice(start, start + pageSize)
 })
 
+const refreshingSessions = ref(false)
+
+async function refreshSessions() {
+  if (refreshingSessions.value) return
+  refreshingSessions.value = true
+  try {
+    await fetchUsers()
+  } finally {
+    refreshingSessions.value = false
+  }
+}
+
+const loginActivityRows = computed(() => {
+  const now = sessionTicker.value
+  return (users.value ?? [])
+    .map((user) => {
+      const loginAt = user.lastLoginAt ? new Date(user.lastLoginAt) : null
+      const hasLoginRecord = !!loginAt && !Number.isNaN(loginAt.getTime())
+      const isActive = Boolean(user.activeSession === true && hasLoginRecord)
+      if (!isActive) {
+        return null
+      }
+      const elapsedMs = hasLoginRecord ? Math.max(0, now - loginAt.getTime()) : 0
+      const durationSeconds = Math.floor(elapsedMs / 1000)
+      const durationLabel = formatDuration(durationSeconds * 1000) ?? '00:00'
+      return {
+        key: `${user.type ?? 'user'}-${user.id ?? 'unknown'}-${user.lastLoginAt ?? 'none'}`,
+        name: user.name ?? 'Unknown user',
+        email: user.email ?? '',
+        role: user.role ?? user.type ?? 'User',
+        loginDisplay: hasLoginRecord ? formatDateTime(loginAt) ?? '--' : '--',
+        statusLabel: 'Active now',
+        statusType: 'success',
+        durationLabel,
+        durationSeconds,
+        ipAddress: user.lastIpAddress ?? null,
+        deviceInfo: user.lastDeviceInfo ?? null,
+        loginTimestampValue: hasLoginRecord ? loginAt.getTime() : 0,
+      }
+    })
+    .filter((row) => row !== null)
+    .sort((a, b) => (b.loginTimestampValue ?? 0) - (a.loginTimestampValue ?? 0))
+})
+
+const loginActivitySummary = computed(() => ({
+  active: loginActivityRows.value.length,
+}))
+
+const sessionHistoryRows = computed(() => {
+  const rows = []
+  const usersList = users.value ?? []
+  usersList.forEach((user) => {
+    const history = Array.isArray(user.sessionHistory) ? user.sessionHistory : []
+    history.forEach((entry) => {
+      const loginAt = entry?.loginTimestamp ? new Date(entry.loginTimestamp) : null
+      const logoutAt = entry?.logoutTimestamp ? new Date(entry.logoutTimestamp) : null
+      const durationSeconds =
+        entry?.durationSeconds !== null && entry?.durationSeconds !== undefined
+          ? Number(entry.durationSeconds)
+          : loginAt && logoutAt
+            ? Math.max(0, Math.floor((logoutAt.getTime() - loginAt.getTime()) / 1000))
+            : null
+      rows.push({
+        key: `${user.type ?? 'user'}-${user.id ?? 'unknown'}-history-${entry?.logId ?? entry?.logID ?? entry?.loginTimestamp ?? Math.random()}`,
+        name: user.name ?? 'Unknown user',
+        email: user.email ?? '',
+        role: user.role ?? user.type ?? 'User',
+        loginDisplay: loginAt ? formatDateTime(loginAt) ?? '--' : '--',
+        logoutDisplay: logoutAt ? formatDateTime(logoutAt) ?? '--' : '--',
+        durationDisplay:
+          durationSeconds !== null ? formatDuration(durationSeconds * 1000) ?? '--' : '--',
+        durationSeconds,
+        loginTimestampValue: loginAt ? loginAt.getTime() : 0,
+      })
+    })
+  })
+  return rows.sort((a, b) => (b.loginTimestampValue ?? 0) - (a.loginTimestampValue ?? 0))
+})
 const statusOptions = computed(() => {
   if (userForm.type === 'Traveler' || userForm.type === 'Operator') {
     const options = [
@@ -273,7 +466,14 @@ const headerButtons = computed(() => {
     case 'users':
       return [
         { key: 'add-user', label: 'Add user', type: 'primary', onClick: () => openUserModal() },
-        { key: 'view-rules', label: 'Access policies', tertiary: true },
+        {
+          key: 'refresh-sessions',
+          label: 'Refresh sessions',
+          tertiary: true,
+          loading: refreshingSessions.value,
+          disabled: refreshingSessions.value,
+          onClick: () => refreshSessions(),
+        },
       ]
     default:
       return [{ key: 'configure', label: 'Configure module', type: 'primary' }]
@@ -334,8 +534,103 @@ const roleColumns = [
       return h(NText, { strong: true }, { default: () => row.members })
     },
   },
+  {
+    title: 'Description',
+    key: 'description',
+    render(row) {
+      const summary = row.description && row.description.trim().length > 0 ? row.description : 'No custom permissions'
+      return h(
+        NText,
+        { depth: 3 },
+        { default: () => summary },
+      )
+    },
+  },
 ]
 
+const loginActivityColumns = [
+  {
+    title: 'User',
+    key: 'user',
+    minWidth: 220,
+    render(row) {
+      const lines = [
+        h(NText, { strong: true }, { default: () => row.name }),
+      ]
+      if (row.email) {
+        lines.push(
+          h(
+            NText,
+            { depth: 3, style: 'font-size: 0.85rem;' },
+            { default: () => row.email },
+          ),
+        )
+      }
+      lines.push(
+        h(
+          NText,
+          { depth: 3, style: 'font-size: 0.75rem; color: #6b7280;' },
+          { default: () => row.role },
+        ),
+      )
+      return h('div', { style: 'display:flex;flex-direction:column;gap:0.25rem;' }, lines)
+    },
+  },
+  {
+    title: 'Login time',
+    key: 'loginDisplay',
+    minWidth: 160,
+    render(row) {
+      return h(NText, { depth: 3 }, { default: () => row.loginDisplay || '--' })
+    },
+  },
+  {
+    title: 'Session',
+    key: 'session',
+    minWidth: 200,
+    render(row) {
+      const nodes = [
+        h(NTag, { size: 'small', type: row.statusType, bordered: false }, { default: () => row.statusLabel }),
+      ]
+      nodes.push(
+        h('span', { key: row.durationSeconds, class: 'duration-ticker' }, [
+          h(
+            NText,
+            { depth: 3, style: 'font-size: 0.85rem;' },
+            { default: () => `Active for ${row.durationLabel}` },
+          ),
+        ]),
+      )
+      return h('div', { style: 'display:flex;flex-direction:column;gap:0.25rem;' }, nodes)
+    },
+  },
+  {
+    title: 'Device & IP',
+    key: 'device',
+    minWidth: 200,
+    render(row) {
+      const items = []
+      if (row.deviceInfo) {
+        items.push(
+          h(NText, { depth: 3 }, { default: () => row.deviceInfo }),
+        )
+      }
+      if (row.ipAddress) {
+        items.push(
+          h(
+            NText,
+            { depth: 3, style: 'font-size: 0.8rem; color: #6b7280;' },
+            { default: () => row.ipAddress },
+          ),
+        )
+      }
+      if (!items.length) {
+        items.push(h(NText, { depth: 3 }, { default: () => '--' }))
+      }
+      return h('div', { style: 'display:flex;flex-direction:column;gap:0.25rem;' }, items)
+    },
+  },
+]
 const showUserModal = ref(false)
 const editingUserId = ref(null)
 const userForm = reactive({
@@ -582,8 +877,15 @@ watch(showUserModal, (visible) => {
         <n-page-header :title="activeModuleMeta.title" :subtitle="activeModuleMeta.subtitle">
           <template #extra>
             <n-space>
-              <n-button v-for="action in headerButtons" :key="action.key" :type="action.type ?? 'default'"
-                :tertiary="action.tertiary" @click="action.onClick ? action.onClick() : null">
+              <n-button
+                v-for="action in headerButtons"
+                :key="action.key"
+                :type="action.type ?? 'default'"
+                :tertiary="action.tertiary"
+                :loading="action.loading"
+                :disabled="action.disabled"
+                @click="action.onClick ? action.onClick() : null"
+              >
                 {{ action.label }}
               </n-button>
             </n-space>
@@ -698,6 +1000,53 @@ watch(showUserModal, (visible) => {
               <n-data-table size="small" :columns="roleColumns" :data="roles" :bordered="false"
                 :loading="loadingRoles" />
             </n-card>
+
+            <n-card title="Live login sessions" :segmented="{ content: true }">
+              <template #header-extra>
+                <n-space align="center" size="small">
+                  <n-text depth="3" style="font-size: 0.85rem;">
+                    {{ loginActivitySummary.active }} active {{ loginActivitySummary.active === 1 ? 'user' : 'users' }}
+                  </n-text>
+                  <n-button quaternary circle size="small" :loading="refreshingSessions" :disabled="refreshingSessions"
+                    @click="refreshSessions" title="Refresh live sessions">
+                    <n-icon :size="16">
+                      <RefreshOutline />
+                    </n-icon>
+                  </n-button>
+                </n-space>
+              </template>
+
+              <n-data-table
+                size="small"
+                :columns="loginActivityColumns"
+                :data="loginActivityRows"
+                :bordered="false"
+                :loading="loadingUsers"
+                :row-key="(row) => row.key"
+              />
+
+              <template #footer>
+                <n-text depth="3" style="font-size: 0.75rem;">
+                  Session counters refresh every second while this dashboard is open.
+                </n-text>
+              </template>
+            </n-card>
+
+            <n-card title="Recent session durations" :segmented="{ content: true }">
+              <n-data-table
+                size="small"
+                :columns="sessionHistoryColumns"
+                :data="sessionHistoryRows"
+                :bordered="false"
+                :loading="loadingUsers"
+                :row-key="(row) => row.key"
+              />
+              <template #footer>
+                <n-text depth="3" style="font-size: 0.75rem;">
+                  Showing up to {{ SESSION_HISTORY_LIMIT }} recent completed sessions per user.
+                </n-text>
+              </template>
+            </n-card>
           </n-space>
 
           <n-modal v-model:show="showUserModal" preset="card" :title="editingUserId ? 'Edit user' : 'Add user'"
@@ -760,3 +1109,30 @@ watch(showUserModal, (visible) => {
     </n-layout>
   </n-layout>
 </template>
+
+<style scoped>
+.duration-ticker {
+  display: inline-block;
+  animation: ticker-pulse 0.9s ease-in-out;
+}
+
+@keyframes ticker-pulse {
+  0% {
+    opacity: 0.35;
+    transform: translateY(4px);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+}
+</style>
+
+
+
+
+

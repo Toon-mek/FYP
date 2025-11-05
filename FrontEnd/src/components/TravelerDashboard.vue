@@ -1,10 +1,11 @@
-﻿<script setup>
-import { computed, h, ref, watch } from 'vue'
+<script setup>
+import { computed, h, reactive, ref, watch, nextTick } from 'vue'
 import { NIcon, useMessage } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
 import TravelerSocialFeed from './TravelerSocialFeed.vue'
 import TravelerSavedPosts from './TravelerSavedPosts.vue'
+import TravelerMessages from './TravelerMessages.vue'
 import { extractProfileImage } from '../utils/profileImage.js'
 
 const props = defineProps({
@@ -57,6 +58,9 @@ const props = defineProps({
     default: () => [],
   },
 })
+
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const MESSAGES_ENDPOINT = `${API_BASE}/messages.php`
 
 const defaultTraveler = {
   fullName: 'Traveler',
@@ -117,13 +121,47 @@ const integrations = computed(() => props.integrations ?? [])
 const insights = computed(() => props.insights ?? [])
 const communityFeedPosts = computed(() => props.communityPosts ?? [])
 const communityFeedCategories = computed(() => props.communityCategories ?? [])
+const currentTravelerId = computed(() => {
+  const source = traveler.value ?? {}
+  return (
+    source.id ??
+    source.travelerID ??
+    source.travelerId ??
+    source.userId ??
+    null
+  )
+})
+
+const currentTravelerType = 'Traveler'
+const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
+const contactDialog = reactive({
+  visible: false,
+  loading: false,
+  sending: false,
+  messages: [],
+  input: '',
+  error: '',
+  target: null,
+})
+
+const contactThreadRef = ref(null)
+
+const avatarFallbackStyle = {
+  background: 'linear-gradient(135deg, rgba(36, 198, 220, 0.18), rgba(81, 74, 157, 0.18))',
+  color: '#1f2933',
+  fontWeight: '600',
+}
 
 const sidebarOptions = [
   { key: 'dashboard', label: 'Dashboard overview', icon: renderIcon('ri-compass-3-line') },
   { key: 'weather', label: 'Weather outlook', icon: renderIcon('ri-sun-cloudy-line') },
   { key: 'community', label: 'Community feed', icon: renderIcon('ri-hashtag') },
   { key: 'saved-posts', label: 'Saved posts', icon: renderIcon('ri-bookmark-line') },
-  { key: 'messages', label: 'Messages', disabled: true, icon: renderIcon('ri-chat-3-line') },
+  { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', disabled: true, icon: renderIcon('ri-notification-3-line') },
   { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
   { key: 'saved', label: 'Saved places', disabled: true, icon: renderIcon('ri-heart-3-line') },
@@ -142,6 +180,29 @@ watch(destinationTabs, (tabs) => {
   }
 })
 
+watch(
+  () => contactDialog.visible,
+  (visible) => {
+    if (!visible) {
+      contactDialog.target = null
+      contactDialog.messages = []
+      contactDialog.input = ''
+      contactDialog.error = ''
+      contactDialog.loading = false
+      contactDialog.sending = false
+    }
+  }
+)
+
+watch(
+  () => contactDialog.messages.length,
+  () => {
+    if (contactDialog.visible) {
+      scrollContactThreadToBottom()
+    }
+  }
+)
+
 const activeDestinations = computed(() => {
   const group = destinationGroups.value.find((item) => item.label === activeDestinationTab.value)
   return group?.items ?? []
@@ -152,8 +213,307 @@ function handleMenuSelect(val) {
 }
 
 function handleCommunityContact(post) {
-  const name = post?.authorName ?? 'traveler'
-  message.success(`Contact request noted for ${name}.`)
+  const viewerId = currentTravelerId.value
+  if (!viewerId) {
+    message.error('Unable to determine your traveler profile. Please sign in again.')
+    return
+  }
+
+  const target = normaliseContactTarget(post)
+  if (!target) {
+    message.error('Unable to contact this creator at the moment.')
+    return
+  }
+
+  contactDialog.target = target
+  contactDialog.messages = []
+  contactDialog.input = ''
+  contactDialog.error = ''
+  contactDialog.visible = true
+  loadContactMessages()
+}
+
+async function loadContactMessages() {
+  if (!contactDialog.target) {
+    return
+  }
+  const viewerId = currentTravelerId.value
+  if (!viewerId) {
+    return
+  }
+
+  contactDialog.loading = true
+  contactDialog.error = ''
+
+  try {
+    const params = new URLSearchParams({
+      currentType: currentTravelerType,
+      currentId: String(viewerId),
+      participantType: contactDialog.target.authorType,
+      participantId: String(contactDialog.target.authorId),
+    })
+    if (contactDialog.target.postId) {
+      params.set('postId', String(contactDialog.target.postId))
+    }
+
+    const response = await fetch(`${MESSAGES_ENDPOINT}?${params.toString()}`)
+    const payload = await readJsonResponse(
+      response,
+      `Failed to load messages (${response.status})`
+    )
+    const rows = Array.isArray(payload?.messages) ? payload.messages : []
+    contactDialog.messages = rows.map((row, index) => normaliseConversationMessage(row, index))
+
+    if (Array.isArray(payload?.participants)) {
+      const counterpart = payload.participants.find(
+        (item) =>
+          Number(item?.id ?? item?.ID ?? 0) === contactDialog.target.authorId &&
+          normaliseMessageAccountType(item?.type ?? item?.accountType ?? item?.role ?? '') ===
+            contactDialog.target.authorType
+      )
+      if (counterpart) {
+        Object.assign(contactDialog.target, {
+          authorName: counterpart.name || contactDialog.target.authorName,
+          authorUsername: counterpart.username || contactDialog.target.authorUsername,
+          authorAvatar: counterpart.avatar || contactDialog.target.authorAvatar,
+        })
+        if (!contactDialog.target.authorInitials) {
+          contactDialog.target.authorInitials = computeInitialsFromName(
+            contactDialog.target.authorName || contactDialog.target.authorUsername || 'Traveler'
+          )
+        }
+      }
+    }
+
+    scrollContactThreadToBottom()
+  } catch (error) {
+    contactDialog.error = error instanceof Error ? error.message : 'Unable to load messages.'
+    message.error(contactDialog.error)
+  } finally {
+    contactDialog.loading = false
+  }
+}
+
+async function sendContactMessage() {
+  if (!contactDialog.target) {
+    return
+  }
+  const viewerId = currentTravelerId.value
+  if (!viewerId) {
+    message.error('Unable to determine your traveler profile. Please sign in again.')
+    return
+  }
+
+  const content = contactDialog.input.trim()
+  if (!content) {
+    message.warning('Enter a message before sending.')
+    return
+  }
+
+  contactDialog.sending = true
+  contactDialog.error = ''
+
+  const payload = {
+    senderType: currentTravelerType,
+    senderID: viewerId,
+    receiverType: contactDialog.target.authorType,
+    receiverID: contactDialog.target.authorId,
+    postID: contactDialog.target.postId,
+    content,
+  }
+
+  try {
+    const response = await fetch(MESSAGES_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await readJsonResponse(
+      response,
+      `Failed to send message (${response.status})`
+    )
+    const saved = data?.message ?? {}
+    contactDialog.messages.push(
+      normaliseConversationMessage(
+        {
+          ...payload,
+          id: saved.id ?? saved.messageId ?? null,
+          messageID: saved.id ?? saved.messageId ?? null,
+          sentAt: saved.sentAt ?? saved.sent_at ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+        },
+        contactDialog.messages.length
+      )
+    )
+    contactDialog.input = ''
+    scrollContactThreadToBottom()
+  } catch (error) {
+    contactDialog.error = error instanceof Error ? error.message : 'Unable to send message.'
+    message.error(contactDialog.error)
+  } finally {
+    contactDialog.sending = false
+  }
+}
+
+function normaliseContactTarget(post) {
+  if (!post) {
+    return null
+  }
+  const authorId =
+    Number(post.authorId ?? post.authorID ?? post.travelerId ?? post.travelerID ?? 0)
+  if (!authorId) {
+    return null
+  }
+  const typeKey =
+    typeof post.authorType === 'string' && post.authorType.trim() !== ''
+      ? post.authorType.trim().toLowerCase()
+      : 'traveler'
+  const authorType = normaliseMessageAccountType(typeKey) || 'Traveler'
+  const authorName = post.authorName || post.authorUsername || 'Traveler'
+  const authorUsername = post.authorUsername || ''
+  const linkedPostId = resolveLinkedPostId(post)
+
+  return {
+    authorId,
+    authorType,
+    authorTypeRaw: typeKey,
+    authorName,
+    authorUsername,
+    authorAvatar: post.authorAvatar || '',
+    authorInitials: computeInitialsFromName(authorName || authorUsername || 'Traveler'),
+    postId: linkedPostId,
+    caption: post.caption || '',
+  }
+}
+
+function resolveLinkedPostId(post) {
+  if (!post || typeof post !== 'object') {
+    return null
+  }
+
+  const candidates = [
+    post.postId,
+    post.postID,
+    post.communityPostId,
+    post.community_post_id,
+    post.messagePostId,
+    post.message_post_id,
+  ]
+
+  for (const candidate of candidates) {
+    const numeric = Number(candidate)
+    if (Number.isInteger(numeric) && numeric > 0) {
+      return numeric
+    }
+  }
+
+  return null
+}
+
+function normaliseConversationMessage(row, index = 0) {
+  const senderType = normaliseMessageAccountType(row?.senderType ?? row?.sender_type ?? '')
+  const receiverType = normaliseMessageAccountType(row?.receiverType ?? row?.receiver_type ?? '')
+  const sentAt = row?.sentAt ?? row?.sent_at ?? null
+
+  return {
+    id: row?.id ?? row?.messageID ?? index,
+    senderType,
+    senderId: Number(row?.senderId ?? row?.senderID ?? 0),
+    receiverType,
+    receiverId: Number(row?.receiverId ?? row?.receiverID ?? 0),
+    content: row?.content ?? '',
+    sentAt,
+    listingId: row?.listingId ?? row?.listingID ?? null,
+    postId: row?.postId ?? row?.postID ?? null,
+  }
+}
+
+function isOwnMessage(entry) {
+  const viewerId = currentTravelerId.value
+  if (!viewerId) {
+    return false
+  }
+  const senderType = (entry?.senderType ?? '').toLowerCase()
+  const senderId = Number(entry?.senderId ?? entry?.senderID ?? 0)
+  return senderType === currentTravelerType.toLowerCase() && senderId === Number(viewerId)
+}
+
+function formatMessageTimestamp(value) {
+  if (!value) {
+    return ''
+  }
+  const asString = String(value)
+  const maybeIso = asString.includes('T') ? asString : asString.replace(' ', 'T')
+  const date = new Date(maybeIso)
+  if (Number.isNaN(date.getTime())) {
+    return asString
+  }
+  return messageTimestampFormatter.format(date)
+}
+
+function closeContactDialog() {
+  contactDialog.visible = false
+}
+
+function scrollContactThreadToBottom() {
+  nextTick(() => {
+    const el = contactThreadRef.value
+    if (el && typeof el.scrollHeight === 'number') {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+}
+
+async function readJsonResponse(response, fallbackMessage) {
+  const text = await response.text()
+  if (!response.ok) {
+    try {
+      const payload = JSON.parse(text)
+      throw new Error(payload?.error ?? fallbackMessage)
+    } catch (error) {
+      throw new Error(text ? text.slice(0, 200) : fallbackMessage)
+    }
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    throw new Error(text ? text.slice(0, 200) : 'Invalid JSON response from server.')
+  }
+}
+
+function normaliseMessageAccountType(type) {
+  const mapping = {
+    traveler: 'Traveler',
+    traveller: 'Traveler',
+    operator: 'Operator',
+    business: 'Operator',
+    tourismoperator: 'Operator',
+    admin: 'Admin',
+    administrator: 'Admin',
+  }
+  const key = String(type ?? '').toLowerCase()
+  return mapping[key] ?? ''
+}
+
+function computeInitialsFromName(label) {
+  if (!label) {
+    return 'TR'
+  }
+  const initials = String(label)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+  return initials ? initials.toUpperCase() : 'TR'
+}
+
+async function safeJson(response) {
+  try {
+    return await response.json()
+  } catch (error) {
+    return null
+  }
 }
 
 const summaryCards = computed(() => [
@@ -199,7 +559,7 @@ const heroStats = computed(() => [
     key: 'carbon',
     label: 'Carbon saved',
     value: metrics.value.carbonSaved,
-    suffix: ' tCOÃƒÂ¢Ã¢â‚¬Å¡Ã¢â‚¬Å¡e',
+    suffix: ' tCOÃ¢â€šâ€še',
     icon: 'ri-planet-line',
   },
   {
@@ -300,6 +660,9 @@ const hasInsights = computed(() => insights.value.length > 0)
             :current-user="traveler"
           />
         </div>
+        <div v-else-if="selectedMenu === 'messages'" class="messages-panel">
+          <TravelerMessages :current-user="traveler" />
+        </div>
         <div v-else class="dashboard-main">
           <n-space vertical size="large">
             <n-card :segmented="{ content: true }" :style="{
@@ -311,7 +674,7 @@ const hasInsights = computed(() => insights.value.length > 0)
                   <n-space vertical size="small">
                     <n-tag type="success" size="small" bordered>Traveler spotlight</n-tag>
                     <div style="font-size: 1.8rem; font-weight: 700;">
-                      Craft journeys that protect MalaysiaÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s wild places
+                      Craft journeys that protect MalaysiaÃ¢â‚¬â„¢s wild places
                     </div>
                     <n-text depth="3">
                       Plan flexible itineraries, track your eco impact, and stay in touch with responsible guides.
@@ -411,7 +774,7 @@ const hasInsights = computed(() => insights.value.length > 0)
                               {{ destination.name }}
                             </div>
                             <n-text depth="3">
-                              {{ destination.location }} Ãƒâ€šÃ‚Â· {{ destination.duration }}
+                              {{ destination.location }} Ã‚Â· {{ destination.duration }}
                             </n-text>
                             <n-tag v-if="destination.tag" type="success" size="small" bordered>
                               {{ destination.tag }}
@@ -437,7 +800,7 @@ const hasInsights = computed(() => insights.value.length > 0)
                   <template v-if="hasTrips">
                     <n-timeline size="large">
                       <n-timeline-item v-for="trip in upcomingTrips" :key="trip.id ?? trip.title" :title="trip.title"
-                        :time="`${trip.location} Ãƒâ€šÃ‚Â· ${trip.duration}`">
+                        :time="`${trip.location} Ã‚Â· ${trip.duration}`">
                         <n-text depth="3">{{ trip.focus }}</n-text>
                         <template #footer>
                           <n-button text type="primary">Open trip board</n-button>
@@ -552,6 +915,96 @@ const hasInsights = computed(() => insights.value.length > 0)
       </n-layout-content>
     </n-layout>
   </n-layout>
+
+  <n-modal
+    v-model:show="contactDialog.visible"
+    preset="card"
+    :mask-closable="false"
+    :closable="false"
+    style="max-width: 560px"
+  >
+    <template #header>
+      <n-space align="center" size="small">
+        <n-avatar
+          round
+          size="medium"
+          :src="contactDialog.target?.authorAvatar || undefined"
+          :style="contactDialog.target?.authorAvatar ? undefined : avatarFallbackStyle"
+        >
+          <template v-if="!contactDialog.target?.authorAvatar">
+            {{ contactDialog.target?.authorInitials ?? 'TR' }}
+          </template>
+        </n-avatar>
+        <div class="contact-modal__identity">
+          <div class="contact-modal__name">
+            {{ contactDialog.target?.authorName || 'Traveler' }}
+          </div>
+          <n-text v-if="contactDialog.target?.authorUsername" depth="3">
+            @{{ contactDialog.target.authorUsername }}
+          </n-text>
+        </div>
+      </n-space>
+    </template>
+
+    <n-space vertical size="large">
+      <n-alert
+        v-if="contactDialog.error"
+        type="error"
+        closable
+        @close="contactDialog.error = ''"
+      >
+        {{ contactDialog.error }}
+      </n-alert>
+
+      <n-spin :show="contactDialog.loading">
+        <div class="contact-thread" ref="contactThreadRef">
+          <template v-if="contactDialog.messages.length">
+            <div
+              v-for="msg in contactDialog.messages"
+              :key="msg.id ?? `${msg.sentAt}-${msg.senderId}`"
+              :class="[
+                'contact-thread__message',
+                { 'contact-thread__message--own': isOwnMessage(msg) },
+              ]"
+            >
+              <div class="contact-thread__timestamp">
+                {{ formatMessageTimestamp(msg.sentAt) }}
+              </div>
+              <div class="contact-thread__bubble">
+                {{ msg.content }}
+              </div>
+            </div>
+          </template>
+          <div v-else class="contact-thread__empty">
+            Start the conversation with a friendly introduction.
+          </div>
+        </div>
+      </n-spin>
+
+      <n-input
+        v-model:value="contactDialog.input"
+        type="textarea"
+        :autosize="{ minRows: 3, maxRows: 5 }"
+        maxlength="2000"
+        show-count
+        placeholder="Introduce yourself, ask a question, or propose a collaboration."
+      />
+
+      <n-space justify="end">
+        <n-button tertiary @click="closeContactDialog" :disabled="contactDialog.sending">
+          Cancel
+        </n-button>
+        <n-button
+          type="primary"
+          :loading="contactDialog.sending"
+          :disabled="!contactDialog.input.trim()"
+          @click="sendContactMessage"
+        >
+          Send message
+        </n-button>
+      </n-space>
+    </n-space>
+  </n-modal>
 </template>
 
 <style scoped>
@@ -577,7 +1030,74 @@ const hasInsights = computed(() => insights.value.length > 0)
   max-width: 1100px;
   margin: 0 auto;
 }
+
+.messages-panel {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding-bottom: 24px;
+}
+
+.contact-modal__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.contact-modal__name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.contact-thread {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.contact-thread__message {
+  max-width: 78%;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.contact-thread__message--own {
+  align-self: flex-end;
+}
+
+.contact-thread__bubble {
+  background: rgba(15, 23, 42, 0.05);
+  padding: 10px 14px;
+  border-radius: 16px;
+  color: #1f2933;
+  line-height: 1.45;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
+}
+
+.contact-thread__message--own .contact-thread__bubble {
+  background: rgba(24, 160, 88, 0.12);
+  color: #14532d;
+  box-shadow: inset 0 0 0 1px rgba(24, 160, 88, 0.18);
+}
+
+.contact-thread__timestamp {
+  font-size: 0.75rem;
+  color: rgba(15, 23, 42, 0.45);
+}
+
+.contact-thread__empty {
+  text-align: center;
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.45);
+  padding: 16px 0;
+}
 </style>
+
+
 
 
 
