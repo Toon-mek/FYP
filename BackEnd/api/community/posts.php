@@ -80,6 +80,10 @@ function handleGetPosts(PDO $pdo): void
   $limit = max(1, min(50, (int) ($_GET['limit'] ?? 20)));
   $offset = max(0, (int) ($_GET['offset'] ?? 0));
   $categoryFilter = trim((string) ($_GET['category'] ?? ''));
+  $viewMode = strtolower((string) ($_GET['view'] ?? ''));
+  $savedOnly = $viewMode === 'saved';
+  $likedOnly = $viewMode === 'liked';
+  $commentedOnly = $viewMode === 'commented';
   $viewerId = isset($_GET['travelerId']) ? (int) $_GET['travelerId'] : null;
 
   $params = [
@@ -87,11 +91,39 @@ function handleGetPosts(PDO $pdo): void
     ':offset' => $offset,
   ];
 
-  $categoryJoin = '';
+  if (($savedOnly || $likedOnly || $commentedOnly) && !$viewerId) {
+    echo json_encode(['posts' => [], 'total' => 0]);
+    return;
+  }
+
+  $joins = [];
   if ($categoryFilter !== '') {
-    $categoryJoin = 'INNER JOIN community_story_category csc_filter
+    $joins[] = 'INNER JOIN community_story_category csc_filter
       ON csc_filter.storyId = cs.id AND csc_filter.category = :filterCategory';
     $params[':filterCategory'] = $categoryFilter;
+  }
+  if ($savedOnly) {
+    $joins[] = 'INNER JOIN community_story_save css_filter
+      ON css_filter.storyId = cs.id AND css_filter.travelerId = :viewerFilterTraveler';
+  }
+  if ($likedOnly) {
+    $joins[] = 'INNER JOIN community_story_reaction csr_filter
+      ON csr_filter.storyId = cs.id AND csr_filter.travelerId = :viewerFilterTraveler';
+  }
+  if ($commentedOnly) {
+    $joins[] = 'INNER JOIN (
+        SELECT DISTINCT storyId
+        FROM community_story_comment
+        WHERE travelerId = :viewerFilterTraveler
+      ) csc_viewer ON csc_viewer.storyId = cs.id';
+  }
+  if ($savedOnly || $likedOnly || $commentedOnly) {
+    $params[':viewerFilterTraveler'] = $viewerId;
+  }
+
+  $joinSql = '';
+  if ($joins) {
+    $joinSql = "\n      " . implode("\n      ", $joins);
   }
 
   $sql = <<<SQL
@@ -112,18 +144,19 @@ function handleGetPosts(PDO $pdo): void
       t.contactNumber
     FROM community_story cs
     INNER JOIN Traveler t ON t.travelerID = cs.travelerID
-    $categoryJoin
+    $joinSql
     ORDER BY cs.createdAt DESC
     LIMIT :limit OFFSET :offset
   SQL;
 
   $stmt = $pdo->prepare($sql);
+  $intParamKeys = [':limit', ':offset', ':viewerFilterTraveler'];
   foreach ($params as $key => $value) {
-    if ($key === ':limit' || $key === ':offset') {
-      $stmt->bindValue($key, $value, PDO::PARAM_INT);
-    } else {
-      $stmt->bindValue($key, $value, PDO::PARAM_STR);
+    if (in_array($key, $intParamKeys, true)) {
+      $stmt->bindValue($key, (int) $value, PDO::PARAM_INT);
+      continue;
     }
+    $stmt->bindValue($key, $value, PDO::PARAM_STR);
   }
 
   $stmt->execute();
@@ -674,9 +707,10 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
   $mediaMap = fetchMediaByStory($pdo, $storyIds, $stories);
   $reactionMap = $viewerId ? fetchUserReactions($pdo, $storyIds, $viewerId) : [];
   $saveMap = $viewerId ? fetchUserSaves($pdo, $storyIds, $viewerId) : [];
+  $commentMap = $viewerId ? fetchViewerComments($pdo, $storyIds, $viewerId) : [];
 
   return array_map(
-    static function (array $story) use ($tags, $categories, $mediaMap, $reactionMap, $saveMap): array {
+    static function (array $story) use ($tags, $categories, $mediaMap, $reactionMap, $saveMap, $commentMap): array {
       $storyId = (int) $story['id'];
       $mediaItems = $mediaMap[$storyId] ?? buildLegacyMediaList($story);
       $cover = $mediaItems[0] ?? [
@@ -704,6 +738,8 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
         'saves' => (int) $story['saves'],
         'isLiked' => isset($reactionMap[$storyId]),
         'isSaved' => isset($saveMap[$storyId]),
+        'viewerHasCommented' => isset($commentMap[$storyId]) && $commentMap[$storyId] > 0,
+        'viewerCommentCount' => (int) ($commentMap[$storyId] ?? 0),
         'tags' => $tags[$storyId] ?? [],
         'categories' => $categories[$storyId] ?? [],
       ];
@@ -798,6 +834,36 @@ function fetchUserSaves(PDO $pdo, array $storyIds, int $travelerId): array
   foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $storyId) {
     $map[(int) $storyId] = true;
   }
+  return $map;
+}
+
+function fetchViewerComments(PDO $pdo, array $storyIds, int $travelerId): array
+{
+  if (!$storyIds) {
+    return [];
+  }
+
+  $placeholders = implode(',', array_fill(0, count($storyIds), '?'));
+  $params = $storyIds;
+  $params[] = $travelerId;
+
+  $stmt = $pdo->prepare(
+    "SELECT storyId, COUNT(*) AS commentCount
+     FROM community_story_comment
+     WHERE storyId IN ($placeholders) AND travelerId = ?
+     GROUP BY storyId"
+  );
+  $stmt->execute($params);
+
+  $map = [];
+  foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    $storyId = (int) ($row['storyId'] ?? 0);
+    if ($storyId <= 0) {
+      continue;
+    }
+    $map[$storyId] = (int) ($row['commentCount'] ?? 0);
+  }
+
   return $map;
 }
 

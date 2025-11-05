@@ -1,7 +1,10 @@
 ﻿<template>
   <n-dialog-provider>
     <div class="social-feed">
-    <n-page-header class="feed-header" title="Community hub"
+      <n-page-header
+        v-if="!hideHeader"
+        class="feed-header"
+        title="Community hub"
       subtitle="Discover how other eco-conscious travelers explore, save, and share.">
       <template #extra>
         <n-button type="primary" size="small" @click="startCreateStory">
@@ -15,13 +18,22 @@
       </template>
     </n-page-header>
 
-    <n-space class="category-bar" justify="space-between" align="center" wrap size="large">
-      <n-tabs v-if="categoryOptions.length" v-model:value="activeCategory" type="segment" size="small"
-        class="category-tabs">
-        <n-tab-pane v-for="category in categoryOptions" :key="category.value" :name="category.value"
-          :tab="category.label" />
-      </n-tabs>
-    </n-space>
+      <n-space
+        v-if="!hideHeader && categoryOptions.length"
+        class="category-bar"
+        justify="space-between"
+        align="center"
+        wrap
+        size="large">
+        <n-tabs v-model:value="activeCategory" type="segment" size="small" class="category-tabs">
+          <n-tab-pane
+            v-for="category in categoryOptions"
+            :key="category.value"
+            :name="category.value"
+            :tab="category.label"
+          />
+        </n-tabs>
+      </n-space>
 
     <n-alert v-if="postsError" type="error" closable class="feed-alert" @close="postsError = ''">
       {{ postsError }}
@@ -371,6 +383,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  hideHeader: {
+    type: Boolean,
+    default: false,
+  },
   categories: {
     type: Array,
     default: () => [],
@@ -379,9 +395,15 @@ const props = defineProps({
     type: Object,
     default: () => null,
   },
+  disableFetch: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const message = useMessage()
+const hideHeader = computed(() => !!props.hideHeader)
+const shouldAutoFetch = computed(() => !props.disableFetch)
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const COMMUNITY_ENDPOINT = `${API_BASE}/community/posts.php`
@@ -511,7 +533,7 @@ const fallbackCategories = [
 
 
 const basePosts = computed(() => {
-  if (serverPosts.value.length) {
+  if (shouldAutoFetch.value && serverPosts.value.length) {
     return serverPosts.value
   }
   if (props.posts.length) {
@@ -586,6 +608,18 @@ function normalisePost(post, index = 0) {
             String(authorId) === String(currentUserInfo.value.id)
         )
 
+  const viewerCommentCountRaw =
+    post.viewerCommentCount ?? post.viewerComments ?? post.viewerCommentedCount ?? post.viewerCommentTotal ?? 0
+  const viewerCommentCount = Number.isFinite(Number(viewerCommentCountRaw))
+    ? Number(viewerCommentCountRaw)
+    : 0
+  const hasCommented =
+    typeof post.viewerHasCommented === 'boolean'
+      ? post.viewerHasCommented
+      : typeof post.hasCommented === 'boolean'
+      ? post.hasCommented
+      : viewerCommentCount > 0
+
   return {
     ...post,
     id,
@@ -609,6 +643,8 @@ function normalisePost(post, index = 0) {
     saves: Number.isFinite(Number(post.saves)) ? Number(post.saves) : 0,
     isLiked: Boolean(post.isLiked),
     isSaved: Boolean(post.isSaved),
+    hasCommented,
+    viewerCommentCount,
     tags: ensureStringArray(post.tags),
     categories: ensureStringArray(post.categories),
     duration: post.duration || '',
@@ -689,10 +725,24 @@ const postModalVisible = ref(false)
 const expandedPost = computed(() => activePost.value)
 
 onMounted(() => {
-  fetchCommunityPosts()
+  if (shouldAutoFetch.value) {
+    fetchCommunityPosts()
+  }
 })
 
+watch(
+  shouldAutoFetch,
+  (enabled) => {
+    if (enabled && !serverPosts.value.length) {
+      fetchCommunityPosts()
+    }
+  }
+)
+
 async function fetchCommunityPosts() {
+  if (!shouldAutoFetch.value) {
+    return
+  }
   postsLoading.value = true
   postsError.value = ''
   try {
