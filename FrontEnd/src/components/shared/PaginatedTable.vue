@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { NDataTable, NEmpty, NPagination, NSpace, NText } from 'naive-ui'
+import { NDataTable, NEmpty, NSpace, NText } from 'naive-ui'
+import SimplePagination from './SimplePagination.vue'
 
 const props = defineProps({
   columns: {
@@ -156,24 +157,14 @@ function resolveRowKey(row, index) {
     <slot name="before-table" />
 
     <template v-if="paginatedRows.length || loading">
-      <n-data-table
-        v-bind="tableAttrs"
-        :columns="columns"
-        :data="paginatedRows"
-        :loading="loading"
-        :row-key="resolveRowKey"
-      />
+      <n-data-table v-bind="tableAttrs" :columns="columns" :data="paginatedRows" :loading="loading"
+        :row-key="resolveRowKey" />
     </template>
     <n-empty v-else :description="emptyMessage" />
 
     <slot name="after-table" />
 
-    <n-space
-      v-if="showPagination"
-      justify="space-between"
-      align="center"
-      style="margin-top: 8px;"
-    >
+    <n-space v-if="showPagination" justify="space-between" align="center" style="margin-top: 8px;">
       <slot name="range" :start="rangeMeta.start" :end="rangeMeta.end" :total="rangeMeta.total">
         <n-text v-if="showRange" depth="3" style="font-size: 0.75rem;">
           Showing
@@ -185,14 +176,8 @@ function resolveRowKey(row, index) {
           items.
         </n-text>
       </slot>
-      <n-pagination
-        v-model:page="currentPage"
-        :page-size="pageSize"
-        :page-count="pageCount"
-        size="small"
-        :disabled="loading"
-        v-bind="paginationProps"
-      />
+      <SimplePagination v-model:page="currentPage" :page-count="pageCount" :page-size="pageSize" :loading="loading"
+        v-bind="paginationProps" />
     </n-space>
 
     <slot name="footer" />

@@ -1,6 +1,7 @@
 <script setup>
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { NButton, NTag, useMessage } from 'naive-ui'
+import PaginatedTable from '../shared/PaginatedTable.vue'
 
 const props = defineProps({
   adminId: {
@@ -29,6 +30,8 @@ const listings = ref([])
 const loadingListings = ref(false)
 const loadError = ref('')
 const lastLoadedAt = ref('')
+const listingsPage = ref(1)
+const listingsPageSize = 10
 
 const selectedListingId = ref(null)
 const selectedListing = ref(null)
@@ -218,7 +221,15 @@ const moderatorId = computed(() => (typeof props.adminId === 'number' && props.a
 watch(
   () => filters.status,
   () => {
+    listingsPage.value = 1
     loadListings()
+  }
+)
+
+watch(
+  () => [filters.category, filters.search],
+  () => {
+    listingsPage.value = 1
   }
 )
 
@@ -246,11 +257,13 @@ async function loadListings() {
 
     const body = await response.json()
     listings.value = Array.isArray(body.listings) ? body.listings : []
+    listingsPage.value = 1
     lastLoadedAt.value = new Date().toLocaleString()
   } catch (error) {
     console.error(error)
     loadError.value = error instanceof Error ? error.message : 'Something went wrong while loading listings.'
     listings.value = []
+    listingsPage.value = 1
   } finally {
     loadingListings.value = false
   }
@@ -371,13 +384,22 @@ function statusBadgeType(status) {
       </n-card>
 
       <n-card size="small" :bordered="false">
-        <n-data-table :columns="columns" :data="filteredListings" :loading="loadingListings" :bordered="false"
-          :pagination="false" size="small" striped />
-        <n-empty v-if="!loadingListings && filteredListings.length === 0" style="margin-top: 24px;">
-          <template #description>
-            {{ emptyStateDescription }}
+        <PaginatedTable
+          v-model:page="listingsPage"
+          :columns="columns"
+          :rows="filteredListings"
+          :loading="loadingListings"
+          :page-size="listingsPageSize"
+          :table-props="{ bordered: false, size: 'small', striped: true }"
+          :hide-pagination-when-single="false"
+          :empty-message="emptyStateDescription"
+        >
+          <template #range="{ start, end, total }">
+            <span class="listing-verification__hint">
+              Showing {{ total === 0 ? 0 : start }} - {{ total === 0 ? 0 : end }} of {{ total }} listing(s)
+            </span>
           </template>
-        </n-empty>
+        </PaginatedTable>
       </n-card>
     </n-space>
 

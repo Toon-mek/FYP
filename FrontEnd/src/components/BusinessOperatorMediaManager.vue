@@ -291,11 +291,10 @@
 
           <div class="media-table__footer">
             <n-text depth="3">{{ mediaTableSummaryText }}</n-text>
-            <n-pagination
+            <SimplePagination
               v-if="mediaTablePageCount > 1"
               v-model:page="mediaTablePage"
               :page-count="mediaTablePageCount"
-              size="small"
             />
           </div>
         </n-space>
@@ -495,7 +494,6 @@ import {
   NAlert,
   NButton,
   NCard,
-  NPagination,
   NDivider,
   NEmpty,
   NForm,
@@ -515,6 +513,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import { ArchiveOutline } from '@vicons/ionicons5'
+import SimplePagination from './shared/SimplePagination.vue'
 
 const props = defineProps({
   apiBase: {

@@ -18,7 +18,6 @@ import {
   NGridItem,
   NInput,
   NModal,
-  NPagination,
   NSelect,
   NSpin,
   NSpace,
@@ -27,6 +26,7 @@ import {
   NText,
   useMessage,
 } from 'naive-ui'
+import SimplePagination from '../shared/SimplePagination.vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const COMMUNITY_MEDIA_ENDPOINT = `${API_BASE}/community/media.php`
@@ -607,7 +607,7 @@ function computeInitials(text) {
 
         <n-space v-if="totalPosts > 0" justify="space-between" align="center" class="acm__pagination">
           <n-text depth="3">{{ pageSummary }}</n-text>
-          <n-pagination v-model:page="page" :page-size="pageSize" :item-count="totalPosts" :page-slot="7" />
+          <SimplePagination v-model:page="page" :item-count="totalPosts" :page-size="pageSize" />
         </n-space>
       </n-card>
     </n-space>

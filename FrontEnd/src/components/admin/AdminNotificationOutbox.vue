@@ -7,13 +7,14 @@ import {
   NDataTable,
   NEmpty,
   NModal,
-  NPagination,
   NSelect,
   NSkeleton,
   NSpace,
   NTag,
   NText,
 } from 'naive-ui'
+import SimplePagination from '../shared/SimplePagination.vue'
+import { resolveRoleTagType } from './RoleTagTypes.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -66,21 +67,12 @@ const columns = [
         { style: 'display:flex; flex-direction:column; gap:4px;' },
         [
           h('div', { style: 'display:flex; align-items:center; gap:10px;' }, [
-            h(
-              NTag,
-              {
-                size: 'tiny',
-                type:
-                  row.recipientType === 'Operator'
-                    ? 'warning'
-                    : row.recipientType === 'Traveler'
-                      ? 'success'
-                      : 'info',
-                round: true,
-                bordered: false,
-              },
-              { default: () => row.recipientType },
-            ),
+            h(NTag, {
+              size: 'tiny',
+              bordered: false,
+              type: resolveRoleTagType(row.recipientType),
+              round: true,
+            }, { default: () => row.recipientType || 'Recipient' }),
             h('span', { style: 'font-weight:600;' }, display),
           ]),
           email
@@ -262,8 +254,8 @@ watch(
         <n-data-table size="small" :columns="columns" :data="state.notifications" :bordered="false"
           :loading="state.loading" :row-key="(row) => row.id" :pagination="false" />
         <n-space justify="flex-end" style="margin-top: 16px;">
-          <n-pagination v-model:page="page" :page-count="pageCount" :page-size="state.meta.limit" simple size="small"
-            :disabled="state.loading" />
+          <SimplePagination v-model:page="page" :page-count="pageCount" :page-size="state.meta.limit"
+            :loading="state.loading" />
         </n-space>
       </template>
     </template>
@@ -276,12 +268,12 @@ watch(
         <n-text depth="3">Recipient</n-text>
         <div class="detail-recipient">
           <strong>{{ detailState.notification?.recipient?.name ?? `User #${detailState.notification?.recipientId ?? ''}`
-            }}</strong>
+          }}</strong>
           <n-text v-if="detailState.notification?.recipient?.email" depth="3">
             {{ detailState.notification.recipient.email }}
           </n-text>
-          <n-tag size="tiny" :bordered="false" type="info">
-            {{ detailState.notification?.recipientType }}
+          <n-tag size="tiny" :bordered="false" :type="resolveRoleTagType(detailState.notification?.recipientType)">
+            {{ detailState.notification?.recipientType || 'Recipient' }}
           </n-tag>
         </div>
       </div>

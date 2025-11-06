@@ -20,6 +20,7 @@ import {
   NText,
   useMessage,
 } from 'naive-ui'
+import PaginatedTable from '../shared/PaginatedTable.vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const message = useMessage()
@@ -61,6 +62,8 @@ const summary = ref({
 })
 const tableLoading = ref(false)
 const fetchError = ref('')
+const listingsPage = ref(1)
+const listingsPageSize = 10
 
 const detailState = reactive({
   visible: false,
@@ -228,6 +231,7 @@ async function fetchListings() {
     }
     const body = await response.json()
     tableData.value = Array.isArray(body.listings) ? body.listings : []
+    listingsPage.value = 1
     summary.value = body.summary ?? summary.value
 
     const categories = body.filters?.categories ?? []
@@ -239,6 +243,7 @@ async function fetchListings() {
     console.error(error)
     fetchError.value = error instanceof Error ? error.message : 'Unexpected error while loading listings.'
     tableData.value = []
+    listingsPage.value = 1
   } finally {
     tableLoading.value = false
   }
@@ -394,8 +399,22 @@ const summaryRows = computed(() => [
         </template>
 
         <template v-if="tableData.length">
-          <n-data-table :columns="columns" :data="tableData" :loading="tableLoading" :bordered="false"
-            :pagination="false" size="small" />
+          <PaginatedTable
+            v-model:page="listingsPage"
+            :columns="columns"
+            :rows="tableData"
+            :loading="tableLoading"
+            :page-size="listingsPageSize"
+            :table-props="{ bordered: false, size: 'small' }"
+            :hide-pagination-when-single="false"
+            :empty-message="'No listings match the selected filters.'"
+          >
+            <template #range="{ start, end, total }">
+              <n-text depth="3" style="font-size: 0.85rem;">
+                Showing {{ total === 0 ? 0 : start }} - {{ total === 0 ? 0 : end }} of {{ total }} listings
+              </n-text>
+            </template>
+          </PaginatedTable>
         </template>
         <template v-else>
           <n-empty description="No listings match the selected filters." :show-icon="!tableLoading" />
