@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <n-dialog-provider>
     <div class="social-feed">
       <n-page-header
@@ -18,13 +18,7 @@
       </template>
     </n-page-header>
 
-      <n-space
-        v-if="!hideHeader && categoryOptions.length"
-        class="category-bar"
-        justify="space-between"
-        align="center"
-        wrap
-        size="large">
+      <div v-if="!hideHeader && categoryOptions.length" class="category-bar">
         <n-tabs v-model:value="activeCategory" type="segment" size="small" class="category-tabs">
           <n-tab-pane
             v-for="category in categoryOptions"
@@ -33,7 +27,7 @@
             :tab="category.label"
           />
         </n-tabs>
-      </n-space>
+      </div>
 
     <n-alert v-if="postsError" type="error" closable class="feed-alert" @close="postsError = ''">
       {{ postsError }}
@@ -55,26 +49,38 @@
                     <span v-if="post.location"> - {{ post.location }}</span>
                   </n-text>
                 </div>
-                <n-tag
-                  v-if="post.timelineLabel"
-                  size="small"
-                  round
-                  :type="post.timelineType === 'updated' ? 'warning' : 'info'"
-                  bordered
-                >
-                  {{ post.timelineLabel }}
-                </n-tag>
               </div>
             </template>
 
             <template #cover>
               <div class="post-media" @click="openPostDetail(post)">
-                <template v-if="post.mediaType === 'video'">
-                  <video :src="post.mediaUrl" controls playsinline preload="metadata" />
+                <template v-if="getActiveMediaType(post) === 'video'">
+                  <video :src="getActiveMediaUrl(post)" controls playsinline preload="metadata" />
                 </template>
                 <template v-else>
-                  <img :src="post.mediaUrl" :alt="post.caption" loading="lazy" />
+                  <img :src="getActiveMediaUrl(post)" :alt="post.caption" loading="lazy" />
                 </template>
+                <div v-if="hasMultipleMedia(post)" class="post-media-controls">
+                  <button
+                    class="post-media-nav post-media-nav--prev"
+                    type="button"
+                    aria-label="View previous media"
+                    @click.stop="viewPrevMedia(post)"
+                  >
+                    <i class="ri-arrow-left-s-line" />
+                  </button>
+                  <button
+                    class="post-media-nav post-media-nav--next"
+                    type="button"
+                    aria-label="View next media"
+                    @click.stop="viewNextMedia(post)"
+                  >
+                    <i class="ri-arrow-right-s-line" />
+                  </button>
+                </div>
+                <div v-if="hasMultipleMedia(post)" class="post-media-counter">
+                  {{ getMediaPositionLabel(post) }}
+                </div>
                 <div class="post-media-badge" v-if="post.duration">
                   <n-tag size="tiny" type="info" round strong>
                     <template #icon>
@@ -100,14 +106,14 @@
             <template #footer>
               <div class="post-footer">
                 <div class="post-footer-actions">
-                  <n-button text size="small" :type="post.isLiked ? 'primary' : 'default'"
+                  <n-button text size="small" :type="resolveMetricFlag(post, 'isLiked') ? 'primary' : 'default'"
                     @click.stop="toggleReaction('like', post)">
                     <template #icon>
                       <n-icon>
-                        <i :class="post.isLiked ? 'ri-heart-3-fill' : 'ri-heart-3-line'" />
+                        <i :class="resolveMetricFlag(post, 'isLiked') ? 'ri-heart-3-fill' : 'ri-heart-3-line'" />
                       </n-icon>
                     </template>
-                    {{ formatMetric(post.likes) }}
+                    {{ formatMetric(resolveMetricCount(post, 'likes')) }}
                   </n-button>
 
                   <n-button text size="small" @click.stop="openPostDetail(post)">
@@ -116,17 +122,17 @@
                         <i class="ri-chat-1-line" />
                       </n-icon>
                     </template>
-                    {{ formatMetric(post.comments) }}
+                    {{ formatMetric(resolveMetricCount(post, 'comments')) }}
                   </n-button>
 
-                  <n-button text size="small" :type="post.isSaved ? 'primary' : 'default'"
+                  <n-button text size="small" :type="resolveMetricFlag(post, 'isSaved') ? 'primary' : 'default'"
                     @click.stop="toggleReaction('save', post)">
                     <template #icon>
                       <n-icon>
-                        <i :class="post.isSaved ? 'ri-bookmark-fill' : 'ri-bookmark-line'" />
+                        <i :class="resolveMetricFlag(post, 'isSaved') ? 'ri-bookmark-fill' : 'ri-bookmark-line'" />
                       </n-icon>
                     </template>
-                    {{ formatMetric(post.saves) }}
+                    {{ formatMetric(resolveMetricCount(post, 'saves')) }}
                   </n-button>
                 </div>
 
@@ -172,15 +178,6 @@
             </n-text>
           </div>
           <div class="detail-header-actions">
-            <n-tag
-              v-if="expandedPost.timelineLabel"
-              size="small"
-              round
-              :type="expandedPost.timelineType === 'updated' ? 'warning' : 'info'"
-              bordered
-            >
-              {{ expandedPost.timelineLabel }}
-            </n-tag>
             <TravelerPostActions v-if="expandedPost.isOwn" :post="expandedPost"
               :disabled="isDeletingPost(expandedPost.id)" @edit="handleEditPostFromDetail"
               @delete="handleDeletePost" />
@@ -189,9 +186,43 @@
       </template>
       <div v-if="expandedPost" class="detail-content">
         <div class="detail-media">
-          <video v-if="expandedPost.mediaType === 'video'" :src="expandedPost.mediaUrl" controls playsinline
-            preload="metadata" autoplay muted />
-          <img v-else :src="expandedPost.mediaUrl" :alt="expandedPost.caption" />
+          <video
+            v-if="getActiveMediaType(expandedPost) === 'video'"
+            :src="getActiveMediaUrl(expandedPost)"
+            controls
+            playsinline
+            preload="metadata"
+            :autoplay="expandedPostAutoplay"
+            :muted="expandedPostMuted"
+            @loadedmetadata="handleDetailVideoReady"
+            @volumechange="handleDetailVolumeChange"
+          />
+          <img
+            v-else
+            :src="getActiveMediaUrl(expandedPost)"
+            :alt="expandedPost.caption"
+          />
+          <div v-if="hasMultipleMedia(expandedPost)" class="detail-media-controls">
+            <button
+              class="detail-media-nav detail-media-nav--prev"
+              type="button"
+              aria-label="View previous media"
+              @click.stop="viewPrevMedia(expandedPost)"
+            >
+              <i class="ri-arrow-left-s-line" />
+            </button>
+            <button
+              class="detail-media-nav detail-media-nav--next"
+              type="button"
+              aria-label="View next media"
+              @click.stop="viewNextMedia(expandedPost)"
+            >
+              <i class="ri-arrow-right-s-line" />
+            </button>
+          </div>
+          <div v-if="hasMultipleMedia(expandedPost)" class="detail-media-counter">
+            {{ getMediaPositionLabel(expandedPost) }}
+          </div>
         </div>
         <div class="detail-body">
           <p class="detail-caption">{{ expandedPost.caption }}</p>
@@ -204,10 +235,10 @@
             <n-button text size="small" @click.stop="toggleReaction('like', expandedPost)">
               <template #icon>
                 <n-icon>
-                  <i :class="expandedPost.isLiked ? 'ri-heart-3-fill' : 'ri-heart-3-line'" />
+                  <i :class="resolveMetricFlag(expandedPost, 'isLiked') ? 'ri-heart-3-fill' : 'ri-heart-3-line'" />
                 </n-icon>
               </template>
-              {{ formatMetric(expandedPost.likes) }} likes
+              {{ formatMetric(resolveMetricCount(expandedPost, 'likes')) }} likes
             </n-button>
             <n-button text size="small" @click.stop="focusCommentComposer()">
               <template #icon>
@@ -215,15 +246,15 @@
                   <i class="ri-chat-1-line" />
                 </n-icon>
               </template>
-              {{ formatMetric(expandedPost.comments) }} comments
+              {{ formatMetric(resolveMetricCount(expandedPost, 'comments')) }} comments
             </n-button>
             <n-button text size="small" @click.stop="toggleReaction('save', expandedPost)">
               <template #icon>
                 <n-icon>
-                  <i :class="expandedPost.isSaved ? 'ri-bookmark-fill' : 'ri-bookmark-line'" />
+                  <i :class="resolveMetricFlag(expandedPost, 'isSaved') ? 'ri-bookmark-fill' : 'ri-bookmark-line'" />
                 </n-icon>
               </template>
-              {{ formatMetric(expandedPost.saves) }} saves
+              {{ formatMetric(resolveMetricCount(expandedPost, 'saves')) }} saves
             </n-button>
             <n-tooltip placement="top" v-if="!expandedPost.isOwn">
               <template #trigger>
@@ -345,59 +376,114 @@
             />
           </n-form-item>
 
-          <n-form-item label="Media file" path="mediaFile">
+          <n-form-item label="Media files" path="mediaItems">
             <div class="story-upload-card">
               <n-upload
-                :max="1"
+                multiple
+                directory-dnd
+                :disabled="isEditingStory"
+                :max="STORY_MAX_MEDIA"
                 accept="image/*,video/*"
                 :default-upload="false"
                 :show-file-list="false"
-                :disabled="isEditingStory"
-                :file-list="mediaFileList"
-                @update:file-list="handleUploadChange"
+                :file-list="storyUploadFileList"
+                :on-before-upload="handleStoryFileSelect"
               >
-                <n-upload-dragger>
+                <n-upload-dragger class="story-upload-card__dragger">
                   <n-space vertical align="center" size="small">
                     <div class="story-upload-card__icon">
                       <n-icon size="26">
                         <i class="ri-upload-cloud-2-line" />
                       </n-icon>
                     </div>
-                    <n-text depth="3">Drag a JPG, PNG, or video file here</n-text>
+                    <n-text depth="3">
+                      Drag up to {{ STORY_MAX_MEDIA }} images or videos here
+                    </n-text>
                     <n-text depth="3">or browse from your device</n-text>
-                    <n-button size="tiny" type="primary" quaternary>Select file</n-button>
+                    <n-button size="tiny" type="primary" quaternary :disabled="isEditingStory">
+                      Select files
+                    </n-button>
                     <n-text depth="3" class="story-upload-card__hint">
-                      Optimal size: 1080x1080px, max 50MB
+                      Each file must be under 25MB. First media appears as the cover.
                     </n-text>
                   </n-space>
                 </n-upload-dragger>
               </n-upload>
 
-              <div v-if="storyForm.mediaPreview" class="story-preview story-preview--active">
-                <img
-                  v-if="storyForm.mediaType === 'image'"
-                  :src="storyForm.mediaPreview"
-                  alt="Story media preview"
-                />
-                <video v-else :src="storyForm.mediaPreview" controls preload="metadata" />
-                <n-button class="story-preview__remove" circle size="small" type="error" quaternary @click="removeMedia">
-                  <template #icon>
-                    <n-icon><i class="ri-close-line" /></n-icon>
-                  </template>
-                </n-button>
-              </div>
               <div
-                v-else-if="isEditingStory && storyForm.existingMediaUrl"
-                class="story-preview story-preview--existing"
+                v-if="isEditingStory && storyForm.existingMedia.length"
+                class="story-media-gallery story-media-gallery--existing"
               >
-                <img
-                  v-if="storyForm.existingMediaType === 'image'"
-                  :src="storyForm.existingMediaUrl"
-                  alt="Current story media"
-                />
-                <video v-else :src="storyForm.existingMediaUrl" controls preload="metadata" muted />
-                <div class="story-preview__note">
-                  Existing media is retained for this update.
+                <div
+                  v-for="item in storyForm.existingMedia"
+                  :key="`existing-${item.id}`"
+                  class="story-media-card story-media-card--existing"
+                >
+                  <div
+                    class="story-media-card__thumb"
+                    role="button"
+                    tabindex="0"
+                    @click="openStoryMediaPreview(item)"
+                    @keydown.enter.prevent="openStoryMediaPreview(item)"
+                    @keydown.space.prevent="openStoryMediaPreview(item)"
+                  >
+                    <img v-if="item.type === 'image'" :src="item.url" alt="Existing story media" />
+                    <video
+                      v-else
+                      :src="item.url"
+                      preload="metadata"
+                      muted
+                      playsinline
+                      loop
+                    />
+                  </div>
+                  <div class="story-media-card__name">{{ item.name || 'Existing media' }}</div>
+                </div>
+              </div>
+
+              <div v-if="storyForm.mediaItems.length" class="story-media-gallery">
+                <div
+                  v-for="item in storyForm.mediaItems"
+                  :key="item.id"
+                  class="story-media-card"
+                >
+                  <div
+                    class="story-media-card__thumb"
+                    role="button"
+                    tabindex="0"
+                    @click="openStoryMediaPreview(item)"
+                    @keydown.enter.prevent="openStoryMediaPreview(item)"
+                    @keydown.space.prevent="openStoryMediaPreview(item)"
+                  >
+                    <img
+                      v-if="item.type === 'image'"
+                      :src="item.previewUrl"
+                      :alt="item.name || 'Story media'"
+                    />
+                    <video
+                      v-else
+                      :src="item.previewUrl"
+                      preload="metadata"
+                      muted
+                      playsinline
+                      loop
+                    />
+                    <n-button
+                      class="story-media-card__remove"
+                      circle
+                      size="tiny"
+                      type="error"
+                      quaternary
+                      @click.stop="removeStoryMedia(item.id)"
+                    >
+                      <template #icon>
+                        <n-icon><i class="ri-close-line" /></n-icon>
+                      </template>
+                    </n-button>
+                  </div>
+                  <div class="story-media-card__name" :title="item.name || ''">
+                    {{ item.name || (item.type === 'video' ? 'Video file' : 'Image file') }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -434,6 +520,34 @@
             />
           </n-form-item>
         </n-form>
+
+        <n-modal
+          v-model:show="storyMediaPreviewState.visible"
+          preset="card"
+          :segmented="false"
+          class="story-media-preview-modal"
+          :style="{ maxWidth: '720px' }"
+          @after-leave="closeStoryMediaPreview"
+        >
+          <template #header>
+            {{ storyMediaPreviewState.name || 'Media preview' }}
+          </template>
+          <div class="story-media-preview">
+            <video
+              v-if="storyMediaPreviewState.type === 'video'"
+              :src="storyMediaPreviewState.url"
+              controls
+              autoplay
+              playsinline
+              preload="metadata"
+            />
+            <img
+              v-else
+              :src="storyMediaPreviewState.url"
+              :alt="storyMediaPreviewState.name || 'Story media preview'"
+            />
+          </div>
+        </n-modal>
       </div>
 
       <template #action>
@@ -482,7 +596,7 @@ import {
 } from 'naive-ui'
 import TravelerPostActions from './TravelerPostActions.vue'
 
-const emit = defineEmits(['contact'])
+const emit = defineEmits(['contact', 'post-updated', 'post-removed'])
 
 const props = defineProps({
   posts: {
@@ -544,18 +658,20 @@ const serverPosts = ref([])
 const postsLoading = ref(false)
 const postsError = ref('')
 const deletingPostIds = ref(new Set())
+const expandedPostMuted = ref(true)
+const expandedPostAutoplay = ref(true)
+
+const STORY_MAX_MEDIA = 10
+const STORY_MAX_MEDIA_SIZE_BYTES = 25 * 1024 * 1024
 
 function createStoryFormState() {
   return {
     caption: '',
-    mediaFile: null,
-    mediaPreview: '',
-    mediaType: 'image',
+    mediaItems: [],
+    existingMedia: [],
     location: '',
     tags: '',
     categories: [],
-    existingMediaUrl: '',
-    existingMediaType: 'image',
   }
 }
 
@@ -569,7 +685,7 @@ const storyRules = {
       trigger: ['blur', 'input'],
     },
   ],
-  mediaFile: [
+  mediaItems: [
     {
       validator: validateMediaFile,
       trigger: ['change', 'blur'],
@@ -582,7 +698,25 @@ const storyModalTitle = computed(() =>
   isEditingStory.value ? 'Edit your story' : 'Share a new story'
 )
 
-const mediaFileList = ref([])
+const storyUploadFileList = computed(() =>
+  storyForm.mediaItems
+    .filter((item) => item.source === 'new')
+    .map((item) => ({
+      id: item.id,
+      name: item.name ?? 'media',
+      status: 'finished',
+      percentage: 100,
+      url: item.previewUrl ?? '',
+      thumbnailUrl: item.previewUrl ?? '',
+    }))
+)
+
+const storyMediaPreviewState = reactive({
+  visible: false,
+  url: '',
+  type: 'image',
+  name: '',
+})
 
 const commentsState = reactive({
   storyId: null,
@@ -594,6 +728,9 @@ const commentsState = reactive({
   newContent: '',
   newRating: null,
 })
+
+const liveMetrics = reactive({})
+const mediaStates = reactive({})
 
 const commentInputRef = ref(null)
 
@@ -678,15 +815,8 @@ function deriveTimelineMeta(post) {
     (updatedRaw && updatedRaw !== createdRaw && updatedLabel)
 
   const type = hasUpdate ? 'updated' : 'created'
-
-  let label = post.timelineLabel || ''
-  if (!label) {
-    const baseLabel = type === 'updated' ? updatedLabel : createdLabel
-    if (baseLabel) {
-      const prefix = type === 'updated' ? 'Updated' : 'Created'
-      label = `${prefix} ${baseLabel}`
-    }
-  }
+  const baseLabel = type === 'updated' ? updatedLabel : createdLabel
+  const label = baseLabel || ''
 
   return {
     type,
@@ -728,6 +858,13 @@ function normalisePost(post, index = 0) {
             type: type === 'video' ? 'video' : 'image',
             url: resolvedUrl,
             position: item.position ?? mediaIndex,
+            name:
+              item.name ??
+              item.title ??
+              item.label ??
+              item.fileName ??
+              item.filename ??
+              resolveMediaNameFromSource(resolvedUrl),
           }
         })
         .filter((item) => item !== null)
@@ -741,6 +878,7 @@ function normalisePost(post, index = 0) {
       type: fallbackType,
       url: resolveAssetUrl(fallbackUrl),
       position: 0,
+      name: resolveMediaNameFromSource(fallbackUrl),
     })
   }
 
@@ -787,7 +925,7 @@ function normalisePost(post, index = 0) {
   const createdAt = post.createdAt || post.postedAt || ''
   const updatedAt = post.updatedAt || ''
   const timeline = deriveTimelineMeta(post)
-  return {
+  const normalised = {
     ...post,
     id,
     media: mediaItems,
@@ -830,10 +968,17 @@ function normalisePost(post, index = 0) {
     duration: post.duration || '',
     __normalized: true,
   }
+  ensureMediaState(normalised)
+  return normalised
 }
 
 const normalisedBasePosts = computed(() =>
-  basePosts.value.map((post, index) => (post && post.__normalized ? post : normalisePost(post, index)))
+  basePosts.value.map((post, index) => {
+    const normalised = post && post.__normalized ? post : normalisePost(post, index)
+    ensureMetrics(resolveStoryId(normalised), normalised)
+    ensureMediaState(normalised)
+    return normalised
+  })
 )
 
 const allPosts = computed(() => normalisedBasePosts.value)
@@ -953,6 +1098,186 @@ function resolveStoryId(post) {
   return post.id ?? post.ID ?? post.storyId ?? null
 }
 
+function normaliseMetricValue(value) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return 0
+  }
+  return number < 0 ? 0 : Math.round(number)
+}
+
+function resolveMetricCount(post, key) {
+  const storyId = resolveStoryId(post)
+  const metrics = ensureMetrics(storyId, post)
+  const value = metrics ? metrics[key] : post?.[key]
+  return normaliseMetricValue(value)
+}
+
+function resolveMetricFlag(post, key) {
+  const storyId = resolveStoryId(post)
+  const metrics = ensureMetrics(storyId, post)
+  return metrics ? Boolean(metrics[key]) : Boolean(post?.[key])
+}
+
+function ensureMediaState(post) {
+  if (!post) {
+    return null
+  }
+  const storyId = resolveStoryId(post)
+  if (!storyId) {
+    return null
+  }
+  const key = String(storyId)
+  if (!mediaStates[key]) {
+    mediaStates[key] = reactive({ index: 0 })
+  }
+  const list = Array.isArray(post.media) ? post.media : []
+  if (!list.length) {
+    mediaStates[key].index = 0
+  } else if (mediaStates[key].index < 0 || mediaStates[key].index >= list.length) {
+    mediaStates[key].index = 0
+  }
+  return mediaStates[key]
+}
+
+function getMediaList(post) {
+  return Array.isArray(post?.media) ? post.media : []
+}
+
+function getActiveMedia(post) {
+  const list = getMediaList(post)
+  if (!list.length) {
+    return null
+  }
+  const state = ensureMediaState(post)
+  if (!state) {
+    return list[0]
+  }
+  return list[state.index] ?? list[0]
+}
+
+function getActiveMediaType(post) {
+  return getActiveMedia(post)?.type ?? (post?.mediaType ?? 'image')
+}
+
+function getActiveMediaUrl(post) {
+  return getActiveMedia(post)?.url ?? post?.mediaUrl ?? PLACEHOLDER_IMAGE
+}
+
+function hasMultipleMedia(post) {
+  return getMediaList(post).length > 1
+}
+
+function getMediaPosition(post) {
+  const list = getMediaList(post)
+  const total = list.length
+  if (!total) {
+    return { current: 0, total: 0 }
+  }
+  const state = ensureMediaState(post)
+  const index = state ? state.index : 0
+  return { current: index + 1, total }
+}
+
+function getMediaPositionLabel(post) {
+  const position = getMediaPosition(post)
+  if (!position.total) {
+    return ''
+  }
+  return `${position.current}/${position.total}`
+}
+
+function shiftMedia(post, step) {
+  const list = getMediaList(post)
+  if (list.length <= 1) {
+    return
+  }
+  const state = ensureMediaState(post)
+  if (!state) {
+    return
+  }
+  const nextIndex = (state.index + step + list.length) % list.length
+  state.index = nextIndex
+}
+
+function viewNextMedia(post) {
+  shiftMedia(post, 1)
+  expandedPostAutoplay.value = true
+}
+
+function viewPrevMedia(post) {
+  shiftMedia(post, -1)
+  expandedPostAutoplay.value = true
+}
+
+function setMetricValues(post, patch = {}) {
+  const storyId = resolveStoryId(post)
+  const metrics = ensureMetrics(storyId, post)
+  if (!metrics) {
+    return
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'likes')) {
+    metrics.likes = normaliseMetricValue(patch.likes)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'saves')) {
+    metrics.saves = normaliseMetricValue(patch.saves)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'comments')) {
+    metrics.comments = normaliseMetricValue(patch.comments)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'isLiked')) {
+    metrics.isLiked = Boolean(patch.isLiked)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'isSaved')) {
+    metrics.isSaved = Boolean(patch.isSaved)
+  }
+}
+
+function adjustMetricCount(current, delta) {
+  const base = Number.isFinite(Number(current)) ? Number(current) : 0
+  const next = base + delta
+  return next < 0 ? 0 : next
+}
+
+function ensureMetrics(storyId, fallback = null) {
+  const key = storyId ? String(storyId) : ''
+  if (!key) {
+    return null
+  }
+  if (!liveMetrics[key]) {
+    liveMetrics[key] = reactive({
+      likes: normaliseMetricValue(fallback?.likes ?? 0),
+      saves: normaliseMetricValue(fallback?.saves ?? 0),
+      comments: normaliseMetricValue(fallback?.comments ?? 0),
+      isLiked: Boolean(fallback?.isLiked),
+      isSaved: Boolean(fallback?.isSaved),
+    })
+  }
+  return liveMetrics[key]
+}
+
+function updateMetrics(storyId, patch = {}, fallback = null) {
+  const metrics = ensureMetrics(storyId, fallback)
+  if (!metrics) {
+    return
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'likes')) {
+    metrics.likes = normaliseMetricValue(patch.likes)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'saves')) {
+    metrics.saves = normaliseMetricValue(patch.saves)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'comments')) {
+    metrics.comments = normaliseMetricValue(patch.comments)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'isLiked')) {
+    metrics.isLiked = Boolean(patch.isLiked)
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'isSaved')) {
+    metrics.isSaved = Boolean(patch.isSaved)
+  }
+}
+
 function updatePostState(storyId, patch = {}) {
   if (!storyId) {
     return
@@ -979,12 +1304,21 @@ function updatePostState(storyId, patch = {}) {
 
   if (activePost.value && String(activePost.value.id) === key) {
     Object.assign(activePost.value, normalised)
+    ensureMediaState(activePost.value)
   }
 
+  updateMetrics(storyId, normalised, activePost.value)
+
   if (Array.isArray(serverPosts.value) && serverPosts.value.length) {
-    serverPosts.value = serverPosts.value.map((item) =>
-      String(item.id) === key ? { ...item, ...normalised } : item
-    )
+    serverPosts.value = serverPosts.value.map((item) => {
+      if (String(item.id) === key) {
+        const merged = { ...item, ...normalised }
+        updateMetrics(storyId, merged, merged)
+        ensureMediaState(merged)
+        return merged
+      }
+      return item
+    })
   }
 }
 
@@ -1039,6 +1373,29 @@ async function toggleReaction(kind, post) {
   }
 
   const action = kind === 'save' ? 'toggle-save' : 'toggle-like'
+  const isSave = action === 'toggle-save'
+  const stateKey = isSave ? 'isSaved' : 'isLiked'
+  const countKey = isSave ? 'saves' : 'likes'
+
+  const previousState = {
+    likes: resolveMetricCount(post, 'likes'),
+    saves: resolveMetricCount(post, 'saves'),
+    isLiked: resolveMetricFlag(post, 'isLiked'),
+    isSaved: resolveMetricFlag(post, 'isSaved'),
+  }
+
+  const optimisticPatch = isSave
+    ? {
+        isSaved: !previousState.isSaved,
+        saves: adjustMetricCount(previousState.saves, previousState.isSaved ? -1 : 1),
+      }
+    : {
+        isLiked: !previousState.isLiked,
+        likes: adjustMetricCount(previousState.likes, previousState.isLiked ? -1 : 1),
+      }
+
+  setMetricValues(post, optimisticPatch)
+  Object.assign(post, optimisticPatch)
 
   try {
     const response = await fetch(COMMUNITY_ENDPOINT, {
@@ -1056,23 +1413,65 @@ async function toggleReaction(kind, post) {
       throw new Error(payload?.message ?? 'Failed to update story.')
     }
 
-    const patch =
-      action === 'toggle-save'
-        ? {
-            isSaved: Boolean(payload.saved),
-            saves: Number(payload.saves ?? 0),
-          }
-        : {
-            isLiked: Boolean(payload.liked),
-            likes: Number(payload.likes ?? 0),
-          }
+    const responsePatch = isSave
+      ? {
+          isSaved: typeof payload.saved === 'boolean' ? payload.saved : optimisticPatch.isSaved,
+          saves: normaliseMetricValue(
+            payload.saves !== undefined ? payload.saves : optimisticPatch.saves
+          ),
+        }
+      : {
+          isLiked: typeof payload.liked === 'boolean' ? payload.liked : optimisticPatch.isLiked,
+          likes: normaliseMetricValue(
+            payload.likes !== undefined ? payload.likes : optimisticPatch.likes
+          ),
+        }
 
-    if (post) {
-      Object.assign(post, patch)
+    setMetricValues(post, responsePatch)
+    Object.assign(post, responsePatch)
+    updatePostState(storyId, responsePatch)
+
+    const currentFlags = {
+      isSaved: resolveMetricFlag(post, 'isSaved'),
+      isLiked: resolveMetricFlag(post, 'isLiked'),
     }
-    updatePostState(storyId, patch)
+    emit('post-updated', {
+      storyId,
+      post,
+      patch: responsePatch,
+      flags: currentFlags,
+    })
+
+    if (isSave && !currentFlags.isSaved) {
+      emit('post-removed', { storyId, post, reason: 'unsaved' })
+      if (activePost.value && String(activePost.value.id) === String(storyId)) {
+        closePostDetail()
+      }
+    }
+    if (!isSave && !currentFlags.isLiked) {
+      emit('post-removed', { storyId, post, reason: 'unliked' })
+      if (activePost.value && String(activePost.value.id) === String(storyId)) {
+        closePostDetail()
+      }
+    }
   } catch (error) {
     console.error('Failed to toggle reaction', error)
+    const revertPatch = {
+      [stateKey]: previousState[stateKey],
+      [countKey]: previousState[countKey],
+    }
+    setMetricValues(post, revertPatch)
+    Object.assign(post, revertPatch)
+    updatePostState(storyId, revertPatch)
+    emit('post-updated', {
+      storyId,
+      post,
+      patch: revertPatch,
+      flags: {
+        isSaved: previousState.isSaved,
+        isLiked: previousState.isLiked,
+      },
+    })
     message.error(error instanceof Error ? error.message : 'Failed to update story.')
   }
 }
@@ -1252,7 +1651,10 @@ async function deleteComment(comment) {
 }
 
 function openPostDetail(post) {
+  ensureMediaState(post)
   activePost.value = post
+  expandedPostMuted.value = true
+  expandedPostAutoplay.value = true
   postModalVisible.value = true
   resetCommentComposer()
   commentsState.items = []
@@ -1270,6 +1672,8 @@ function openPostDetail(post) {
 function closePostDetail() {
   postModalVisible.value = false
   activePost.value = null
+  expandedPostMuted.value = true
+  expandedPostAutoplay.value = false
   resetCommentComposer()
   commentsState.storyId = null
   commentsState.items = []
@@ -1299,25 +1703,39 @@ function startEditPost(post) {
     return
   }
 
+  storyForm.mediaItems.forEach(releaseStoryMediaPreview)
   editingStoryId.value = post.id ?? null
   storyModalVisible.value = true
   const normalizedCategories = Array.isArray(post.categories)
     ? [...post.categories]
     : ensureStringArray(post.categories)
 
+  const existingMediaItems = Array.isArray(post.media)
+    ? post.media
+        .map((item, index) => ({
+          id: item.id ?? `${post.id ?? 'story'}-media-${index}`,
+          type: item.type === 'video' ? 'video' : 'image',
+          url: item.url,
+          name: item.name ?? item.fileName ?? resolveMediaNameFromSource(item.url),
+          source: 'existing',
+        }))
+        .filter((item) => Boolean(item.url))
+    : []
+
   Object.assign(storyForm, {
     caption: post.caption ?? '',
-    mediaFile: null,
-    mediaPreview: '',
-    mediaType: post.mediaType === 'video' ? 'video' : 'image',
+    mediaItems: [],
+    existingMedia: existingMediaItems,
     location: post.location ?? '',
     tags: ensureStringArray(post.tags).join(', '),
     categories: normalizedCategories,
-    existingMediaUrl: post.mediaUrl ?? '',
-    existingMediaType: post.mediaType === 'video' ? 'video' : 'image',
   })
 
-  mediaFileList.value = []
+  const mediaState = ensureMediaState(post)
+  if (mediaState) {
+    mediaState.index = 0
+  }
+  closeStoryMediaPreview()
   restoreMediaValidation()
 }
 
@@ -1397,18 +1815,21 @@ async function handleStorySubmit() {
 
       message.success('Story updated successfully.')
     } else {
-      if (!storyForm.mediaFile) {
-        message.error('Please attach an image or video for your story.')
+      const uploadItems = storyForm.mediaItems.filter((item) => item.file instanceof File)
+      if (!uploadItems.length) {
+        message.error('Please attach at least one image or video for your story.')
         return
       }
-
       const formData = new FormData()
       formData.append('travelerId', String(currentUserInfo.value.id))
       formData.append('caption', storyForm.caption.trim())
       formData.append('location', storyForm.location.trim())
       formData.append('tags', JSON.stringify(rawTags))
       formData.append('categories', JSON.stringify(rawCategories))
-      formData.append('media', storyForm.mediaFile)
+      uploadItems.forEach((item, index) => {
+        const filename = item.name || `media-${index + 1}`
+        formData.append('media[]', item.file, filename)
+      })
 
       const response = await fetch(COMMUNITY_ENDPOINT, {
         method: 'POST',
@@ -1504,61 +1925,124 @@ async function handleDeletePost(post) {
   }
 }
 
-function resetStoryForm(options = {}) {
-  const { preservePreview = false } = options
-  if (!preservePreview && storyForm.mediaPreview) {
-    URL.revokeObjectURL(storyForm.mediaPreview)
+function createStoryMediaId() {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function releaseStoryMediaPreview(item) {
+  if (item?.source === 'new' && item.previewUrl) {
+    URL.revokeObjectURL(item.previewUrl)
   }
+}
+
+function resetStoryForm() {
+  storyForm.mediaItems.forEach(releaseStoryMediaPreview)
+  closeStoryMediaPreview()
   Object.assign(storyForm, createStoryFormState())
-  mediaFileList.value = []
   restoreMediaValidation()
 }
 
-function handleUploadChange(fileList) {
-  mediaFileList.value = fileList
-  const fileInfo = fileList[0]
-
-  if (!fileInfo || !fileInfo.file) {
-    removeMedia()
-    return
+function handleStoryFileSelect({ file }) {
+  const rawFile = file?.file ?? file
+  if (!rawFile) {
+    return false
   }
 
-  const file = fileInfo.file
-  if (!file) {
-    removeMedia()
-    return
+  if (storyForm.mediaItems.length >= STORY_MAX_MEDIA) {
+    message.error(`You can upload up to ${STORY_MAX_MEDIA} files per story.`)
+    return false
   }
 
-  const mime = file.type || ''
+  if (rawFile.size > STORY_MAX_MEDIA_SIZE_BYTES) {
+    message.error('Each file must be under 25MB.')
+    return false
+  }
+
+  const mime = rawFile.type || ''
   const isImage = mime.startsWith('image/')
   const isVideo = mime.startsWith('video/')
 
   if (!isImage && !isVideo) {
-    message.error('Please select a JPG, PNG, or common video format.')
-    mediaFileList.value = []
-    removeMedia()
+    message.error('Please select an image or video file.')
+    return false
+  }
+
+  const previewUrl = URL.createObjectURL(rawFile)
+
+  storyForm.mediaItems.push({
+    id: createStoryMediaId(),
+    file: rawFile,
+    name: rawFile.name ?? 'media',
+    type: isVideo ? 'video' : 'image',
+    previewUrl,
+    url: previewUrl,
+    size: rawFile.size ?? 0,
+    source: 'new',
+  })
+
+  restoreMediaValidation()
+  return false
+}
+
+function removeStoryMedia(id) {
+  const index = storyForm.mediaItems.findIndex((item) => item.id === id)
+  if (index === -1) {
     return
   }
 
-  if (storyForm.mediaPreview) {
-    URL.revokeObjectURL(storyForm.mediaPreview)
+  const [removed] = storyForm.mediaItems.splice(index, 1)
+  releaseStoryMediaPreview(removed)
+  if (
+    storyMediaPreviewState.visible &&
+    removed &&
+    storyMediaPreviewState.url &&
+    storyMediaPreviewState.url === (removed.url || removed.previewUrl)
+  ) {
+    closeStoryMediaPreview()
   }
-
-  storyForm.mediaFile = file
-  storyForm.mediaPreview = URL.createObjectURL(file)
-  storyForm.mediaType = isVideo ? 'video' : 'image'
   restoreMediaValidation()
 }
 
-function removeMedia() {
-  if (storyForm.mediaPreview) {
-    URL.revokeObjectURL(storyForm.mediaPreview)
+function openStoryMediaPreview(item) {
+  const source = item?.source === 'new' ? item.previewUrl : item?.url
+  if (!source) {
+    return
   }
-  storyForm.mediaFile = null
-  storyForm.mediaPreview = ''
-  storyForm.mediaType = 'image'
-  mediaFileList.value = []
-  restoreMediaValidation()
+  storyMediaPreviewState.url = source
+  storyMediaPreviewState.type = item?.type === 'video' ? 'video' : 'image'
+  storyMediaPreviewState.name = item?.name || resolveMediaNameFromSource(source)
+  storyMediaPreviewState.visible = true
+}
+
+function closeStoryMediaPreview() {
+  storyMediaPreviewState.visible = false
+  storyMediaPreviewState.url = ''
+  storyMediaPreviewState.type = 'image'
+  storyMediaPreviewState.name = ''
+}
+
+function handleDetailVideoReady(event) {
+  const video = event?.currentTarget
+  if (!video) {
+    return
+  }
+  expandedPostMuted.value = video.muted
+  if (expandedPostAutoplay.value && video.paused) {
+    const playPromise = video.play()
+    if (playPromise instanceof Promise) {
+      playPromise.catch(() => {
+        expandedPostAutoplay.value = false
+      })
+    }
+  }
+}
+
+function handleDetailVolumeChange(event) {
+  const video = event?.currentTarget
+  if (!video) {
+    return
+  }
+  expandedPostMuted.value = video.muted
 }
 
 function normaliseBaseUrl(input) {
@@ -1617,6 +2101,22 @@ function computeInitials(text) {
     .toUpperCase()
 }
 
+function resolveMediaNameFromSource(source = '') {
+  if (!source) {
+    return ''
+  }
+  const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+  try {
+    const parsed = new URL(source, base)
+    const pathname = parsed.pathname.split('/').filter(Boolean)
+    const candidate = pathname[pathname.length - 1] || source
+    return candidate.split('?')[0].split('#')[0]
+  } catch {
+    const segments = source.split(/[\\/]/)
+    return segments[segments.length - 1] || source
+  }
+}
+
 function formatLabel(slug) {
   return String(slug)
     .replace(/[-_]/g, ' ')
@@ -1637,15 +2137,11 @@ function validateMediaFile() {
     return true
   }
 
-  const file = storyForm.mediaFile
-  if (!file) {
-    return new Error('Please upload an image or video.')
+  if (!storyForm.mediaItems.length) {
+    return new Error('Please upload at least one image or video.')
   }
-  const mime = file.type || ''
-  if (mime.startsWith('image/') || mime.startsWith('video/')) {
-    return true
-  }
-  return new Error('File must be JPG, PNG, or a common video format.')
+
+  return true
 }
 
 
@@ -1653,7 +2149,7 @@ function validateMediaFile() {
 function restoreMediaValidation() {
   const form = storyFormRef.value
   if (form?.restoreValidation) {
-    form.restoreValidation(['mediaFile'])
+    form.restoreValidation(['mediaItems'])
   }
 }
 
@@ -1666,9 +2162,8 @@ async function safeJson(response) {
 }
 
 onBeforeUnmount(() => {
-  if (storyForm.mediaPreview) {
-    URL.revokeObjectURL(storyForm.mediaPreview)
-  }
+  storyForm.mediaItems.forEach(releaseStoryMediaPreview)
+  closeStoryMediaPreview()
 })
 </script>
 
@@ -1681,34 +2176,60 @@ onBeforeUnmount(() => {
 
 .category-bar {
   padding: 0 4px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 .category-tabs {
-  flex: 1;
+  width: 100%;
+  max-width: 960px;
   min-width: 240px;
+  margin: 0 auto;
+  display: block;
+}
+
+:deep(.category-tabs .n-tabs-nav) {
+  width: 100%;
+}
+
+:deep(.category-tabs .n-tabs-nav-scroll) {
+  width: 100%;
 }
 
 :deep(.category-tabs .n-tabs-nav-scroll-content) {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 8px;
   align-items: center;
+  width: 100%;
 }
 
 :deep(.category-tabs .n-tabs-tab) {
+  width: 100%;
   border-radius: 999px;
   padding: 6px 14px;
   font-weight: 500;
+  justify-content: center;
 }
 
 :deep(.category-tabs .n-tabs-tab__label) {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
 }
 .feed-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 18px;
   align-items: stretch;
+}
+
+@media (min-width: 1200px) {
+  .feed-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .post-card {
@@ -1739,6 +2260,54 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.post-media-controls {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 6px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.post-media-nav {
+  pointer-events: auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(12, 30, 21, 0.38);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.post-media-nav:hover {
+  background: rgba(12, 30, 21, 0.6);
+}
+
+.post-media-counter {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  background: rgba(12, 30, 21, 0.35);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .post-body {
@@ -1961,7 +2530,19 @@ onBeforeUnmount(() => {
 .story-upload-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
+}
+
+.story-upload-card__dragger {
+  border-radius: 16px;
+  border: 1px dashed rgba(28, 111, 79, 0.35);
+  background: rgba(28, 111, 79, 0.05);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.story-upload-card__dragger:hover {
+  border-color: rgba(28, 111, 79, 0.55);
+  background: rgba(28, 111, 79, 0.08);
 }
 
 .story-upload-card__icon {
@@ -1980,49 +2561,85 @@ onBeforeUnmount(() => {
   color: #4e6a5a;
 }
 
-.story-preview {
-  position: relative;
+.story-media-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.story-media-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   border-radius: 14px;
-  border: 1px dashed rgba(28, 111, 79, 0.2);
-  background: #f4faf6;
-  min-height: 120px;
-  aspect-ratio: 1 / 1;
-  max-height: 260px;
+  border: 1px solid rgba(28, 111, 79, 0.12);
+  background: #f8fbfa;
+  padding: 10px;
+  position: relative;
+}
+
+.story-media-card--existing {
+  background: #f3f5f4;
+  border-color: rgba(28, 111, 79, 0.08);
+}
+
+.story-media-card__thumb {
+  position: relative;
+  border-radius: 10px;
   overflow: hidden;
+  background: rgba(28, 111, 79, 0.08);
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  padding: 0;
 }
 
-.story-preview--active {
-  border-style: solid;
-  border-color: rgba(28, 111, 79, 0.3);
-}
-
-.story-preview--existing {
-  border-style: solid;
-  border-color: rgba(12, 30, 21, 0.12);
-  background: #f7f9f8;
-}
-
-.story-preview img,
-.story-preview video {
-  display: block;
+.story-media-card__thumb img,
+.story-media-card__thumb video {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.story-preview__remove {
+.story-media-card__thumb:focus-visible {
+  outline: 2px solid rgba(28, 111, 79, 0.6);
+  outline-offset: 2px;
+}
+
+.story-media-card__remove {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(220, 53, 69, 0.08);
+  top: 6px;
+  right: 6px;
+  background: rgba(220, 53, 69, 0.12);
   backdrop-filter: blur(6px);
 }
 
-.story-preview__note {
-  padding: 10px 14px;
-  font-size: 0.78rem;
-  color: #486150;
-  background: rgba(12, 30, 21, 0.05);
+.story-media-card__name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2d3a34;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-media-preview {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
+.story-media-preview img,
+.story-media-preview video {
+  max-width: 100%;
+  max-height: 70vh;
+  border-radius: 12px;
+  object-fit: contain;
 }
 .story-form {
   display: flex;
@@ -2076,16 +2693,66 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
 .detail-media img,
-detail-media video {
+.detail-media video {
   display: block;
   max-width: 100%;
   max-height: 100%;
-  width: auto;
+  width: 100%;
   height: auto;
   object-fit: contain;
+}
+
+.detail-media-controls {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 10px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.detail-media-nav {
+  pointer-events: auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.detail-media-nav:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.detail-media-counter {
+  position: absolute;
+  bottom: 14px;
+  right: 18px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  backdrop-filter: blur(6px);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .detail-body {

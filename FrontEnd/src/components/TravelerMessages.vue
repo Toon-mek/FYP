@@ -1,5 +1,5 @@
 <script setup>
-import { computed, reactive, ref, watch, nextTick } from 'vue'
+import { computed, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import {
   NAlert,
   NAvatar,
@@ -23,6 +23,14 @@ const props = defineProps({
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const MESSAGES_ENDPOINT = `${API_BASE}/messages.php`
+const MALAYSIA_TIME_ZONE = 'Asia/Kuala_Lumpur'
+const MALAYSIA_LOCALE = 'en-MY'
+const MALAYSIA_FORMAT = new Intl.DateTimeFormat(MALAYSIA_LOCALE, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  timeZone: MALAYSIA_TIME_ZONE,
+})
+const CONVERSATION_POLL_INTERVAL_MS = 3000
 
 const message = useMessage()
 
@@ -62,6 +70,8 @@ const conversationState = reactive({
 
 const activeThread = ref(null)
 const conversationPaneRef = ref(null)
+let conversationPollHandle = null
+let conversationPollInFlight = false
 
 const filteredThreads = computed(() => {
   if (!threadsState.search) {
@@ -77,9 +87,13 @@ const filteredThreads = computed(() => {
 
 watch(
   () => viewer.value.id,
-  (id) => {
+  async (id) => {
+    stopConversationPolling()
+    threadsState.items = []
+    activeThread.value = null
+    conversationState.messages = []
     if (id) {
-      loadThreads()
+      await loadThreads({ preserveActive: false })
     }
   },
   { immediate: true }
@@ -87,9 +101,11 @@ watch(
 
 watch(
   () => activeThread.value?.threadKey ?? null,
-  () => {
+  async () => {
+    stopConversationPolling()
     if (activeThread.value) {
-      loadConversation(activeThread.value)
+      await loadConversation(activeThread.value)
+      startConversationPolling()
     } else {
       conversationState.messages = []
     }
@@ -103,12 +119,16 @@ watch(
   }
 )
 
-async function loadThreads() {
+async function loadThreads(options = {}) {
+  const { preserveActive = false, silent = false } = options
+  const previousKey = preserveActive && activeThread.value ? activeThread.value.threadKey : null
   const id = viewer.value.id
   if (!id) {
     return
   }
-  threadsState.loading = true
+  if (!silent) {
+    threadsState.loading = true
+  }
   threadsState.error = ''
   try {
     const params = new URLSearchParams({
@@ -119,20 +139,46 @@ async function loadThreads() {
     const response = await fetch(`${MESSAGES_ENDPOINT}?${params.toString()}`)
     const payload = await readJsonResponse(response, `Failed to load conversation list (${response.status})`)
     const rows = Array.isArray(payload?.threads) ? payload.threads : []
-    threadsState.items = rows.map(normaliseThreadRow)
-    if (threadsState.items.length && !activeThread.value) {
-      activeThread.value = threadsState.items[0]
+    const items = rows
+      .map(normaliseThreadRow)
+      .sort((a, b) => {
+        const aTime = a.lastSentAt instanceof Date ? a.lastSentAt.getTime() : 0
+        const bTime = b.lastSentAt instanceof Date ? b.lastSentAt.getTime() : 0
+        return bTime - aTime
+      })
+    threadsState.items = items
+    if (!items.length) {
+      activeThread.value = null
+      return
+    }
+
+    if (preserveActive && previousKey) {
+      const matched = items.find((thread) => thread.threadKey === previousKey)
+      if (matched) {
+        activeThread.value = matched
+      } else {
+        activeThread.value = items[0]
+      }
+    } else if (!activeThread.value || !preserveActive) {
+      activeThread.value = items[0]
     }
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unable to load conversations.'
     threadsState.error = messageText
-    message.error(messageText)
+    if (!silent) {
+      message.error(messageText)
+    } else {
+      console.error(messageText)
+    }
   } finally {
-    threadsState.loading = false
+    if (!silent) {
+      threadsState.loading = false
+    }
   }
 }
 
-async function loadConversation(thread) {
+async function loadConversation(thread, options = {}) {
+  const { silent = false } = options
   if (!thread) {
     return
   }
@@ -140,7 +186,9 @@ async function loadConversation(thread) {
   if (!id) {
     return
   }
-  conversationState.loading = true
+  if (!silent) {
+    conversationState.loading = true
+  }
   conversationState.error = ''
   try {
     const params = new URLSearchParams({
@@ -149,6 +197,9 @@ async function loadConversation(thread) {
       participantType: thread.participantType,
       participantId: String(thread.participantId),
     })
+    if (thread.postId != null) {
+      params.set('postId', String(thread.postId))
+    }
     const response = await fetch(`${MESSAGES_ENDPOINT}?${params.toString()}`)
     const payload = await readJsonResponse(response, `Failed to load messages (${response.status})`)
     const rows = Array.isArray(payload?.messages) ? payload.messages : []
@@ -163,13 +214,19 @@ async function loadConversation(thread) {
       }
     }
 
-    scrollConversationToEnd()
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unable to load messages.'
     conversationState.error = messageText
-    message.error(messageText)
+    if (!silent) {
+      message.error(messageText)
+    } else {
+      console.error(messageText)
+    }
   } finally {
-    conversationState.loading = false
+    if (!silent) {
+      conversationState.loading = false
+    }
+    scrollConversationToEnd()
   }
 }
 
@@ -177,6 +234,7 @@ async function sendMessage() {
   if (!activeThread.value) {
     return
   }
+  stopConversationPolling()
   const viewerId = viewer.value.id
   if (!viewerId) {
     message.error('We could not determine your traveler account. Please sign in again.')
@@ -207,25 +265,34 @@ async function sendMessage() {
     })
     const data = await readJsonResponse(response, `Failed to send message (${response.status})`)
     const saved = data?.message ?? {}
+    const serverTimestamp = saved.sentAt ?? saved.sent_at ?? null
     const messageRecord = normaliseConversationMessage(
       {
         ...payload,
         id: saved.id ?? saved.messageId ?? null,
         messageID: saved.id ?? saved.messageId ?? null,
-        sentAt: saved.sentAt ?? saved.sent_at ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+        sentAt: serverTimestamp ?? new Date().toISOString(),
       },
       conversationState.messages.length
     )
     conversationState.messages.push(messageRecord)
     conversationState.input = ''
     updateThreadPreviewAfterSend(activeThread.value, messageRecord)
-    scrollConversationToEnd()
+    await nextTick()
+    await loadThreads({ preserveActive: true })
+    if (activeThread.value) {
+      await loadConversation(activeThread.value)
+    }
+    startConversationPolling()
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unable to send message.'
     conversationState.error = messageText
     message.error(messageText)
   } finally {
     conversationState.sending = false
+    if (activeThread.value) {
+      startConversationPolling()
+    }
   }
 }
 
@@ -236,15 +303,47 @@ function updateThreadPreviewAfterSend(thread, messageRecord) {
       ...threadsState.items[idx],
       lastMessage: messageRecord.content,
       lastMessageSenderType: messageRecord.senderType,
-      lastSentAt: messageRecord.sentAt,
+      lastMessageSenderId: messageRecord.senderId,
+      rawLastSentAt: messageRecord.rawSentAt ?? messageRecord.sentAt ?? null,
+      lastSentAt: normalizeTimestamp(messageRecord.rawSentAt ?? messageRecord.sentAt ?? null),
       unreadCount: threadsState.items[idx].participantId === thread.participantId ? threadsState.items[idx].unreadCount : 0,
     }
-    threadsState.items.splice(idx, 1, updated)
+    threadsState.items.splice(idx, 1)
+    threadsState.items.unshift(updated)
+    activeThread.value = threadsState.items[0]
   }
 }
 
 function selectThread(thread) {
-  activeThread.value = thread
+  if (!thread) return
+  const idx = threadsState.items.findIndex((item) => item.threadKey === thread.threadKey)
+  if (idx > 0) {
+    const [picked] = threadsState.items.splice(idx, 1)
+    threadsState.items.unshift(picked)
+  }
+  activeThread.value = threadsState.items[0]
+}
+
+function handleComposerEnter(event) {
+  if (event.shiftKey) {
+    return
+  }
+  event.preventDefault()
+  if (!conversationState.sending && conversationState.input.trim()) {
+    sendMessage()
+  }
+}
+
+function resolveThreadSenderLabel(thread) {
+  const viewerId = viewer.value.id
+  if (
+    thread.lastMessageSenderType &&
+    thread.lastMessageSenderType === viewer.value.type &&
+    Number(thread.lastMessageSenderId ?? 0) === Number(viewerId ?? -1)
+  ) {
+    return 'You'
+  }
+  return thread.participantName || 'They'
 }
 
 function normaliseThreadRow(row) {
@@ -266,7 +365,9 @@ function normaliseThreadRow(row) {
     postId: row?.postId ?? row?.postID ?? null,
     lastMessage: row?.lastMessage || '',
     lastMessageSenderType: normaliseMessageAccountType(row?.lastMessageSenderType ?? ''),
-    lastSentAt: row?.lastSentAt || null,
+    lastMessageSenderId: Number(row?.lastMessageSenderId ?? row?.lastMessageSenderID ?? 0),
+    rawLastSentAt: row?.lastSentAt ?? row?.last_sent_at ?? null,
+    lastSentAt: normalizeTimestamp(row?.lastSentAt ?? row?.last_sent_at ?? null),
     unreadCount: Number(row?.unreadCount ?? 0),
   }
 }
@@ -283,7 +384,9 @@ function normaliseConversationMessage(row, index = 0) {
     receiverType,
     receiverId: Number(row?.receiverId ?? row?.receiverID ?? 0),
     content: row?.content ?? '',
-    sentAt,
+    rawSentAt: sentAt,
+    sentAt: normalizeTimestamp(sentAt),
+    isRead: Boolean(row?.isRead ?? row?.is_read ?? false),
     listingId: row?.listingId ?? row?.listingID ?? null,
     postId: row?.postId ?? row?.postID ?? null,
   }
@@ -319,19 +422,124 @@ function normaliseMessageAccountType(value) {
   }
 }
 
-function formatMessageTimestamp(value) {
-  if (!value) {
+function normalizeTimestamp(value) {
+  if (value instanceof Date) {
+    const ts = value.getTime()
+    return Number.isNaN(ts) ? null : value
+  }
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    const formattedMatch = trimmed.match(
+      /^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4}),\s*(\d{1,2}):(\d{2})\s*(am|pm)$/i
+    )
+    if (formattedMatch) {
+      const [, dayStr, monthName, yearStr, hourStr, minuteStr, meridiemRaw] = formattedMatch
+      const monthIndex = monthNameToIndex(monthName)
+      if (monthIndex !== -1) {
+        let hours = Number(hourStr)
+        const minutes = Number(minuteStr)
+        const meridiem = meridiemRaw.toLowerCase()
+        if (meridiem === 'pm' && hours !== 12) {
+          hours += 12
+        }
+        if (meridiem === 'am' && hours === 12) {
+          hours = 0
+        }
+        const utcDate = new Date(Date.UTC(Number(yearStr), monthIndex, Number(dayStr), hours, minutes))
+        if (!Number.isNaN(utcDate.getTime())) {
+          return utcDate
+        }
+      }
+    }
+
+    const numericMatch = trimmed.match(
+      /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+    )
+    if (numericMatch) {
+      const [, year, month, day, hour = '00', minute = '00', second = '00'] = numericMatch
+      const utcDate = new Date(
+        Date.UTC(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+          Number(second)
+        )
+      )
+      if (!Number.isNaN(utcDate.getTime())) {
+        return utcDate
+      }
+    }
+
+    const withoutCommas = trimmed.replace(/,/g, '')
+    const appended = withoutCommas.endsWith('Z') || /[+-]\d{2}:?\d{2}$/.test(withoutCommas)
+      ? withoutCommas
+      : `${withoutCommas.replace(/\s+/g, 'T')}Z`
+    const fallback = new Date(appended)
+    if (!Number.isNaN(fallback.getTime())) {
+      return fallback
+    }
+  }
+
+  return null
+}
+
+function monthNameToIndex(label) {
+  const normalized = label.slice(0, 3).toLowerCase()
+  switch (normalized) {
+    case 'jan':
+      return 0
+    case 'feb':
+      return 1
+    case 'mar':
+      return 2
+    case 'apr':
+      return 3
+    case 'may':
+      return 4
+    case 'jun':
+      return 5
+    case 'jul':
+      return 6
+    case 'aug':
+      return 7
+    case 'sep':
+      return 8
+    case 'oct':
+      return 9
+    case 'nov':
+      return 10
+    case 'dec':
+      return 11
+    default:
+      return -1
+  }
+}
+
+function formatMessageTimestamp(value, fallback = null) {
+  if (typeof fallback === 'string' && fallback.trim()) {
+    return fallback.trim()
+  }
+  if (value === null || value === undefined) {
     return ''
   }
-  const isoLike = String(value).includes('T') ? value : String(value).replace(' ', 'T')
-  const date = new Date(isoLike)
-  if (Number.isNaN(date.getTime())) {
-    return String(value)
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim()
   }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+  const date = normalizeTimestamp(value)
+  if (!date) {
+    return value ? String(value) : ''
+  }
+  return MALAYSIA_FORMAT.format(date)
 }
 
 async function readJsonResponse(response, fallbackMessage) {
@@ -363,10 +571,51 @@ function scrollConversationToEnd() {
   nextTick(() => {
     const pane = conversationPaneRef.value
     if (pane && typeof pane.scrollHeight === 'number') {
-      pane.scrollTop = pane.scrollHeight
+      requestAnimationFrame(() => {
+        pane.scrollTop = pane.scrollHeight
+      })
     }
   })
 }
+
+function startConversationPolling() {
+  stopConversationPolling()
+  if (!activeThread.value) {
+    return
+  }
+  conversationPollHandle = setInterval(async () => {
+    if (!activeThread.value) {
+      stopConversationPolling()
+      return
+    }
+    if (conversationState.loading || conversationState.sending || conversationPollInFlight) {
+      return
+    }
+    conversationPollInFlight = true
+    try {
+      await loadThreads({ preserveActive: true, silent: true })
+      if (activeThread.value) {
+        await loadConversation(activeThread.value, { silent: true })
+      }
+    } catch (error) {
+      console.error('Failed to poll conversation', error)
+    } finally {
+      conversationPollInFlight = false
+    }
+  }, CONVERSATION_POLL_INTERVAL_MS)
+}
+
+function stopConversationPolling() {
+  if (conversationPollHandle) {
+    clearInterval(conversationPollHandle)
+    conversationPollHandle = null
+  }
+  conversationPollInFlight = false
+}
+
+onBeforeUnmount(() => {
+  stopConversationPolling()
+})
 </script>
 
 <template>
@@ -422,11 +671,13 @@ function scrollConversationToEnd() {
                 <div class="messages-thread__top">
                   <span class="messages-thread__name">{{ thread.participantName }}</span>
                   <span class="messages-thread__time">
-                    {{ formatMessageTimestamp(thread.lastSentAt) }}
+                    {{ formatMessageTimestamp(thread.lastSentAt, thread.rawLastSentAt) }}
                   </span>
                 </div>
                 <div class="messages-thread__preview">
-                  <span v-if="thread.lastMessageSenderType === viewer.type" class="messages-thread__preview-self">You: </span>
+                  <span class="messages-thread__preview-self">
+                    {{ resolveThreadSenderLabel(thread) }}:
+                  </span>
                   <span>{{ thread.lastMessage || 'Start the conversation' }}</span>
                 </div>
               </div>
@@ -486,7 +737,7 @@ function scrollConversationToEnd() {
                     {{ message.content }}
                   </div>
                   <div class="messages-conversation__timestamp">
-                    {{ formatMessageTimestamp(message.sentAt) }}
+                    {{ formatMessageTimestamp(message.sentAt, message.rawSentAt) }}
                   </div>
                 </div>
               </template>
@@ -511,6 +762,7 @@ function scrollConversationToEnd() {
             maxlength="2000"
             show-count
             placeholder="Type your message here..."
+            @keyup.enter.prevent="handleComposerEnter"
           />
           <NSpace justify="end">
             <NButton
@@ -537,7 +789,7 @@ function scrollConversationToEnd() {
 <style scoped>
 .messages-layout {
   display: flex;
-  min-height: 620px;
+  height: clamp(520px, 68vh, 720px);
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
@@ -646,6 +898,7 @@ function scrollConversationToEnd() {
   display: flex;
   flex-direction: column;
   background: #fff;
+  min-height: 0;
 }
 
 .messages-content__header {
@@ -672,16 +925,17 @@ function scrollConversationToEnd() {
 .messages-content__body {
   flex: 1;
   padding: 18px 24px;
-  overflow: hidden;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .messages-conversation {
-  height: 100%;
-  overflow-y: auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding-right: 6px;
+  overflow-y: auto;
 }
 
 .messages-conversation__item {
@@ -735,6 +989,7 @@ function scrollConversationToEnd() {
 @media (max-width: 960px) {
   .messages-layout {
     flex-direction: column;
+    height: auto;
   }
 
   .messages-sidebar {

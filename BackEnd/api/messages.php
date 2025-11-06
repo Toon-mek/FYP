@@ -121,6 +121,27 @@ function handleGetMessages(PDO $pdo): void
 
   $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
+  if ($rows) {
+    markMessagesAsRead(
+      $pdo,
+      $currentType,
+      $currentId,
+      $participantType,
+      $participantId,
+      $filterByPost ? $postId : null
+    );
+    foreach ($rows as &$row) {
+      $receiverType = normaliseMessageAccountType($row['receiverType'] ?? $row['receiver_type'] ?? '');
+      $senderType = normaliseMessageAccountType($row['senderType'] ?? $row['sender_type'] ?? '');
+      $receiverMatches = $receiverType === $currentType && (int) ($row['receiverID'] ?? $row['receiverId'] ?? 0) === $currentId;
+      $senderMatches = $senderType === $participantType && (int) ($row['senderID'] ?? $row['senderId'] ?? 0) === $participantId;
+      if ($receiverMatches && $senderMatches) {
+        $row['isRead'] = 1;
+      }
+    }
+    unset($row);
+  }
+
   $participants = [
     formatParticipantProfile($pdo, $currentType, $currentId),
     formatParticipantProfile($pdo, $participantType, $participantId),
@@ -223,6 +244,7 @@ function handleGetMessageThreads(PDO $pdo, string $currentType, int $currentId):
       'avatarRelative' => $profile['avatarRelative'] ?? '',
       'lastMessage' => $lastMessage['content'] ?? '',
       'lastMessageSenderType' => $lastMessage['senderType'] ?? '',
+      'lastMessageSenderId' => $lastMessage['senderId'] ?? 0,
       'lastSentAt' => $lastMessage['sentAt'] ?? $row['lastSentAt'] ?? null,
       'unreadCount' => (int) ($row['unreadCount'] ?? 0),
     ];
@@ -272,23 +294,41 @@ function handleCreateMessage(PDO $pdo): void
   ]);
 
   $messageId = (int) $pdo->lastInsertId();
+  $messageRow = fetchMessageById($pdo, $messageId);
+  $messagePayload = $messageRow
+    ? [
+        'id' => (int) ($messageRow['messageID'] ?? $messageId),
+        'messageID' => (int) ($messageRow['messageID'] ?? $messageId),
+        'senderType' => $messageRow['senderType'] ?? $senderType,
+        'senderId' => (int) ($messageRow['senderID'] ?? $senderId),
+        'receiverType' => $messageRow['receiverType'] ?? $receiverType,
+        'receiverId' => (int) ($messageRow['receiverID'] ?? $receiverId),
+        'listingId' => isset($messageRow['listingID']) ? (int) $messageRow['listingID'] : null,
+        'postId' => isset($messageRow['postID']) ? (int) $messageRow['postID'] : null,
+        'content' => $messageRow['content'] ?? $content,
+        'sentAt' => $messageRow['sentAt'] ?? null,
+        'isRead' => (bool) ($messageRow['isRead'] ?? false),
+      ]
+    : [
+        'id' => $messageId,
+        'messageID' => $messageId,
+        'senderType' => $senderType,
+        'senderId' => $senderId,
+        'receiverType' => $receiverType,
+        'receiverId' => $receiverId,
+        'listingId' => $listingId,
+        'postId' => $postId,
+        'content' => $content,
+        'sentAt' => (new DateTimeImmutable('now'))->format('Y-m-d H:i:s'),
+        'isRead' => false,
+      ];
 
   echo json_encode([
     'ok' => true,
-    'message' => [
-      'id' => $messageId,
-      'senderType' => $senderType,
-      'senderId' => $senderId,
-      'receiverType' => $receiverType,
-      'receiverId' => $receiverId,
-      'listingId' => $listingId,
-      'postId' => $postId,
-      'content' => $content,
-      'sentAt' => (new DateTimeImmutable('now'))->format('Y-m-d H:i:s'),
-      'isRead' => false,
-    ],
+    'message' => $messagePayload,
   ]);
 }
+
 
 function decodeJsonBody(): array
 {
@@ -411,4 +451,45 @@ function fetchLatestMessageBetween(PDO $pdo, string $typeA, int $idA, string $ty
     'content' => $row['content'] ?? '',
     'sentAt' => $row['sentAt'] ?? null,
   ];
+}
+
+function markMessagesAsRead(PDO $pdo, string $receiverType, int $receiverId, string $senderType, int $senderId, ?int $postId = null): void
+{
+  if ($receiverId <= 0 || $senderId <= 0) {
+    return;
+  }
+
+  $sql = 'UPDATE message SET isRead = 1 WHERE receiverType = :receiverType AND receiverID = :receiverId AND senderType = :senderType AND senderID = :senderId AND isRead = 0';
+  $params = [
+    ':receiverType' => $receiverType,
+    ':receiverId' => $receiverId,
+    ':senderType' => $senderType,
+    ':senderId' => $senderId,
+  ];
+
+  if ($postId !== null) {
+    $sql .= ' AND (postID = :postId OR :postId IS NULL)';
+    $params[':postId'] = $postId;
+  }
+
+  $stmt = $pdo->prepare($sql);
+  $stmt->execute($params);
+}
+
+function fetchMessageById(PDO $pdo, int $messageId): ?array
+{
+  if ($messageId <= 0) {
+    return null;
+  }
+
+  $stmt = $pdo->prepare(
+    'SELECT messageID, senderType, senderID, receiverType, receiverID, listingID, postID, content, sentAt, isRead
+     FROM message
+     WHERE messageID = :id
+     LIMIT 1'
+  );
+  $stmt->execute([':id' => $messageId]);
+  $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+  return $row ?: null;
 }

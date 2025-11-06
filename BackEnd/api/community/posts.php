@@ -22,7 +22,7 @@ try {
   exit;
 }
 
-const COMMUNITY_MAX_MEDIA = 5;
+const COMMUNITY_MAX_MEDIA = 10;
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
@@ -131,10 +131,7 @@ function handleGetPosts(PDO $pdo): void
     $params[':viewerFilterTraveler'] = $viewerId;
   }
 
-  $joinSql = '';
-  if ($joins) {
-    $joinSql = "\n      " . implode("\n      ", $joins);
-  }
+$joinSql = $joins ? "\n    " . implode("\n    ", $joins) : '';
 
   $sql = <<<SQL
     SELECT
@@ -169,6 +166,7 @@ function handleGetPosts(PDO $pdo): void
     LEFT JOIN Traveler t ON t.travelerID = cs.travelerID
     LEFT JOIN TourismOperator op ON op.operatorID = cs.travelerID
     $categoryJoin
+    $joinSql
     ORDER BY cs.createdAt DESC
     LIMIT :limit OFFSET :offset
   SQL;
@@ -746,6 +744,10 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
       $authorType = strtolower((string) ($story['authorType'] ?? 'traveler'));
       $travelerId = (int) ($story['resolvedTravelerID'] ?? $story['travelerID'] ?? 0);
       $operatorId = (int) ($story['operatorID'] ?? 0);
+      if ($authorType === 'operator' && $travelerId > 0) {
+        $authorType = 'traveler';
+        $operatorId = 0;
+      }
       $profile = resolveStoryAuthorProfileImage($story, $authorType, $travelerId, $operatorId);
 
       $authorName =
