@@ -60,6 +60,7 @@ const props = defineProps({
 })
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const COLLAPSED_LOGO_SRC = '/Traveler Hub.png'
 const MESSAGES_ENDPOINT = `${API_BASE}/messages.php`
 
 const defaultTraveler = {
@@ -591,20 +592,76 @@ const hasTransport = computed(() => transport.value.length > 0)
 const hasCompanions = computed(() => companions.value.length > 0)
 const hasIntegrations = computed(() => integrations.value.length > 0)
 const hasInsights = computed(() => insights.value.length > 0)
+
+const sidebarCollapsed = ref(false)
+const expandedSidebarStyle = computed(() => ({
+  padding: '18px 16px',
+  alignItems: 'flex-start',
+  gap: '10px',
+}))
+const collapsedSidebarStyle = computed(() => ({
+  padding: '12px 0',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '14px',
+}))
+const expandedMenuContainerStyle = computed(() => ({
+  padding: '0 8px 16px',
+}))
+const collapsedMenuContainerStyle = computed(() => ({
+  padding: '0 6px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: '12px',
+}))
 </script>
 
 <template>
   <n-layout has-sider style="min-height: 100vh; background: var(--body-color);">
-    <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="220" show-trigger="bar">
-      <n-space vertical size="small" style="padding: 18px 16px;">
-        <n-gradient-text type="info" style="font-size: 1.1rem; font-weight: 600;">
-          Traveler hub
-        </n-gradient-text>
-        <n-text depth="3">Navigate modules</n-text>
+    <n-layout-sider
+      bordered
+      collapse-mode="width"
+      :collapsed-width="64"
+      :width="220"
+      :collapsed="sidebarCollapsed"
+      show-trigger
+      @collapse="sidebarCollapsed = true"
+      @expand="sidebarCollapsed = false"
+    >
+      <n-space
+        vertical
+        size="small"
+        class="sidebar-brand"
+        :style="sidebarCollapsed ? collapsedSidebarStyle : expandedSidebarStyle"
+      >
+        <div class="sidebar-brand__logo">
+          <img
+            v-if="sidebarCollapsed"
+            :src="COLLAPSED_LOGO_SRC"
+            alt="Traveler Hub logo"
+            class="sidebar-brand__image"
+          />
+          <n-gradient-text
+            v-else
+            type="info"
+            style="font-size: 1.1rem; font-weight: 600;"
+          >
+            Traveler Hub
+          </n-gradient-text>
+        </div>
+        <n-text v-if="!sidebarCollapsed" depth="3">Navigate modules</n-text>
+        <n-switch v-model:value="sidebarCollapsed" size="small" round />
       </n-space>
-      <div style="padding: 0 8px 16px;">
-        <n-menu :options="sidebarOptions" :value="selectedMenu" :indent="16" :collapsed-icon-size="20"
-          @update:value="handleMenuSelect" />
+      <div :style="sidebarCollapsed ? collapsedMenuContainerStyle : expandedMenuContainerStyle">
+        <n-menu
+          :options="sidebarOptions"
+          :value="selectedMenu"
+          :indent="16"
+          :collapsed="sidebarCollapsed"
+          :collapsed-icon-size="20"
+          @update:value="handleMenuSelect"
+        />
       </div>
     </n-layout-sider>
 
@@ -1012,13 +1069,33 @@ const hasInsights = computed(() => insights.value.length > 0)
   background: var(--body-color);
 }
 
+.sidebar-brand {
+  display: flex;
+  width: 100%;
+}
+
+.sidebar-brand__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar-brand__image {
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
 .dashboard-main {
   display: block;
 }
 
 .weather-panel {
-  max-width: 960px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
 }
 
 .weather-panel :deep(.n-card) {
@@ -1027,13 +1104,13 @@ const hasInsights = computed(() => insights.value.length > 0)
 }
 
 .community-panel {
-  max-width: 1100px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
 }
 
 .messages-panel {
-  max-width: 1100px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
   padding-bottom: 24px;
 }
 
