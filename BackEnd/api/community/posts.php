@@ -139,7 +139,7 @@ $joinSql = $joins ? "\n    " . implode("\n    ", $joins) : '';
       cs.travelerID,
       cs.caption,
       cs.mediaType,
-      cs.mediaPath,
+      cs.mediaPath, 
       cs.location,
       cs.createdAt,
       cs.updatedAt,

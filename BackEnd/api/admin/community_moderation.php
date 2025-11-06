@@ -338,6 +338,8 @@ function mapStoriesForAdmin(PDO $pdo, array $rows): array
             'tags' => $tagMap[$storyId] ?? [],
             'createdAt' => normaliseDateTime($row['createdAt'] ?? null),
             'updatedAt' => normaliseDateTime($row['updatedAt'] ?? null),
+            'createdTimestamp' => $timeline['createdTimestamp'] ?? null,
+            'updatedTimestamp' => $timeline['updatedTimestamp'] ?? null,
             'timeline' => $timeline,
             'metrics' => [
                 'likes' => $likes,
@@ -694,6 +696,8 @@ function buildStoryTimelineMeta(array $story): array
         'label' => $label,
         'created' => $createdLabel,
         'updated' => $updatedLabel,
+        'createdTimestamp' => $createdDt ? $createdDt->getTimestamp() : null,
+        'updatedTimestamp' => $updatedDt ? $updatedDt->getTimestamp() : null,
     ];
 }
 

@@ -338,6 +338,24 @@ function formatDateTime(?string $value): ?string
 
 function formatListingRow(array $row): array
 {
+    $submittedTimestamp = null;
+    if (!empty($row['submittedDate'])) {
+        try {
+            $submittedTimestamp = (new DateTimeImmutable($row['submittedDate']))->getTimestamp();
+        } catch (Throwable) {
+            $submittedTimestamp = null;
+        }
+    }
+
+    $verifiedTimestamp = null;
+    if (!empty($row['verifiedDate'])) {
+        try {
+            $verifiedTimestamp = (new DateTimeImmutable($row['verifiedDate']))->getTimestamp();
+        } catch (Throwable) {
+            $verifiedTimestamp = null;
+        }
+    }
+
     return [
         'id' => (int) $row['listingID'],
         'businessName' => $row['businessName'],
@@ -345,6 +363,7 @@ function formatListingRow(array $row): array
         'status' => $row['status'],
         'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
         'submittedDate' => formatDateString($row['submittedDate']),
+        'submittedTimestamp' => $submittedTimestamp,
         'location' => $row['location'],
         'priceRange' => $row['priceRange'],
         'category' => $row['categoryName'],
@@ -359,6 +378,7 @@ function formatListingRow(array $row): array
             'status' => $row['verificationStatus'],
             'remarks' => $row['verificationRemarks'],
             'verifiedDate' => formatDateString($row['verifiedDate']),
+            'verifiedTimestamp' => $verifiedTimestamp,
             'adminId' => $row['adminID'] !== null ? (int) $row['adminID'] : null,
             'adminName' => $row['adminName'],
         ],
@@ -401,6 +421,14 @@ function loadListing(PDO $pdo, int $listingId): ?array
     $images = fetchImages($pdo, $listingId);
     $tags = fetchListingTags($pdo, $listingId);
     $history = fetchVerificationHistory($pdo, $listingId);
+    $submittedTimestamp = null;
+    if (!empty($row['submittedDate'])) {
+        try {
+            $submittedTimestamp = (new DateTimeImmutable($row['submittedDate']))->getTimestamp();
+        } catch (Throwable) {
+            $submittedTimestamp = null;
+        }
+    }
 
     return [
         'id' => (int) $row['listingID'],
@@ -409,6 +437,7 @@ function loadListing(PDO $pdo, int $listingId): ?array
         'status' => $row['status'],
         'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
         'submittedDate' => formatDateString($row['submittedDate']),
+        'submittedTimestamp' => $submittedTimestamp,
         'location' => $row['location'],
         'priceRange' => $row['priceRange'],
         'category' => [

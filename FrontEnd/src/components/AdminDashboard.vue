@@ -255,11 +255,18 @@ function mapCommunityStoryActivity(record) {
   const name = author.name || author.username || (author.id ? `User #${author.id}` : 'Member')
   const actor = `${typeLabel}${name ? ` - ${name}` : ''}`
   const description = `Posted a new ${record?.mediaType === 'video' ? 'community video' : 'community story'}.`
+  const timestampSeconds =
+    record?.createdTimestamp ??
+    record?.timeline?.createdTimestamp ??
+    record?.updatedTimestamp ??
+    record?.timeline?.updatedTimestamp ??
+    null
   const timestamp =
-    safeDate(record?.timeline?.updated) ||
-    safeDate(record?.timeline?.created) ||
-    safeDate(record?.updatedAt) ||
+    (typeof timestampSeconds === 'number' && Number.isFinite(timestampSeconds) ? new Date(timestampSeconds * 1000) : null) ||
     safeDate(record?.createdAt) ||
+    safeDate(record?.updatedAt) ||
+    safeDate(record?.timeline?.created) ||
+    safeDate(record?.timeline?.updated) ||
     new Date()
   return {
     id: `story-${record?.id ?? Math.random()}`,
@@ -272,7 +279,13 @@ function mapCommunityStoryActivity(record) {
 }
 
 function mapBusinessListingActivity(listing) {
-  const operatorName = listing?.operatorName || listing?.operatorEmail || `Operator #${listing?.operatorID ?? 'N/A'}`
+  const operatorInfo = listing?.operator ?? listing?.operatorInfo ?? {}
+  const operatorName =
+    operatorInfo.name ||
+    operatorInfo.email ||
+    listing?.operatorName ||
+    listing?.operatorEmail ||
+    `Operator #${operatorInfo.id ?? listing?.operatorID ?? 'N/A'}`
   const actor = `Operator - ${operatorName}`
   const status = String(listing?.status || 'Pending Review').toLowerCase()
   const displayName = listing?.businessName ? `"${listing.businessName}"` : 'a business listing'
@@ -284,9 +297,14 @@ function mapBusinessListingActivity(listing) {
   } else {
     description = `Submitted listing ${displayName} for review.`
   }
+  const timestampSeconds =
+    listing?.submittedTimestamp ??
+    listing?.latestVerification?.verifiedTimestamp ??
+    null
   const timestamp =
-    safeDate(listing?.verifiedDate) ||
+    (typeof timestampSeconds === 'number' && Number.isFinite(timestampSeconds) ? new Date(timestampSeconds * 1000) : null) ||
     safeDate(listing?.submittedDate) ||
+    safeDate(listing?.verifiedDate) ||
     new Date()
   return {
     id: `listing-${listing?.listingID ?? Math.random()}`,
@@ -350,11 +368,28 @@ async function loadActivityStream(options = {}) {
       activityError.value = ''
     }
     aggregated.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
-    activityItems.value = aggregated.slice(0, ACTIVITY_FETCH_LIMIT).map((item) => ({
-      ...item,
-      timeAgo: item.timestamp ? formatRelativeTime(item.timestamp) : '',
-      timestampLabel: '',
-    }))
+
+    const firstWithTime = aggregated.find((entry) => entry.timestamp instanceof Date)
+    if (firstWithTime && firstWithTime.timestamp) {
+      const drift = firstWithTime.timestamp.getTime() - Date.now()
+      if (drift > 60 * 60 * 1000) {
+        aggregated.forEach((entry) => {
+          if (entry.timestamp instanceof Date) {
+            entry.timestamp = new Date(entry.timestamp.getTime() - drift)
+          }
+        })
+      }
+    }
+
+    activityItems.value = aggregated.slice(0, ACTIVITY_FETCH_LIMIT).map((item) => {
+      const displayTimestamp = item.timestamp
+        ? item.timestamp.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+        : ''
+      return {
+        ...item,
+        displayTimestamp: displayTimestamp || formatRelativeTime(item.timestamp),
+      }
+    })
     activityLastFetched.value = new Date()
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unable to load community activity stream.'
@@ -588,7 +623,9 @@ const headerButtons = computed(() => {
                           </span>
                           <n-text depth="3">{{ item.description }}</n-text>
                         </n-space>
-                        <n-text depth="3" style="font-size: 0.95rem;">{{ item.timeAgo }}</n-text>
+                        <n-text depth="3" style="font-size: 0.95rem;">
+                          {{ item.displayTimestamp }}
+                        </n-text>
                       </n-space>
                     </n-list-item>
                   </n-list>
