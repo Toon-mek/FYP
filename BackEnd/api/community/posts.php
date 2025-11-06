@@ -151,20 +151,12 @@ $joinSql = $joins ? "\n    " . implode("\n    ", $joins) : '';
       t.fullName AS travelerFullName,
       t.contactNumber,
       t.profileImage AS travelerProfileImage,
-      op.operatorID,
-      op.username AS operatorUsername,
-      op.fullName AS operatorFullName,
-      op.profileImage AS operatorProfileImage,
-      COALESCE(t.fullName, op.fullName, t.username, op.username) AS authorDisplayName,
-      COALESCE(t.username, op.username) AS authorHandle,
-      COALESCE(t.profileImage, op.profileImage) AS authorProfileImage,
-      CASE
-        WHEN op.operatorID IS NOT NULL THEN 'operator'
-        ELSE 'traveler'
-      END AS authorType
+      COALESCE(t.fullName, t.username) AS authorDisplayName,
+      t.username AS authorHandle,
+      t.profileImage AS authorProfileImage,
+      'traveler' AS authorType
     FROM community_story cs
     LEFT JOIN Traveler t ON t.travelerID = cs.travelerID
-    LEFT JOIN TourismOperator op ON op.operatorID = cs.travelerID
     $categoryJoin
     $joinSql
     ORDER BY cs.createdAt DESC
@@ -741,34 +733,25 @@ function mapStories(PDO $pdo, array $stories, ?int $viewerId = null): array
       ];
       $timeline = buildStoryTimelineMeta($story);
 
-      $authorType = strtolower((string) ($story['authorType'] ?? 'traveler'));
       $travelerId = (int) ($story['resolvedTravelerID'] ?? $story['travelerID'] ?? 0);
-      $operatorId = (int) ($story['operatorID'] ?? 0);
-      if ($authorType === 'operator' && $travelerId > 0) {
-        $authorType = 'traveler';
-        $operatorId = 0;
-      }
-      $profile = resolveStoryAuthorProfileImage($story, $authorType, $travelerId, $operatorId);
+      $profile = resolveStoryAuthorProfileImage($story, $travelerId);
 
       $authorName =
         $story['authorDisplayName']
         ?? $story['travelerFullName']
-        ?? $story['operatorFullName']
         ?? $story['travelerUsername']
-        ?? $story['operatorUsername']
         ?? 'Traveler';
       $authorUsername =
         $story['authorHandle']
         ?? $story['travelerUsername']
-        ?? $story['operatorUsername']
         ?? '';
 
-      $authorId = $authorType === 'operator' && $operatorId > 0 ? $operatorId : $travelerId;
+      $authorId = $travelerId;
 
       return [
         'id' => $storyId,
         'authorId' => $authorId,
-        'authorType' => $authorType,
+        'authorType' => 'traveler',
         'authorName' => $authorName,
         'authorUsername' => $authorUsername,
         'authorAvatar' => $profile['public'],
@@ -824,20 +807,12 @@ function fetchStoryRow(PDO $pdo, int $storyId): ?array
       t.fullName AS travelerFullName,
       t.contactNumber,
       t.profileImage AS travelerProfileImage,
-      op.operatorID,
-      op.username AS operatorUsername,
-      op.fullName AS operatorFullName,
-      op.profileImage AS operatorProfileImage,
-      COALESCE(t.fullName, op.fullName, t.username, op.username) AS authorDisplayName,
-      COALESCE(t.username, op.username) AS authorHandle,
-      COALESCE(t.profileImage, op.profileImage) AS authorProfileImage,
-      CASE
-        WHEN op.operatorID IS NOT NULL THEN 'operator'
-        ELSE 'traveler'
-      END AS authorType
+      COALESCE(t.fullName, t.username) AS authorDisplayName,
+      t.username AS authorHandle,
+      t.profileImage AS authorProfileImage,
+      'traveler' AS authorType
     FROM community_story cs
     LEFT JOIN Traveler t ON t.travelerID = cs.travelerID
-    LEFT JOIN TourismOperator op ON op.operatorID = cs.travelerID
     WHERE cs.id = :id
     LIMIT 1
     SQL
@@ -1462,28 +1437,27 @@ function formatAbsoluteDateTime(DateTimeImmutable $date): string
   return $date->format('M j, Y \\a\\t g:i A');
 }
 
-function resolveStoryAuthorProfileImage(array $story, string $authorType, int $travelerId, int $operatorId): array
+function resolveStoryAuthorProfileImage(array $story, int $travelerId): array
 {
   $candidates = [];
   $primary = $story['authorProfileImage'] ?? $story['profileImage'] ?? null;
-
-  if ($authorType === 'operator' && $operatorId > 0) {
-    $candidates[] = resolveProfileImageReference('operator', $operatorId, $primary);
-  }
 
   if ($travelerId > 0) {
     $candidates[] = resolveProfileImageReference('traveler', $travelerId, $primary);
     $candidates[] = resolveProfileImageReference('traveler', $travelerId, $story['travelerProfileImage'] ?? null);
   }
 
-  if ($authorType !== 'operator' && $operatorId > 0) {
-    $candidates[] = resolveProfileImageReference('operator', $operatorId, $story['operatorProfileImage'] ?? null);
-  }
-
   foreach ($candidates as $candidate) {
     if (!empty($candidate['public']) || !empty($candidate['relative'])) {
       return $candidate;
     }
+  }
+
+  if (is_string($primary) && $primary !== '') {
+    return [
+      'relative' => $primary,
+      'public' => buildAssetUrl($primary),
+    ];
   }
 
   return [

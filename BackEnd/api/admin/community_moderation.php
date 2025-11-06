@@ -61,6 +61,10 @@ function handleGet(PDO $pdo): void
     $authorFilter = normaliseKey($_GET['authorType'] ?? 'all');
     $search = trim((string) ($_GET['search'] ?? ''));
 
+    if ($authorFilter === 'operator') {
+        $authorFilter = 'traveler';
+    }
+
     $filters = [
         'limit' => $limit,
         'offset' => $offset,
@@ -147,10 +151,7 @@ function handleDelete(PDO $pdo): void
 
 function notifyStoryRemoval(PDO $pdo, array $storyRow, string $reason): void
 {
-    $isOperator = !empty($storyRow['operatorID']);
-    $recipientId = $isOperator
-        ? (int) ($storyRow['operatorID'] ?? 0)
-        : (int) ($storyRow['travelerId'] ?? 0);
+    $recipientId = (int) ($storyRow['travelerId'] ?? $storyRow['travelerID'] ?? 0);
 
     if ($recipientId <= 0) {
         return;
@@ -166,8 +167,7 @@ function notifyStoryRemoval(PDO $pdo, array $storyRow, string $reason): void
         $reason
     );
 
-    $recipientType = $isOperator ? 'Operator' : 'Traveler';
-    recordNotification($pdo, $recipientType, $recipientId, $title, $message);
+    recordNotification($pdo, 'Traveler', $recipientId, $title, $message);
 }
 
 function loadSinglePost(PDO $pdo, int $postId): ?array
@@ -188,6 +188,9 @@ function loadPostList(PDO $pdo, array $filters): array
     $mediaType = $filters['mediaType'];
     $category = $filters['category'];
     $authorType = $filters['authorType'];
+    if ($authorType === 'operator') {
+        $authorType = 'traveler';
+    }
     $search = $filters['search'];
 
     $conditions = [];
@@ -207,15 +210,12 @@ function loadPostList(PDO $pdo, array $filters): array
     }
 
     if ($authorType === 'traveler') {
-        $conditions[] = 'op.operatorID IS NULL';
-    } elseif ($authorType === 'operator') {
-        $conditions[] = 'op.operatorID IS NOT NULL';
+        $conditions[] = 'cs.travelerID IS NOT NULL';
     }
 
     if ($search !== '') {
         $conditions[] = "(LOWER(cs.caption) LIKE :searchLower OR LOWER(cs.location) LIKE :searchLower
-            OR LOWER(t.fullName) LIKE :searchLower OR LOWER(t.username) LIKE :searchLower
-            OR LOWER(op.fullName) LIKE :searchLower OR LOWER(op.username) LIKE :searchLower)";
+            OR LOWER(t.fullName) LIKE :searchLower OR LOWER(t.username) LIKE :searchLower)";
         $params[':searchLower'] = '%' . mb_strtolower($search, 'UTF-8') . '%';
     }
 
@@ -240,16 +240,9 @@ SELECT
     t.fullName AS travelerName,
     t.email AS travelerEmail,
     t.contactNumber AS travelerPhone,
-    t.profileImage AS travelerProfileImage,
-    op.operatorID,
-    op.username AS operatorUsername,
-    op.fullName AS operatorName,
-    op.email AS operatorEmail,
-    op.contactNumber AS operatorPhone,
-    op.profileImage AS operatorProfileImage
+    t.profileImage AS travelerProfileImage
 FROM community_story cs
 LEFT JOIN traveler t ON t.travelerID = cs.travelerID
-LEFT JOIN tourismoperator op ON op.operatorID = cs.travelerID
 $joinClause
 $whereClause
 ORDER BY cs.createdAt DESC
@@ -274,7 +267,6 @@ SQL;
 SELECT COUNT(DISTINCT cs.id)
 FROM community_story cs
 LEFT JOIN traveler t ON t.travelerID = cs.travelerID
-LEFT JOIN tourismoperator op ON op.operatorID = cs.travelerID
 $joinClause
 $whereClause
 SQL;
@@ -443,16 +435,9 @@ function fetchStoryRow(PDO $pdo, int $storyId): ?array
             t.fullName AS travelerName,
             t.email AS travelerEmail,
             t.contactNumber AS travelerPhone,
-            t.profileImage AS travelerProfileImage,
-            op.operatorID,
-            op.username AS operatorUsername,
-            op.fullName AS operatorName,
-            op.email AS operatorEmail,
-            op.contactNumber AS operatorPhone,
-            op.profileImage AS operatorProfileImage
+            t.profileImage AS travelerProfileImage
          FROM community_story cs
          LEFT JOIN traveler t ON t.travelerID = cs.travelerID
-         LEFT JOIN tourismoperator op ON op.operatorID = cs.travelerID
          WHERE cs.id = :id
          LIMIT 1"
     );
@@ -602,18 +587,15 @@ function buildLegacyMediaList(array $row): array
 
 function buildAuthorPayload(array $row): array
 {
-    $isOperator = !empty($row['operatorID']);
-    $name = $isOperator
-        ? ($row['operatorName'] ?? $row['operatorUsername'] ?? 'Operator')
-        : ($row['travelerName'] ?? $row['travelerUsername'] ?? 'Traveler');
-    $username = $isOperator ? ($row['operatorUsername'] ?? '') : ($row['travelerUsername'] ?? '');
-    $email = $isOperator ? ($row['operatorEmail'] ?? '') : ($row['travelerEmail'] ?? '');
-    $contact = $isOperator ? ($row['operatorPhone'] ?? '') : ($row['travelerPhone'] ?? '');
-    $profileImage = $isOperator ? ($row['operatorProfileImage'] ?? '') : ($row['travelerProfileImage'] ?? '');
+    $name = $row['travelerName'] ?? $row['travelerUsername'] ?? 'Traveler';
+    $username = $row['travelerUsername'] ?? '';
+    $email = $row['travelerEmail'] ?? '';
+    $contact = $row['travelerPhone'] ?? '';
+    $profileImage = $row['travelerProfileImage'] ?? '';
 
     return [
-        'type' => $isOperator ? 'operator' : 'traveler',
-        'id' => $isOperator ? (int) ($row['operatorID'] ?? 0) : (int) ($row['travelerId'] ?? 0),
+        'type' => 'traveler',
+        'id' => (int) ($row['travelerId'] ?? 0),
         'name' => $name,
         'username' => $username,
         'email' => $email,

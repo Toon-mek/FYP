@@ -58,7 +58,6 @@ const mediaOptions = [
 const authorOptions = [
   { label: 'All authors', value: 'all' },
   { label: 'Travelers', value: 'traveler' },
-  { label: 'Operators', value: 'operator' },
 ]
 
 const categoryOptions = ref([{ label: 'All categories', value: 'all' }])
@@ -129,6 +128,8 @@ const columns = computed(() => [
     render(row) {
       const author = row.author || {}
       const initials = author.initials || (author.name ? computeInitials(author.name) : 'TR')
+      const authorLabel = author.type === 'traveler' ? 'Traveler' : 'Community member'
+      const tagType = author.type === 'traveler' ? 'info' : 'default'
       return h(
         'div',
         { class: 'acm__author-cell' },
@@ -146,12 +147,12 @@ const columns = computed(() => [
           h(
             NTag,
             {
-              type: author.type === 'operator' ? 'warning' : 'info',
+              type: tagType,
               size: 'tiny',
               bordered: false,
               round: true,
             },
-            { default: () => (author.type === 'operator' ? 'Operator' : 'Traveler') },
+            { default: () => authorLabel },
           ),
         ],
       )
