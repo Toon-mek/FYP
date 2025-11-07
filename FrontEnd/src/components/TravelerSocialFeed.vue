@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <n-dialog-provider>
     <div class="social-feed">
       <n-page-header
@@ -1374,28 +1374,23 @@ async function toggleReaction(kind, post) {
 
   const action = kind === 'save' ? 'toggle-save' : 'toggle-like'
   const isSave = action === 'toggle-save'
-  const stateKey = isSave ? 'isSaved' : 'isLiked'
-  const countKey = isSave ? 'saves' : 'likes'
-
+  
+  // Store previous state for rollback
   const previousState = {
-    likes: resolveMetricCount(post, 'likes'),
-    saves: resolveMetricCount(post, 'saves'),
-    isLiked: resolveMetricFlag(post, 'isLiked'),
-    isSaved: resolveMetricFlag(post, 'isSaved'),
+    isLiked: post.isLiked,
+    isSaved: post.isSaved,
+    likes: post.likes,
+    saves: post.saves
   }
 
-  const optimisticPatch = isSave
-    ? {
-        isSaved: !previousState.isSaved,
-        saves: adjustMetricCount(previousState.saves, previousState.isSaved ? -1 : 1),
-      }
-    : {
-        isLiked: !previousState.isLiked,
-        likes: adjustMetricCount(previousState.likes, previousState.isLiked ? -1 : 1),
-      }
-
-  setMetricValues(post, optimisticPatch)
-  Object.assign(post, optimisticPatch)
+  // Optimistic update
+  if (isSave) {
+    post.isSaved = !post.isSaved
+    post.saves = post.saves + (post.isSaved ? 1 : -1)
+  } else {
+    post.isLiked = !post.isLiked
+    post.likes = post.likes + (post.isLiked ? 1 : -1)
+  }
 
   try {
     const response = await fetch(COMMUNITY_ENDPOINT, {
@@ -1408,71 +1403,36 @@ async function toggleReaction(kind, post) {
       }),
     })
 
-    const payload = await safeJson(response)
-    if (!response.ok || !payload?.ok) {
-      throw new Error(payload?.message ?? 'Failed to update story.')
+    const data = await response.json()
+    if (!response.ok) {
+      throw new Error(data.message || 'Failed to update reaction')
     }
 
-    const responsePatch = isSave
-      ? {
-          isSaved: typeof payload.saved === 'boolean' ? payload.saved : optimisticPatch.isSaved,
-          saves: normaliseMetricValue(
-            payload.saves !== undefined ? payload.saves : optimisticPatch.saves
-          ),
-        }
-      : {
-          isLiked: typeof payload.liked === 'boolean' ? payload.liked : optimisticPatch.isLiked,
-          likes: normaliseMetricValue(
-            payload.likes !== undefined ? payload.likes : optimisticPatch.likes
-          ),
-        }
-
-    setMetricValues(post, responsePatch)
-    Object.assign(post, responsePatch)
-    updatePostState(storyId, responsePatch)
-
-    const currentFlags = {
-      isSaved: resolveMetricFlag(post, 'isSaved'),
-      isLiked: resolveMetricFlag(post, 'isLiked'),
+    // Sync with server response
+    const updates = isSave ? {
+      isSaved: data.saved ?? !previousState.isSaved,
+      saves: data.saves ?? (previousState.saves + (data.saved ? 1 : -1))
+    } : {
+      isLiked: data.liked ?? !previousState.isLiked,
+      likes: data.likes ?? (previousState.likes + (data.liked ? 1 : -1))
     }
-    emit('post-updated', {
-      storyId,
-      post,
-      patch: responsePatch,
-      flags: currentFlags,
-    })
 
-    if (isSave && !currentFlags.isSaved) {
-      emit('post-removed', { storyId, post, reason: 'unsaved' })
-      if (activePost.value && String(activePost.value.id) === String(storyId)) {
-        closePostDetail()
-      }
-    }
-    if (!isSave && !currentFlags.isLiked) {
-      emit('post-removed', { storyId, post, reason: 'unliked' })
-      if (activePost.value && String(activePost.value.id) === String(storyId)) {
-        closePostDetail()
-      }
-    }
+    Object.assign(post, updates)
+    updatePostState(storyId, updates)
+
   } catch (error) {
-    console.error('Failed to toggle reaction', error)
-    const revertPatch = {
-      [stateKey]: previousState[stateKey],
-      [countKey]: previousState[countKey],
+    // Revert on error
+    const revertUpdate = isSave ? {
+      isSaved: previousState.isSaved,
+      saves: previousState.saves
+    } : {
+      isLiked: previousState.isLiked,
+      likes: previousState.likes
     }
-    setMetricValues(post, revertPatch)
-    Object.assign(post, revertPatch)
-    updatePostState(storyId, revertPatch)
-    emit('post-updated', {
-      storyId,
-      post,
-      patch: revertPatch,
-      flags: {
-        isSaved: previousState.isSaved,
-        isLiked: previousState.isLiked,
-      },
-    })
-    message.error(error instanceof Error ? error.message : 'Failed to update story.')
+    
+    Object.assign(post, revertUpdate)
+    updatePostState(storyId, revertUpdate)
+    message.error(error.message || 'Failed to update reaction')
   }
 }
 
