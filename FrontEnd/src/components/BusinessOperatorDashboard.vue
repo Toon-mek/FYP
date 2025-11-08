@@ -1,5 +1,6 @@
 <script setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue"
+import { useRoute, useRouter } from "vue-router"
 import {
   NAlert,
   NAvatar,
@@ -46,6 +47,9 @@ const props = defineProps({
     default: () => [],
   },
 })
+
+const route = useRoute()
+const router = useRouter()
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/api"
 const COLLAPSED_LOGO_SRC = "/Tourism Operator Hub.png"
@@ -267,6 +271,15 @@ const sectionMeta = {
 
 const activeSection = ref("overview")
 
+const availableSectionKeys = computed(() => sidebarOptions.value.map((option) => option.key))
+
+const normaliseSectionKey = (value) => {
+  if (Array.isArray(value)) {
+    return typeof value[0] === "string" ? value[0] : ""
+  }
+  return typeof value === "string" ? value : ""
+}
+
 const activeSectionMeta = computed(() => sectionMeta[activeSection.value] ?? sectionMeta.overview)
 
 const listingMetrics = computed(() => {
@@ -433,6 +446,37 @@ function handleOperatorNavigate(event) {
     goToSection(section)
   }
 }
+
+watch(
+  () => normaliseSectionKey(route.query.module),
+  (moduleKey) => {
+    if (moduleKey && availableSectionKeys.value.includes(moduleKey)) {
+      activeSection.value = moduleKey
+    } else if (!moduleKey && route.name === "operator") {
+      activeSection.value = "overview"
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  activeSection,
+  (next) => {
+    const normalized = next && next !== "overview" ? next : null
+    const current = normaliseSectionKey(route.query.module)
+    if (normalized === current) {
+      return
+    }
+    const nextQuery = { ...route.query }
+    if (normalized) {
+      nextQuery.module = normalized
+    } else {
+      delete nextQuery.module
+    }
+    router.replace({ query: nextQuery }).catch(() => {})
+  },
+  { immediate: false },
+)
 
 onMounted(() => {
   if (typeof window === "undefined") return

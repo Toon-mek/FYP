@@ -8,6 +8,7 @@ import AdminEditProfile from './components/AdminEditProfile.vue'
 import BusinessOperatorDashboard from './components/BusinessOperatorDashboard.vue'
 import BusinessOperatorEditProfile from './components/BusinessOperatorEditProfile.vue'
 import HomePage from './components/HomePage.vue'
+import AIChatbot from './components/AIChatbot.vue'
 import LoginPage from './components/LoginPage.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import SiteHeader from './components/SiteHeader.vue'
@@ -256,6 +257,92 @@ const editProfileVisible = ref(false)
 const editProfileLoading = ref(false)
 const { message } = createDiscreteApi(['message'])
 const adminProfileFetchState = reactive({ loading: false, attempted: false })
+
+const personaCandidates = ['traveler', 'operator']
+
+const chatbotEnabled = computed(() => {
+  const view = currentView.value
+  if (view === 'traveler' || view === 'operator') {
+    return true
+  }
+  if (view === 'admin') {
+    return false
+  }
+  if (activeAccountType.value && ['traveler', 'operator'].includes(activeAccountType.value)) {
+    return true
+  }
+  return false
+})
+
+const chatbotPersona = computed(() => {
+  if (!chatbotEnabled.value) {
+    return 'guest'
+  }
+  const view = currentView.value
+  if (personaCandidates.includes(view)) {
+    return view
+  }
+  if (activeAccountType.value && personaCandidates.includes(activeAccountType.value)) {
+    return activeAccountType.value
+  }
+  return 'guest'
+})
+
+const chatbotDisplayName = computed(() => {
+  const persona = chatbotPersona.value
+  const record =
+    sessionState[persona] ??
+    (activeAccountType.value && sessionState[activeAccountType.value] ? sessionState[activeAccountType.value] : null)
+
+  if (record && typeof record === 'object') {
+    return record.displayName ?? record.fullName ?? record.username ?? ''
+  }
+  return ''
+})
+
+function isTruthyFlag(value) {
+  if (value === true) return true
+  if (value === false || value === undefined || value === null) return false
+  const normalised = String(value).toLowerCase()
+  return normalised === '1' || normalised === 'true' || normalised === 'yes'
+}
+
+function updateEditProfileQuery(enabled) {
+  const nextQuery = { ...route.query }
+  if (enabled) {
+    nextQuery.editProfile = '1'
+  } else {
+    delete nextQuery.editProfile
+  }
+  router.replace({ query: nextQuery }).catch(() => {})
+}
+
+watch(
+  () => route.query.editProfile,
+  (value) => {
+    const shouldOpen = isTruthyFlag(value)
+    if (shouldOpen) {
+      if (!currentAccountUser.value) {
+        message.warning('Please log in to edit your profile.')
+        updateEditProfileQuery(false)
+        return
+      }
+      editProfileVisible.value = true
+    } else if (!shouldOpen && editProfileVisible.value) {
+      editProfileVisible.value = false
+    }
+  },
+  { immediate: true },
+)
+
+watch(editProfileVisible, (visible) => {
+  const queryEnabled = isTruthyFlag(route.query.editProfile)
+  if (visible && !queryEnabled) {
+    updateEditProfileQuery(true)
+  } else if (!visible && queryEnabled) {
+    updateEditProfileQuery(false)
+  }
+})
 
 function persistSession(accountType, user) {
   if (!storageAvailable || !accountType) return
@@ -649,6 +736,12 @@ function handleLoginSuccess(payload) {
         @save="handleProfileSave"
       />
 
+      <AIChatbot
+        v-if="chatbotEnabled"
+        :persona="chatbotPersona"
+        :display-name="chatbotDisplayName"
+      />
+      
       <SiteFooter
         :brand="footerBrand"
         :columns="footerColumns"

@@ -626,14 +626,8 @@ onBeforeUnmount(() => {
         <n-text depth="3">Reach out to collaborators and operators.</n-text>
       </header>
 
-      <n-input
-        v-model:value="threadsState.search"
-        placeholder="Search by name or username"
-        size="small"
-        round
-        clearable
-        class="messages-sidebar__search"
-      >
+      <n-input v-model:value="threadsState.search" placeholder="Search by name or username" size="small" round clearable
+        class="messages-sidebar__search">
         <template #prefix>
           <n-icon size="16">
             <i class="ri-search-2-line" />
@@ -648,21 +642,11 @@ onBeforeUnmount(() => {
       <n-spin :show="threadsState.loading">
         <div class="messages-thread-list">
           <template v-if="filteredThreads.length">
-            <button
-              v-for="thread in filteredThreads"
-              :key="thread.threadKey"
-              :class="[
-                'messages-thread',
-                { 'messages-thread--active': activeThread?.threadKey === thread.threadKey },
-              ]"
-              @click="selectThread(thread)"
-            >
-              <n-avatar
-                round
-                size="medium"
-                :src="thread.avatar || undefined"
-                class="messages-thread__avatar"
-              >
+            <button v-for="thread in filteredThreads" :key="thread.threadKey" :class="[
+              'messages-thread',
+              { 'messages-thread--active': activeThread?.threadKey === thread.threadKey },
+            ]" @click="selectThread(thread)">
+              <n-avatar round size="medium" :src="thread.avatar || undefined" class="messages-thread__avatar">
                 <template v-if="!thread.avatar">
                   {{ computeInitialsFromName(thread.participantName || thread.participantUsername || 'TR') }}
                 </template>
@@ -681,13 +665,7 @@ onBeforeUnmount(() => {
                   <span>{{ thread.lastMessage || 'Start the conversation' }}</span>
                 </div>
               </div>
-              <n-tag
-                v-if="thread.unreadCount > 0"
-                type="success"
-                size="small"
-                round
-                bordered
-              >
+              <n-tag v-if="thread.unreadCount > 0" type="success" size="small" round bordered>
                 {{ thread.unreadCount }}
               </n-tag>
             </button>
@@ -701,11 +679,7 @@ onBeforeUnmount(() => {
       <template v-if="activeThread">
         <header class="messages-content__header">
           <n-space align="center" size="small">
-            <n-avatar
-              round
-              size="large"
-              :src="activeThread.avatar || undefined"
-            >
+            <n-avatar round size="large" :src="activeThread.avatar || undefined">
               <template v-if="!activeThread.avatar">
                 {{ computeInitialsFromName(activeThread.participantName || activeThread.participantUsername || 'TR') }}
               </template>
@@ -725,14 +699,11 @@ onBeforeUnmount(() => {
           <n-spin :show="conversationState.loading">
             <div class="messages-conversation" ref="conversationPaneRef">
               <template v-if="conversationState.messages.length">
-                <div
-                  v-for="message in conversationState.messages"
-                  :key="message.id ?? `${message.sentAt}-${message.senderId}`"
-                  :class="[
+                <div v-for="message in conversationState.messages"
+                  :key="message.id ?? `${message.sentAt}-${message.senderId}`" :class="[
                     'messages-conversation__item',
                     { 'messages-conversation__item--own': isOwnMessage(message) },
-                  ]"
-                >
+                  ]">
                   <div class="messages-conversation__bubble">
                     {{ message.content }}
                   </div>
@@ -747,30 +718,15 @@ onBeforeUnmount(() => {
         </section>
 
         <footer class="messages-content__composer">
-          <n-alert
-            v-if="conversationState.error"
-            type="error"
-            closable
-            @close="conversationState.error = ''"
-          >
+          <n-alert v-if="conversationState.error" type="error" closable @close="conversationState.error = ''">
             {{ conversationState.error }}
           </n-alert>
-          <n-input
-            v-model:value="conversationState.input"
-            type="textarea"
-            :autosize="{ minRows: 3, maxRows: 5 }"
-            maxlength="2000"
-            show-count
-            placeholder="Type your message here..."
-            @keyup.enter.prevent="handleComposerEnter"
-          />
+          <n-input v-model:value="conversationState.input" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }"
+            maxlength="2000" show-count placeholder="Type your message here..."
+            @keyup.enter.prevent="handleComposerEnter" />
           <NSpace justify="end">
-            <NButton
-              type="primary"
-              :disabled="!conversationState.input.trim()"
-              :loading="conversationState.sending"
-              @click="sendMessage"
-            >
+            <NButton type="primary" :disabled="!conversationState.input.trim()" :loading="conversationState.sending"
+              @click="sendMessage">
               Send
             </NButton>
           </NSpace>
@@ -999,4 +955,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-

@@ -1,0 +1,48 @@
+{
+  "sections": [
+    {
+      "id": "start",
+      "title": "Start registration",
+      "tips": [
+        "Confirm business ownership or authority before uploading documents.",
+        "Keep your SSM/ROC certificate and tourism license handy before starting the form.",
+        "Save progress frequently; partially completed profiles stay in Draft state."
+      ]
+    },
+    {
+      "id": "media",
+      "title": "Media manager",
+      "tips": [
+        "Upload at least 3 photos per listing: hero shot, activity highlight, and accommodation/meal detail.",
+        "Use landscape orientation, 1920x1080 or higher, JPG/PNG under 4MB.",
+        "Add captions that highlight sustainability efforts (e.g., eco-certifications, community impact)."
+      ]
+    },
+    {
+      "id": "listings",
+      "title": "Listing management",
+      "tips": [
+        "Double-check pricing, inclusions, and seasonal availability before toggling listings to Visible.",
+        "Pending Review indicates admin QA is in progress; you’ll get a notification for any required changes.",
+        "Use the visibility toggle to temporarily hide listings during maintenance without deleting them."
+      ]
+    },
+    {
+      "id": "guidelines",
+      "title": "Operator guidelines",
+      "tips": [
+        "Follow the checklist before submitting updates to reduce back-and-forth with admins.",
+        "Share local community or conservation partnerships inside your listing description to earn the Responsible Travel badge.",
+        "Update contact details quarterly so travelers can always reach you."
+      ]
+    },
+    {
+      "id": "notifications",
+      "title": "Notifications",
+      "tips": [
+        "Review Admin notifications daily for approval results or compliance reminders.",
+        "Acknowledging a notification will mark it as read for all operator teammates."
+      ]
+    }
+  ]
+}

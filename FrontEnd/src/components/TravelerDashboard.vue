@@ -1,5 +1,6 @@
 <script setup>
 import { computed, h, reactive, ref, watch, nextTick, provide } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { NIcon, useMessage } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
@@ -180,7 +181,45 @@ const sidebarOptions = [
   { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
 ]
 
+const route = useRoute()
+const router = useRouter()
+const selectableModules = sidebarOptions.filter((item) => !item.disabled).map((item) => item.key)
 const selectedMenu = ref('dashboard')
+
+const normaliseModuleKey = (value) => {
+  if (Array.isArray(value)) {
+    return typeof value[0] === 'string' ? value[0] : ''
+  }
+  return typeof value === 'string' ? value : ''
+}
+
+watch(
+  () => normaliseModuleKey(route.query.module),
+  (moduleKey) => {
+    if (moduleKey && selectableModules.includes(moduleKey)) {
+      selectedMenu.value = moduleKey
+    } else if (!moduleKey) {
+      selectedMenu.value = 'dashboard'
+    }
+  },
+  { immediate: true },
+)
+
+watch(selectedMenu, (next) => {
+  const desired = next && next !== 'dashboard' ? next : null
+  const current = normaliseModuleKey(route.query.module)
+  if (desired === current) {
+    return
+  }
+
+  const nextQuery = { ...route.query }
+  if (desired) {
+    nextQuery.module = desired
+  } else {
+    delete nextQuery.module
+  }
+  router.replace({ query: nextQuery }).catch(() => {})
+})
 const message = useMessage()
 
 const destinationTabs = computed(() => destinationGroups.value.map((group) => group.label))
