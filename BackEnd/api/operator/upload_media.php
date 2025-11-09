@@ -153,10 +153,13 @@ $insertStmt = $pdo->prepare(
   'INSERT INTO ListingImage (listingID, imageURL, uploadedDate, caption)
    VALUES (:listingId, :imageURL, :uploadedDate, :caption)'
 );
+$currentDateTime = new DateTimeImmutable('now');
+$currentTimestamp = $currentDateTime->format('Y-m-d H:i:s');
+
 $insertStmt->execute([
   ':listingId' => $listingId,
   ':imageURL' => $relativePath,
-  ':uploadedDate' => date('Y-m-d'),
+  ':uploadedDate' => $currentTimestamp,
   ':caption' => $title,
 ]);
 
@@ -173,7 +176,7 @@ $asset = [
   'type' => $mediaType ?: 'Image',
   'status' => 'Published',
   'isPrimary' => $isPrimary,
-  'lastUpdated' => date(DateTimeInterface::ATOM),
+  'lastUpdated' => $currentDateTime->format(DateTimeInterface::ATOM),
   'fileName' => $finalName,
   'mimeType' => $mimeType,
   'fileSize' => $fileSize,

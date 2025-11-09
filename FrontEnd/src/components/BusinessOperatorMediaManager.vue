@@ -170,14 +170,6 @@
               <div class="media-library__section-header">
                 <div class="media-library__section-title">
                   <span class="media-library__section-name">{{ section.listingName }}</span>
-                  <n-tag
-                    v-if="section.listingId != null"
-                    size="tiny"
-                    bordered="false"
-                    type="default"
-                  >
-                    ID: {{ section.listingId }}
-                  </n-tag>
                 </div>
                 <n-tag size="tiny" bordered="false" type="default">
                   {{ section.assets.length }} {{ section.assets.length === 1 ? 'item' : 'items' }}
@@ -214,7 +206,7 @@
                         <span v-else>{{ getAssetDisplayLabel(entry.asset, entry.preview) }}</span>
                       </div>
                       <div
-                        v-if="entry.asset.isPrimary"
+                        v-if="entry.isPrimary"
                         class="media-card__badge"
                       >
                         Primary
@@ -223,9 +215,9 @@
                     <div class="media-card__body">
                       <div class="media-card__header">
                         <div class="media-card__title-block">
-                          <span class="media-card__title">{{ entry.asset.label }}</span>
-                          <span v-if="entry.asset.fileName" class="media-card__file">
-                            {{ entry.asset.fileName }}
+                          <span class="media-card__title">{{ entry.label }}</span>
+                          <span v-if="entry.fileName" class="media-card__file">
+                            {{ entry.fileName }}
                           </span>
                         </div>
                         <span class="media-card__updated" v-if="entry.updatedLabel">
@@ -234,16 +226,16 @@
                       </div>
                       <div class="media-card__meta">
                         <span>{{ getAssetDisplayLabel(entry.asset, entry.preview) }}</span>
-                        <span v-if="entry.asset.mimeType">&bull; {{ entry.asset.mimeType }}</span>
-                        <span v-if="entry.asset.fileSize">&bull; {{ formatBytes(entry.asset.fileSize) }}</span>
+                        <span v-if="entry.mimeType">&bull; {{ entry.mimeType }}</span>
+                        <span v-if="entry.fileSize">&bull; {{ formatBytes(entry.fileSize) }}</span>
                       </div>
                       <div class="media-card__status">
                         <n-tag
                           size="tiny"
-                          :type="resolveStatusTagType(entry.asset.status)"
+                          :type="resolveStatusTagType(entry.status)"
                           bordered="false"
                         >
-                          {{ entry.asset.status || 'Pending' }}
+                          {{ entry.status || 'Pending' }}
                         </n-tag>
                       </div>
                       <div class="media-card__actions">
@@ -715,6 +707,61 @@ const pendingUploadFileInfos = computed(() =>
   }),
 )
 
+const listingStatusMap = computed(() => {
+  const map = new Map()
+  const listingArray = Array.isArray(props.listings) ? props.listings : []
+  listingArray.forEach((listing) => {
+    const id = normalizeListingId(listing?.listingId ?? listing?.id ?? null)
+    if (id != null) {
+      const status =
+        typeof listing?.status === 'string' ? listing.status.trim() : listing?.status ?? ''
+      map.set(id, status)
+    }
+  })
+  return map
+})
+
+const PENDING_LISTING_STATES = new Set([
+  'pending',
+  'pending review',
+  'awaiting review',
+  'submitted',
+  'processing',
+  'draft',
+])
+const APPROVED_LISTING_STATES = new Set([
+  'approved',
+  'active',
+  'published',
+  'visible',
+  'live',
+])
+
+function deriveMediaStatusFromListing(asset) {
+  const listingId = normalizeListingId(asset?.listingId ?? asset?.listingID ?? null)
+  if (listingId != null && listingStatusMap.value.has(listingId)) {
+    const listingStatus = listingStatusMap.value.get(listingId) ?? ''
+    const normalized = String(listingStatus).toLowerCase()
+    if (PENDING_LISTING_STATES.has(normalized)) {
+      return 'Pending'
+    }
+    if (APPROVED_LISTING_STATES.has(normalized)) {
+      return 'Published'
+    }
+  }
+  return asset?.status ?? 'Pending'
+}
+
+const mediaLibraryDisplayEntries = computed(() =>
+  mediaLibrary.value.map((asset) => {
+    const derivedStatus = deriveMediaStatusFromListing(asset)
+    if (derivedStatus && derivedStatus !== asset.status) {
+      return { asset, display: { ...asset, status: derivedStatus } }
+    }
+    return { asset, display: asset }
+  }),
+)
+
 const newMedia = reactive({
   label: '',
   type: null,
@@ -772,7 +819,8 @@ const mediaListingFilterOptions = computed(() => {
     }
   }
 
-  for (const asset of mediaLibrary.value ?? []) {
+  for (const entry of mediaLibraryDisplayEntries.value ?? []) {
+    const asset = entry.display
     if (asset.listingId == null) {
       options.set('__unassigned__', { label: 'Unassigned media', value: '__unassigned__' })
     } else {
@@ -792,37 +840,42 @@ const mediaListingFilterOptions = computed(() => {
 const mediaTypeFilterOptions = computed(() => {
   const base = [{ label: 'All media types', value: 'all' }]
   const uniqueTypes = new Set(
-    mediaLibrary.value.map((asset) => asset.type).filter((value) => value),
+    mediaLibraryDisplayEntries.value
+      .map((entry) => entry.display.type)
+      .filter((value) => value),
   )
   return [...base, ...Array.from(uniqueTypes).map((type) => ({ label: type, value: type }))]
 })
 
 const mediaTableBaseData = computed(() =>
-  (mediaLibrary.value ?? [])
+  (mediaLibraryDisplayEntries.value ?? [])
     .slice()
     .sort((a, b) => {
-      const nameA = (a.listingName || 'Unassigned media').toLowerCase()
-      const nameB = (b.listingName || 'Unassigned media').toLowerCase()
+      const nameA = (a.display.listingName || 'Unassigned media').toLowerCase()
+      const nameB = (b.display.listingName || 'Unassigned media').toLowerCase()
       if (nameA === nameB) {
-        return new Date(b.lastUpdated ?? 0).getTime() - new Date(a.lastUpdated ?? 0).getTime()
+        return (
+          new Date(b.display.lastUpdated ?? 0).getTime() -
+          new Date(a.display.lastUpdated ?? 0).getTime()
+        )
       }
       return nameA.localeCompare(nameB)
     })
-    .map((asset, index) => ({
-      key: asset.id ?? index,
-      listingKey: asset.listingId ?? '__unassigned__',
-      listingName: asset.listingName ?? 'Unassigned media',
-      listingId: asset.listingId ?? null,
-      label: asset.label,
-      type: asset.type,
-      status: asset.status,
-      isPrimary: Boolean(asset.isPrimary),
-      lastUpdated: asset.lastUpdated,
-      fileName: asset.fileName,
-      mimeType: asset.mimeType,
-      fileSize: asset.fileSize,
-      url: asset.url,
-      absoluteUrl: asset.absoluteUrl,
+    .map(({ asset, display }, index) => ({
+      key: display.id ?? index,
+      listingKey: display.listingId ?? '__unassigned__',
+      listingName: display.listingName ?? 'Unassigned media',
+      listingId: display.listingId ?? null,
+      label: display.label,
+      type: display.type,
+      status: display.status,
+      isPrimary: Boolean(display.isPrimary),
+      lastUpdated: display.lastUpdated,
+      fileName: display.fileName,
+      mimeType: display.mimeType,
+      fileSize: display.fileSize,
+      url: display.url,
+      absoluteUrl: display.absoluteUrl,
       asset,
     })),
 )
@@ -906,8 +959,14 @@ const mediaLibrarySections = computed(() => {
     }
     groups.get(key).assets.push({
       asset: row.asset,
+      label: row.label,
+      fileName: row.fileName,
+      mimeType: row.mimeType,
+      fileSize: row.fileSize,
+      status: row.status,
+      isPrimary: row.isPrimary,
       preview: getAssetPreview(row.asset),
-      updatedLabel: formatUpdatedDate(row.asset.lastUpdated),
+      updatedLabel: formatUpdatedDate(row.lastUpdated),
     })
   }
 

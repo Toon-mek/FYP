@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, reactive, watch } from 'vue'
+import { computed, inject, reactive, ref, watch } from 'vue'
 import {
   NAlert,
   NButton,
@@ -18,6 +18,7 @@ import {
   notificationFeedSymbol,
   useNotificationFeed,
 } from '../composables/useNotificationFeed.js'
+import SimplePagination from './shared/SimplePagination.vue'
 
 const LIST_LIMIT = 25
 
@@ -81,6 +82,21 @@ const preview = reactive({
 
 const hasNotifications = computed(() => notifications.value.length > 0)
 const hasUnread = computed(() => notifications.value.some((item) => item.isRead === false))
+const pageSize = 10
+const currentPage = ref(1)
+const paginatedNotifications = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return notifications.value.slice(start, start + pageSize)
+})
+watch(
+  () => notifications.value.length,
+  () => {
+    const maxPage = Math.max(1, Math.ceil((notifications.value.length || 1) / pageSize))
+    if (currentPage.value > maxPage) {
+      currentPage.value = maxPage
+    }
+  },
+)
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -193,7 +209,7 @@ watch(
 
       <n-list v-else bordered :show-divider="false">
         <n-list-item
-          v-for="item in notifications"
+          v-for="item in paginatedNotifications"
           :key="item.id"
           class="notification-item-wrapper"
         >
@@ -232,17 +248,25 @@ watch(
     </template>
 
     <template #footer>
-      <n-space justify="space-between" align="center" style="width: 100%;">
+      <n-space justify="space-between" align="center" style="width: 100%; flex-wrap: wrap; gap: 8px;">
         <n-text depth="3">{{ description }}</n-text>
-        <n-button
-          size="small"
-          tertiary
-          type="primary"
-          :disabled="!hasUnread"
-          @click="handleMarkRead(notifications.filter((item) => item.isRead === false).map((item) => item.id))"
-        >
-          Mark all as read
-        </n-button>
+        <n-space align="center" wrap>
+          <SimplePagination
+            v-if="hasNotifications"
+            v-model:page="currentPage"
+            :item-count="notifications.length"
+            :page-size="pageSize"
+          />
+          <n-button
+            size="small"
+            tertiary
+            type="primary"
+            :disabled="!hasUnread"
+            @click="handleMarkRead(notifications.filter((item) => item.isRead === false).map((item) => item.id))"
+          >
+            Mark all as read
+          </n-button>
+        </n-space>
       </n-space>
     </template>
   </n-card>

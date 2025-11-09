@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, reactive, ref, watch } from 'vue'
+import { computed, h, reactive, ref, watch, nextTick } from 'vue'
 import {
   NAlert,
   NButton,
@@ -13,9 +13,11 @@ import {
   NSelect,
   NSpace,
   NTag,
+  NSwitch,
   NText,
 } from 'naive-ui'
 import { useMessage } from 'naive-ui'
+import SimplePagination from './shared/SimplePagination.vue'
 
 const props = defineProps({
   apiBase: {
@@ -35,6 +37,19 @@ const props = defineProps({
 const emit = defineEmits(['update:listings', 'operator-updated'])
 
 const listingItems = ref([])
+const pageSize = 5
+const currentPage = ref(1)
+const paginatedListings = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return listingItems.value.slice(start, start + pageSize)
+})
+watch(
+  () => listingItems.value.length,
+  () => {
+    const maxPage = Math.max(1, Math.ceil(listingItems.value.length / pageSize))
+    if (currentPage.value > maxPage) currentPage.value = maxPage
+  },
+)
 
 watch(
   () => props.listings,
@@ -91,6 +106,10 @@ const listingMetaStyle = {
   color: 'rgba(0, 0, 0, 0.6)',
 }
 
+function formatVisibilityLabel(visibility) {
+  return visibility === 'Visible' ? 'Visible' : 'Hidden'
+}
+
 function emitListingsUpdate(list) {
   emit('update:listings', list.map((item) => ({ ...item })))
 }
@@ -128,6 +147,11 @@ function normalizeListingItem(raw) {
     phone: raw.contact?.phone ?? raw.phone ?? '',
     email: raw.contact?.email ?? raw.email ?? '',
   }
+  const sourceLastUpdated =
+    raw.lastUpdated && !Number.isNaN(new Date(raw.lastUpdated).getTime())
+      ? raw.lastUpdated
+      : null
+  const lastUpdated = sourceLastUpdated ?? new Date().toISOString()
 
   return {
     ...raw,
@@ -139,11 +163,9 @@ function normalizeListingItem(raw) {
     address: raw.address ?? raw.location ?? '',
     highlight: raw.highlight ?? raw.description ?? '',
     contact,
+    lastUpdated,
+    lastUpdatedDisplay: raw.lastUpdatedDisplay ?? new Date(lastUpdated).toLocaleString(),
   }
-}
-
-function formatVisibilityLabel(visibility) {
-  return visibility === 'Visible' ? 'Visible' : 'Hidden'
 }
 
 const listingColumns = computed(() => [
@@ -182,20 +204,19 @@ const listingColumns = computed(() => [
     key: 'visibility',
     render(row) {
       const isVisible = row.visibility === 'Visible'
-      const type = isVisible ? 'success' : 'error'
       return h(
-        NTag,
-        { type, bordered: false },
-        { default: () => formatVisibilityLabel(row.visibility) },
+        NSwitch,
+        {
+          size: 'small',
+          value: isVisible,
+          round: true,
+          onUpdateValue: (checked) => toggleVisibility(row, checked ? 'Visible' : 'Hidden'),
+        },
+        {
+          checked: () => 'Visible',
+          unchecked: () => 'Hidden',
+        },
       )
-    },
-  },
-  {
-    title: 'Last updated',
-    key: 'lastUpdated',
-    render(row) {
-      const date = new Date(row.lastUpdated)
-      return date.toLocaleString()
     },
   },
   {
@@ -215,15 +236,6 @@ const listingColumns = computed(() => [
                 onClick: () => openEdit(row),
               },
               { default: () => 'Edit' },
-            ),
-            h(
-              NButton,
-              {
-                text: true,
-                size: 'small',
-                onClick: () => toggleVisibility(row),
-              },
-              { default: () => (row.visibility === 'Visible' ? 'Hide' : 'Unhide') },
             ),
             h(
               NButton,
@@ -352,7 +364,7 @@ async function saveListingEdits() {
   }
 }
 
-async function toggleVisibility(listing) {
+async function toggleVisibility(listing, targetVisibility = null) {
   if (!props.operatorId) {
     listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
     message.error(listingActionError.value)
@@ -369,7 +381,38 @@ async function toggleVisibility(listing) {
   listingActionError.value = ''
   autoSaveMessage.value = ''
 
-  const nextVisibility = listing.visibility === 'Visible' ? 'Hidden' : 'Visible'
+  const previousVisibility = listing.visibility
+  const nextVisibility =
+    targetVisibility && (targetVisibility === 'Visible' || targetVisibility === 'Hidden')
+      ? targetVisibility
+      : previousVisibility === 'Visible'
+        ? 'Hidden'
+        : 'Visible'
+
+  const nowIso = new Date().toISOString()
+  const displayTimestamp = new Date(nowIso).toLocaleString()
+  listing.visibility = nextVisibility
+  listing.lastUpdated = nowIso
+  listing.lastUpdatedDisplay = displayTimestamp
+
+  const listingIndex = listingItems.value.findIndex(
+    (item) => extractListingId(item) === listingIdNumeric,
+  )
+  const currentListing = listingIndex !== -1 ? listingItems.value[listingIndex] : listing
+  const previousSnapshot = { ...currentListing }
+
+  if (listingIndex !== -1) {
+    const updatedListing = {
+      ...currentListing,
+      visibility: nextVisibility,
+      lastUpdated: nowIso,
+      lastUpdatedDisplay: displayTimestamp,
+    }
+    listingItems.value.splice(listingIndex, 1, updatedListing)
+  }
+
+  await nextTick()
+  emitListingsUpdate(listingItems.value)
 
   try {
     const response = await fetch(`${props.apiBase}/operator/listings.php`, {
@@ -387,8 +430,11 @@ async function toggleVisibility(listing) {
       throw new Error(result?.error || `Failed to update visibility (HTTP ${response.status})`)
     }
 
+    const normalizedListing = normalizeListingItem(result.listing)
+    normalizedListing.lastUpdated = nowIso
+    normalizedListing.lastUpdatedDisplay = displayTimestamp
     listingItems.value = listingItems.value.map((item) =>
-      extractListingId(item) === result.listing.listingId ? normalizeListingItem(result.listing) : item,
+      extractListingId(item) === normalizedListing.listingId ? normalizedListing : item,
     )
     emitListingsUpdate(listingItems.value)
     if (result.operator) {
@@ -397,10 +443,13 @@ async function toggleVisibility(listing) {
     autoSaveMessage.value =
       result.message ??
       (nextVisibility === 'Visible'
-        ? `${result.listing.name} is now visible to travelers.`
-        : `${result.listing.name} has been hidden from travelers.`)
+        ? `${result.listing?.name ?? listing.name} is now visible to travelers.`
+        : `${result.listing?.name ?? listing.name} has been hidden from travelers.`)
     message.success(autoSaveMessage.value)
   } catch (error) {
+    listing.visibility = previousVisibility
+    listing.lastUpdated = previousSnapshot.lastUpdated ?? listing.lastUpdated
+    listing.lastUpdatedDisplay = previousSnapshot.lastUpdatedDisplay ?? listing.lastUpdatedDisplay
     listingActionError.value =
       error instanceof Error ? error.message : 'Unable to toggle listing visibility.'
     message.error(listingActionError.value)
@@ -478,28 +527,60 @@ async function deleteListing(listing) {
       >
         {{ listingActionError }}
       </n-alert>
-      <n-alert v-if="autoSaveMessage" type="success" show-icon style="margin-top: 16px;">
-        {{ autoSaveMessage }}
-      </n-alert>
 
       <template v-if="listingItems.length">
-        <n-data-table :columns="listingColumns" :data="listingItems" :single-line="false" style="margin-top: 16px;" />
-      </template>
+        <n-data-table :columns="listingColumns" :data="paginatedListings" :single-line="false" style="margin-top: 16px;" />
+        <n-space justify="end" style="margin-top: 12px;">
+          <SimplePagination
+            v-model:page="currentPage"
+            :page-size="pageSize"
+            :item-count="listingItems.length"
+          />
+        </n-space>
+     </template>
       <n-empty v-else description="No listings yet. Submit a business profile to get started." style="margin-top: 16px;" />
     </n-card>
   </n-space>
 
-  <n-modal v-model:show="previewModalVisible" preset="card" :title="previewListing?.name || 'Preview listing'">
+  <n-modal
+    v-model:show="previewModalVisible"
+    preset="card"
+    :title="previewListing?.name || 'Preview listing'"
+    :style="{ maxWidth: '520px', width: '100%' }"
+  >
     <n-space vertical size="small" v-if="previewListing">
-      <n-text depth="3">Category: {{ previewListing.category }}</n-text>
-      <n-text depth="3">
-        Status: {{ previewListing.status }} - Visibility: {{ formatVisibilityLabel(previewListing.visibility) }}
-      </n-text>
-      <n-text depth="3">Address: {{ previewListing.address }}</n-text>
-      <n-text depth="3">Contact: {{ previewListing.contact?.phone }} - {{ previewListing.contact?.email }}</n-text>
-      <n-text depth="3">Highlights: {{ previewListing.highlight }}</n-text>
-      <n-text depth="3">Review notes: {{ previewListing.reviewNotes }}</n-text>
-      <n-text depth="3">Last updated: {{ new Date(previewListing.lastUpdated).toLocaleString() }}</n-text>
+      <div class="preview-row">
+        <span class="preview-label">Category</span>
+        <span>{{ previewListing.category }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Status</span>
+        <span>{{ previewListing.status }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Address</span>
+        <span>{{ previewListing.address }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Contact</span>
+        <span>{{ previewListing.contact?.phone }} · {{ previewListing.contact?.email }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Highlights</span>
+        <span>{{ previewListing.highlight }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Review notes</span>
+        <span>{{ previewListing.reviewNotes }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Visibility</span>
+        <span>{{ formatVisibilityLabel(previewListing.visibility) }}</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Last updated</span>
+        <span>{{ new Date(previewListing.lastUpdated).toLocaleString() }}</span>
+      </div>
     </n-space>
     <template #footer>
       <n-space justify="end">
@@ -508,17 +589,22 @@ async function deleteListing(listing) {
     </template>
   </n-modal>
 
-  <n-modal v-model:show="editModalVisible" preset="card" title="Edit listing">
+  <n-modal
+    v-model:show="editModalVisible"
+    preset="card"
+    title="Edit listing"
+    :style="{ maxWidth: '480px', width: '100%' }"
+  >
     <n-space vertical size="large">
       <n-form label-placement="top" label-width="auto">
         <n-form-item label="Listing name" :feedback="editErrors.name" :validation-status="editErrors.name ? 'error' : undefined">
           <n-input v-model:value="editForm.name" />
         </n-form-item>
-        <n-form-item label="Email" :feedback="editErrors.email" :validation-status="editErrors.email ? 'error' : undefined">
-          <n-input v-model:value="editForm.email" />
+        <n-form-item label="Email">
+          <n-input v-model:value="editForm.email" readonly disabled />
         </n-form-item>
-        <n-form-item label="Phone" :feedback="editErrors.phone" :validation-status="editErrors.phone ? 'error' : undefined">
-          <n-input v-model:value="editForm.phone" />
+        <n-form-item label="Phone">
+          <n-input v-model:value="editForm.phone" readonly disabled />
         </n-form-item>
         <n-form-item label="Address" :feedback="editErrors.address" :validation-status="editErrors.address ? 'error' : undefined">
           <n-input v-model:value="editForm.address" />
@@ -527,10 +613,7 @@ async function deleteListing(listing) {
           <n-input v-model:value="editForm.highlight" type="textarea" :rows="3" />
         </n-form-item>
         <n-form-item label="Status">
-          <n-select v-model:value="editForm.status" :options="statusOptions" />
-        </n-form-item>
-        <n-form-item label="Visibility">
-          <n-select v-model:value="editForm.visibility" :options="visibilityOptions" />
+          <n-input v-model:value="editForm.status" readonly disabled />
         </n-form-item>
       </n-form>
       <n-space justify="end">
@@ -544,4 +627,20 @@ async function deleteListing(listing) {
 </template>
 
 <style scoped>
+.preview-row {
+  display: flex;
+  gap: 12px;
+  font-size: 0.95rem;
+  color: #475467;
+}
+
+.preview-label {
+  min-width: 110px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.preview-row span:last-child {
+  flex: 1;
+}
 </style>

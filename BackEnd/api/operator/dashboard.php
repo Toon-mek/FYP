@@ -31,6 +31,23 @@ try {
   exit;
 }
 
+function resolveAppTimezone(): DateTimeZone
+{
+  static $timezone = null;
+  if ($timezone instanceof DateTimeZone) {
+    return $timezone;
+  }
+
+  $name = $_ENV['APP_TIMEZONE'] ?? getenv('APP_TIMEZONE') ?? 'Asia/Kuala_Lumpur';
+  try {
+    $timezone = new DateTimeZone($name);
+  } catch (Throwable) {
+    $timezone = new DateTimeZone('UTC');
+  }
+
+  return $timezone;
+}
+
 function formatDateTime(?string $value): ?string
 {
   if ($value === null || $value === '') {
@@ -38,8 +55,9 @@ function formatDateTime(?string $value): ?string
   }
 
   try {
-    $dt = new DateTimeImmutable($value);
-    return $dt->format(DateTimeInterface::ATOM);
+    $appTimezone = resolveAppTimezone();
+    $dt = new DateTimeImmutable($value, $appTimezone);
+    return $dt->setTimezone($appTimezone)->format(DateTimeInterface::ATOM);
   } catch (Throwable) {
     return null;
   }
@@ -147,6 +165,47 @@ function buildAssetUrl(string $relativePath): string
   }
 
   return $fullPath;
+}
+
+function resolveAssetFilesystemPath(?string $relativePath): ?string
+{
+  if ($relativePath === null || $relativePath === '') {
+    return null;
+  }
+
+  $rootDir = realpath(__DIR__ . '/../../public_assets');
+  if ($rootDir === false) {
+    return null;
+  }
+
+  $normalised = trim(str_replace('\\', '/', $relativePath), '/');
+  if ($normalised === '') {
+    return null;
+  }
+
+  $fullPath = $rootDir . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalised);
+  return is_file($fullPath) ? $fullPath : null;
+}
+
+function deriveMediaTimestamp(?string $dbValue, ?string $relativePath): ?string
+{
+  $hasTimeComponent = is_string($dbValue) && preg_match('/\d{2}:\d{2}:\d{2}/', $dbValue);
+  if ($hasTimeComponent) {
+    return formatDateTime($dbValue);
+  }
+
+  $formatted = formatDateTime($dbValue);
+  $absolutePath = resolveAssetFilesystemPath($relativePath);
+
+  if ($absolutePath) {
+    $mtime = @filemtime($absolutePath);
+    if ($mtime !== false) {
+      $timezone = resolveAppTimezone();
+      return (new DateTimeImmutable('@' . $mtime))->setTimezone($timezone)->format(DateTimeInterface::ATOM);
+    }
+  }
+
+  return $formatted;
 }
 
 function ensureVisibilityStateColumn(PDO $pdo): void
@@ -317,7 +376,7 @@ foreach ($mediaRows as $row) {
     'type' => 'Image',
     'status' => 'Published',
     'isPrimary' => $isPrimary,
-    'lastUpdated' => formatDateTime($row['uploadedDate']),
+    'lastUpdated' => deriveMediaTimestamp($row['uploadedDate'], $row['imageURL']),
     'fileName' => $fileName,
     'mimeType' => inferMimeType($fileName),
     'fileSize' => null,

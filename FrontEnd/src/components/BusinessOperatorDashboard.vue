@@ -75,6 +75,41 @@ const lastLoadedOperatorId = ref(null)
 const listings = ref([])
 const mediaLibrary = ref([])
 
+function normaliseOperatorId(value) {
+  if (value == null) {
+    return null
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 0 ? value : null
+  }
+  const asString = String(value).trim()
+  if (asString === "") {
+    return null
+  }
+  const numeric = Number(asString)
+  if (!Number.isNaN(numeric) && numeric > 0) {
+    return numeric
+  }
+  const match = asString.match(/(\d+)/)
+  if (match && match[1]) {
+    const parsed = Number(match[1])
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
+}
+
+const routedOperatorId = computed(() =>
+  normaliseOperatorId(route.query.operatorId ?? route.params?.operatorId ?? null),
+)
+
+const resolvedOperatorId = computed(() => {
+  const propId = normaliseOperatorId(props.operator?.id ?? props.operator?.operatorId ?? null)
+  if (propId) {
+    return propId
+  }
+  return routedOperatorId.value ?? null
+})
+
 watch(
   () => props.listings,
   (value) => {
@@ -98,10 +133,12 @@ watch(
 )
 
 watch(
-  () => props.operator?.id,
+  resolvedOperatorId,
   (operatorId) => {
     if (!operatorId) {
       remoteOperator.value = null
+      listings.value = []
+      mediaLibrary.value = []
       lastLoadedOperatorId.value = null
       return
     }
@@ -141,7 +178,10 @@ const operator = computed(() => {
 })
 
 const currentOperatorId = computed(
-  () => operator.value?.id ?? props.operator?.id ?? remoteOperator.value?.id ?? null,
+  () =>
+    normaliseOperatorId(
+      resolvedOperatorId.value ?? operator.value?.id ?? remoteOperator.value?.id ?? null,
+    ),
 )
 
 const operatorNotificationFeed = useNotificationFeed({
@@ -772,7 +812,7 @@ function cryptoRandomId() {
                     <n-text depth="3">
                       Publish authentic experiences, connect Agoda hotel data, and keep community-led offerings updated without technical hurdles.
                     </n-text>
-                    <n-space>
+                    <n-space justify="center">
                       <n-button type="primary" round @click="goToSection('upload-info')">
                         Start registration flow
                       </n-button>
