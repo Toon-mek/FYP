@@ -19,7 +19,6 @@ import {
   NListItem,
   NMenu,
   NModal,
-  NNumberAnimation,
   NSpace,
   NSwitch,
   NTag,
@@ -98,16 +97,46 @@ function normaliseOperatorId(value) {
   return null
 }
 
+function deriveOperatorIdFromSource(source) {
+  if (!source || typeof source !== "object") {
+    return null
+  }
+  const keyCandidates = [
+    "id",
+    "operatorId",
+    "operatorID",
+    "operator_id",
+    "accountId",
+    "accountID",
+    "account_id",
+    "userId",
+    "userID",
+  ]
+  for (const key of keyCandidates) {
+    if (key in source && source[key] != null) {
+      const derived = normaliseOperatorId(source[key])
+      if (derived) {
+        return derived
+      }
+    }
+  }
+  return null
+}
+
 const routedOperatorId = computed(() =>
   normaliseOperatorId(route.query.operatorId ?? route.params?.operatorId ?? null),
 )
 
 const resolvedOperatorId = computed(() => {
-  const propId = normaliseOperatorId(props.operator?.id ?? props.operator?.operatorId ?? null)
+  const routedId = routedOperatorId.value
+  if (routedId) {
+    return routedId
+  }
+  const propId = deriveOperatorIdFromSource(props.operator)
   if (propId) {
     return propId
   }
-  return routedOperatorId.value ?? null
+  return null
 })
 
 watch(
@@ -132,22 +161,6 @@ watch(
   { deep: true, immediate: true },
 )
 
-watch(
-  resolvedOperatorId,
-  (operatorId) => {
-    if (!operatorId) {
-      remoteOperator.value = null
-      listings.value = []
-      mediaLibrary.value = []
-      lastLoadedOperatorId.value = null
-      return
-    }
-    if (operatorId !== lastLoadedOperatorId.value) {
-      loadOperatorDashboard(operatorId)
-    }
-  },
-  { immediate: true },
-)
 
 const operator = computed(() => {
   const incoming = {
@@ -167,9 +180,13 @@ const operator = computed(() => {
   const { relative: derivedAvatarPath, url: derivedAvatarUrl } = deriveAvatarInfo(incoming)
   const avatarUrl = derivedAvatarUrl || incoming.avatarUrl || ""
   const avatarPath = derivedAvatarPath || incoming.avatarPath || ""
+  const derivedId = deriveOperatorIdFromSource(incoming) ?? resolvedOperatorId.value ?? null
 
   return {
     ...incoming,
+    id: derivedId ?? incoming.id ?? null,
+    operatorId: incoming.operatorId ?? derivedId ?? incoming.operatorID ?? null,
+    operatorID: incoming.operatorID ?? derivedId ?? incoming.operatorId ?? null,
     displayName,
     initials,
     avatarUrl,
@@ -180,8 +197,29 @@ const operator = computed(() => {
 const currentOperatorId = computed(
   () =>
     normaliseOperatorId(
-      resolvedOperatorId.value ?? operator.value?.id ?? remoteOperator.value?.id ?? null,
+      resolvedOperatorId.value ??
+        deriveOperatorIdFromSource(operator.value) ??
+        deriveOperatorIdFromSource(remoteOperator.value) ??
+        null,
     ),
+)
+
+watch(
+  currentOperatorId,
+  (operatorId) => {
+    const normalizedId = normaliseOperatorId(operatorId)
+    if (!normalizedId) {
+      remoteOperator.value = null
+      listings.value = []
+      mediaLibrary.value = []
+      lastLoadedOperatorId.value = null
+      return
+    }
+    if (normalizedId !== lastLoadedOperatorId.value) {
+      loadOperatorDashboard(normalizedId)
+    }
+  },
+  { immediate: true },
 )
 
 const operatorNotificationFeed = useNotificationFeed({
@@ -330,12 +368,24 @@ const listingMetrics = computed(() => {
     hidden: 0,
   }
 
+  const pendingStatuses = ["pending review", "pending", "under review"]
+  const hiddenStatuses = ["hidden", "inactive", "suspended", "draft"]
+  const activeStatuses = ["active", "approved", "published"]
+
   listings.value.forEach((listing) => {
-    if (listing.status === "Pending Review") {
+    const status = typeof listing.status === "string" ? listing.status.toLowerCase() : ""
+    const visibility = typeof listing.visibility === "string" ? listing.visibility.toLowerCase() : ""
+
+    if (pendingStatuses.includes(status)) {
       metrics.pending += 1
-    } else if (listing.status === "Hidden") {
+    }
+
+    if (visibility === "hidden" || hiddenStatuses.includes(status)) {
       metrics.hidden += 1
-    } else {
+      return
+    }
+
+    if (visibility === "visible" || activeStatuses.includes(status)) {
       metrics.active += 1
     }
   })
@@ -537,14 +587,24 @@ onBeforeUnmount(() => {
 })
 
 async function loadOperatorDashboard(operatorId) {
-  if (!operatorId || isDashboardLoading.value) return
+  const targetId = normaliseOperatorId(operatorId)
+  if (!targetId) {
+    remoteOperator.value = null
+    listings.value = []
+    mediaLibrary.value = []
+    lastLoadedOperatorId.value = null
+    return
+  }
+  if (isDashboardLoading.value && targetId === lastLoadedOperatorId.value) {
+    return
+  }
 
   isDashboardLoading.value = true
   dashboardError.value = null
 
   try {
     const response = await fetch(
-      `${API_BASE}/operator/dashboard.php?operatorId=${encodeURIComponent(operatorId)}`,
+      `${API_BASE}/operator/dashboard.php?operatorId=${encodeURIComponent(targetId)}`,
     )
 
     const payload = await response.json().catch(() => null)
@@ -565,7 +625,7 @@ async function loadOperatorDashboard(operatorId) {
       remoteOperator.value = { ...(remoteOperator.value ?? {}), ...payload.operator }
     }
 
-    lastLoadedOperatorId.value = operatorId
+    lastLoadedOperatorId.value = targetId
   } catch (error) {
     dashboardError.value =
       error instanceof Error ? error.message : "Unable to load operator dashboard."
@@ -834,9 +894,7 @@ function cryptoRandomId() {
                           <n-text depth="3" style="color: rgba(255, 255, 255, 0.85);">
                             {{ card.label }}
                           </n-text>
-                          <div class="summary-card__value">
-                            <n-number-animation :from="0" :to="card.value" :duration="1200" show-separator />
-                          </div>
+                          <div class="summary-card__value">{{ card.value }}</div>
                         </n-space>
                       </n-card>
                     </n-grid-item>
