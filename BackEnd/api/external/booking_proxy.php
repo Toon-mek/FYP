@@ -1,32 +1,28 @@
 <?php
 declare(strict_types=1);
 
+const BOOKING_RAPIDAPI_KEY = 'a8637705ffmsh6761cfe0a11fc19p180c50jsn2402161ed017';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
-const RAPIDAPI_BOOKING_FALLBACK_KEY = '';
-
 function resolveRapidApiKey(): string
 {
-    $sources = [
-        $_ENV['RAPIDAPI_BOOKING_KEY'] ?? null,
-        $_ENV['BOOKING_RAPIDAPI_KEY'] ?? null,
-        getenv('RAPIDAPI_BOOKING_KEY') ?: null,
+    $fallbacks = [
+        BOOKING_RAPIDAPI_KEY,
         getenv('BOOKING_RAPIDAPI_KEY') ?: null,
-        $_SERVER['RAPIDAPI_BOOKING_KEY'] ?? null,
-        $_SERVER['BOOKING_RAPIDAPI_KEY'] ?? null,
-        RAPIDAPI_BOOKING_FALLBACK_KEY,
+        getenv('RAPIDAPI_BOOKING_KEY') ?: null,
+        getenv('BOOKING_COM_RAPID_KEY') ?: null,
+        $_ENV['BOOKING_COM_RAPID_KEY'] ?? null,
+        $_ENV['BOOKING_RAPIDAPI_KEY'] ?? null,
+        $_ENV['RAPIDAPI_BOOKING_KEY'] ?? null,
     ];
 
-    foreach ($sources as $value) {
-        if (!is_string($value)) {
-            continue;
-        }
-        $trimmed = trim($value);
-        if ($trimmed !== '') {
-            return $trimmed;
+    foreach ($fallbacks as $value) {
+        if (is_string($value) && trim($value) !== '') {
+            return trim($value);
         }
     }
 

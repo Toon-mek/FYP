@@ -7,6 +7,8 @@ import TravelerSocialFeed from './TravelerSocialFeed.vue'
 import TravelerSavedPosts from './TravelerSavedPosts.vue'
 import TravelerMessages from './TravelerMessages.vue'
 import NotificationCenter from './NotificationCenter.vue'
+import TripPlannerModule from './TripPlannerModule.vue'
+import TravelerSavedPlaces from './TravelerSavedPlaces.vue'
 import { notificationFeedSymbol, useNotificationFeed } from '../composables/useNotificationFeed.js'
 import { extractProfileImage } from '../utils/profileImage.js'
 
@@ -175,8 +177,8 @@ const sidebarOptions = [
   { key: 'saved-posts', label: 'Saved posts', icon: renderIcon('ri-bookmark-line') },
   { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
-  { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
-  { key: 'saved', label: 'Saved places', disabled: true, icon: renderIcon('ri-heart-3-line') },
+  { key: 'trips', label: 'Trip planner', icon: renderIcon('ri-calendar-event-line') },
+  { key: 'saved', label: 'Saved places', icon: renderIcon('ri-heart-3-line') },
   { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
 ]
 
@@ -222,6 +224,10 @@ const activeDestinations = computed(() => {
 
 function handleMenuSelect(val) {
   selectedMenu.value = val
+}
+
+function openTripPlanner() {
+  selectedMenu.value = 'trips'
 }
 
 function handleCommunityContact(post) {
@@ -703,7 +709,7 @@ const collapsedMenuContainerStyle = computed(() => ({
                 </n-icon>
               </template>
             </n-input>
-            <n-button type="primary" round>
+            <n-button type="primary" round @click="openTripPlanner">
               Start new plan
             </n-button>
           </n-space>
@@ -738,6 +744,15 @@ const collapsedMenuContainerStyle = computed(() => ({
             title="Traveler notifications"
             description="Admins and operators share updates with you here."
           />
+        </div>
+        <div v-else-if="selectedMenu === 'trips'" class="trip-planner-panel">
+          <TripPlannerModule
+            :traveler-id="currentTravelerId"
+            :traveler-name="traveler.displayName"
+          />
+        </div>
+        <div v-else-if="selectedMenu === 'saved'" class="saved-places-panel">
+          <TravelerSavedPlaces :traveler-id="currentTravelerId" />
         </div>
         <div v-else class="dashboard-main">
           <n-space vertical size="large">
@@ -1125,6 +1140,15 @@ const collapsedMenuContainerStyle = computed(() => ({
 .community-panel {
   width: 100%;
   max-width: none;
+}
+
+.trip-planner-panel {
+  width: 100%;
+}
+
+.saved-places-panel {
+  width: 100%;
+  margin: 0;
 }
 
 .messages-panel {

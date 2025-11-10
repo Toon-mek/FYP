@@ -614,7 +614,8 @@ function handleLoginSuccess(payload) {
 
 <template>
   <n-notification-provider>
-    <n-message-provider>
+    <n-dialog-provider>
+      <n-message-provider>
       <div class="page" :class="`page--${currentView}`">
       <SiteHeader
         :nav-links="navLinks"
@@ -657,7 +658,8 @@ function handleLoginSuccess(payload) {
         :copyright-text="footerCopy"
       />
       </div>
-    </n-message-provider>
+      </n-message-provider>
+    </n-dialog-provider>
   </n-notification-provider>
 </template>
 

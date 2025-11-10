@@ -1,9 +1,14 @@
 # Node / frontend artifacts
 FrontEnd/node_modules/
 FrontEnd/dist/
+FrontEnd/prototypes/ai-react-client/node_modules/
+FrontEnd/prototypes/ai-react-client/build/
+BackEnd/services/ai-trip-api/node_modules/
 
 # Backend served Vite bundle
 BackEnd/public_assets/assets/
 
 # Misc
 .env
+BackEnd/services/ai-trip-api/.env
+FrontEnd/prototypes/ai-react-client/.env
