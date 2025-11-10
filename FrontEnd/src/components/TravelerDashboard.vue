@@ -619,43 +619,6 @@ function computeInitialsFromName(label) {
   return initials ? initials.toUpperCase() : 'TR'
 }
 
-async function safeJson(response) {
-  try {
-    return await response.json()
-  } catch (error) {
-    return null
-  }
-}
-
-const heroStats = computed(() => [
-  {
-    key: 'carbon',
-    label: 'Carbon saved',
-    value: metrics.value.carbonSaved,
-    suffix: ' tCOÃ¢â€šâ€še',
-    icon: 'ri-planet-line',
-  },
-  {
-    key: 'pledges',
-    label: 'Community pledges',
-    value: metrics.value.pledges,
-    icon: 'ri-hand-heart-line',
-  },
-  {
-    key: 'guides',
-    label: 'Shared guides',
-    value: metrics.value.sharedGuides,
-    icon: 'ri-map-pin-user-line',
-  },
-  {
-    key: 'impactScore',
-    label: 'Impact score',
-    value: metrics.value.impactScore,
-    suffix: '/100',
-    icon: 'ri-star-sparkle-line',
-  },
-])
-
 const hasTrips = computed(() => upcomingTrips.value.length > 0)
 
 const sidebarCollapsed = ref(false)
@@ -779,19 +742,6 @@ const collapsedMenuContainerStyle = computed(() => ({
                       </n-button>
                     </n-space>
                   </n-space>
-                </n-grid-item>
-                <n-grid-item>
-                  <n-grid cols="2" :x-gap="16" :y-gap="16">
-                    <n-grid-item v-for="stat in heroStats" :key="stat.key">
-                      <n-statistic :label="stat.label" :value="stat.value" :suffix="stat.suffix">
-                        <template #prefix>
-                          <n-icon size="20">
-                            <i :class="stat.icon" />
-                          </n-icon>
-                        </template>
-                      </n-statistic>
-                    </n-grid-item>
-                  </n-grid>
                 </n-grid-item>
               </n-grid>
             </n-card>
