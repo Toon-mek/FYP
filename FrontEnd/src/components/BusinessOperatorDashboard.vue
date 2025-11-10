@@ -31,6 +31,7 @@ import BusinessOperatorUploadInfo from "./BusinessOperatorUploadInfo.vue"
 import SimplePagination from "./shared/SimplePagination.vue"
 import { extractProfileImage } from "../utils/profileImage.js"
 import NotificationCenter from "./NotificationCenter.vue"
+import OperatorMessages from "./OperatorMessages.vue"
 import { notificationFeedSymbol, useNotificationFeed } from "../composables/useNotificationFeed.js"
 
 const props = defineProps({
@@ -279,6 +280,7 @@ const sidebarOptions = computed(() => [
   { key: "upload-info", label: "Upload business info", icon: renderIcon("ri-file-add-line") },
   { key: "media-manager", label: "Upload photos / media", icon: renderIcon("ri-image-add-line") },
   { key: "manage-listings", label: "Manage listings", icon: renderIcon("ri-list-settings-line") },
+  { key: "messages", label: "Messages", icon: renderIcon("ri-chat-3-line") },
   { key: "notifications", label: "Notifications", icon: renderIcon("ri-notification-3-line") },
   { key: "guidelines", label: "Operator guidelines", icon: renderIcon("ri-graduation-cap-line") },
 ])
@@ -1344,6 +1346,10 @@ function cryptoRandomId() {
           @listing-touched="handleListingTouched"
         />
 
+        <div v-else-if="activeSection === 'messages'" class="messages-panel">
+          <OperatorMessages :current-user="operator" />
+        </div>
+
         <NotificationCenter
           v-else-if="activeSection === 'notifications'"
           recipient-type="Operator"
@@ -1565,5 +1571,11 @@ function cryptoRandomId() {
 .fade-in-scale-leave-to {
   opacity: 0;
   transform: translateY(4px) scale(0.98);
+}
+
+.messages-panel {
+  width: 100%;
+  max-width: none;
+  padding-bottom: 24px;
 }
 </style>

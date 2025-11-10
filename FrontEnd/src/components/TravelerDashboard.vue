@@ -187,6 +187,7 @@ const route = useRoute()
 const router = useRouter()
 const selectableModules = sidebarOptions.filter((item) => !item.disabled).map((item) => item.key)
 const selectedMenu = ref('dashboard')
+const marketplaceRef = ref(null)
 
 const normaliseModuleKey = (value) => {
   if (Array.isArray(value)) {
@@ -222,6 +223,28 @@ watch(selectedMenu, (next) => {
   }
   router.replace({ query: nextQuery }).catch(() => {})
 })
+
+watch(
+  () => route.query.listingId,
+  (listingId) => {
+    if (!listingId) {
+      return
+    }
+    if (selectedMenu.value !== 'marketplace') {
+      selectedMenu.value = 'marketplace'
+    }
+    const numeric = Number(listingId)
+    if (Number.isFinite(numeric)) {
+      nextTick(() => {
+        marketplaceRef.value?.openListingById?.(numeric)
+      })
+    }
+    const nextQuery = { ...route.query }
+    delete nextQuery.listingId
+    router.replace({ query: nextQuery }).catch(() => {})
+  },
+  { immediate: true }
+)
 const message = useMessage()
 
 const destinationTabs = computed(() => destinationGroups.value.map((group) => group.label))
@@ -304,6 +327,8 @@ function handleMarketplaceContact(listing) {
     return
   }
 
+  const numericListingId = Number(listing.id ?? listing.listingId ?? 0)
+
   const target = {
     authorId: operatorId,
     authorType: 'Operator',
@@ -312,7 +337,8 @@ function handleMarketplaceContact(listing) {
     authorUsername: listing.operator.email || '',
     authorAvatar: '',
     authorInitials: computeInitialsFromName(listing.operator.name || 'Operator'),
-    postId: listing.id,
+    postId: null,
+    listingId: Number.isFinite(numericListingId) && numericListingId > 0 ? numericListingId : null,
     caption: `Inquiry about ${listing.businessName}`,
   }
 
@@ -353,6 +379,17 @@ async function loadContactMessages() {
       `Failed to load messages (${response.status})`
     )
     const rows = Array.isArray(payload?.messages) ? payload.messages : []
+
+    if (!contactDialog.target.listingId) {
+      const listingFromMessages = rows.find((row) =>
+        Number.isFinite(Number(row?.listingId ?? row?.listingID ?? NaN)) &&
+        Number(row?.listingId ?? row?.listingID ?? 0) > 0,
+      )
+      if (listingFromMessages) {
+        contactDialog.target.listingId = Number(listingFromMessages.listingId ?? listingFromMessages.listingID)
+      }
+    }
+
     contactDialog.messages = rows.map((row, index) => normaliseConversationMessage(row, index))
 
     if (Array.isArray(payload?.participants)) {
@@ -409,7 +446,8 @@ async function sendContactMessage() {
     senderID: viewerId,
     receiverType: contactDialog.target.authorType,
     receiverID: contactDialog.target.authorId,
-    postID: contactDialog.target.postId,
+    listingID: contactDialog.target.listingId ?? null,
+    postID: contactDialog.target.postId ?? null,
     content,
   }
 
@@ -428,6 +466,7 @@ async function sendContactMessage() {
       normaliseConversationMessage(
         {
           ...payload,
+          listingId: payload.listingID,
           id: saved.id ?? saved.messageId ?? null,
           messageID: saved.id ?? saved.messageId ?? null,
           sentAt: saved.sentAt ?? saved.sent_at ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
@@ -462,6 +501,7 @@ function normaliseContactTarget(post) {
   const authorName = post.authorName || post.authorUsername || 'Traveler'
   const authorUsername = post.authorUsername || ''
   const linkedPostId = resolveLinkedPostId(post)
+  const potentialListingId = Number(post.listingId ?? post.listingID ?? 0)
 
   return {
     authorId,
@@ -472,6 +512,7 @@ function normaliseContactTarget(post) {
     authorAvatar: post.authorAvatar || '',
     authorInitials: computeInitialsFromName(authorName || authorUsername || 'Traveler'),
     postId: linkedPostId,
+    listingId: Number.isFinite(potentialListingId) && potentialListingId > 0 ? potentialListingId : null,
     caption: post.caption || '',
   }
 }
@@ -819,7 +860,7 @@ const collapsedMenuContainerStyle = computed(() => ({
           />
         </div>
         <div v-else-if="selectedMenu === 'marketplace'" class="marketplace-panel">
-          <TravelerMarketplace :current-user="traveler" @contact="handleMarketplaceContact" />
+          <TravelerMarketplace ref="marketplaceRef" :current-user="traveler" @contact="handleMarketplaceContact" />
         </div>
         <div v-else class="dashboard-main">
           <n-space vertical size="large">
@@ -1286,14 +1327,3 @@ const collapsedMenuContainerStyle = computed(() => ({
   padding: 16px 0;
 }
 </style>
-
-
-
-
-
-
-
-
-
-
-

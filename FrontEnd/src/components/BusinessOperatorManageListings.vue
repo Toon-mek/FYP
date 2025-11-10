@@ -2,9 +2,14 @@
 import { computed, h, reactive, ref, watch, nextTick } from 'vue'
 import {
   NAlert,
+  NAvatar,
   NButton,
+  NButtonGroup,
   NCard,
   NDataTable,
+  NDivider,
+  NDrawer,
+  NDrawerContent,
   NEmpty,
   NForm,
   NFormItem,
@@ -12,9 +17,12 @@ import {
   NList,
   NListItem,
   NModal,
+  NProgress,
+  NRate,
   NScrollbar,
   NSelect,
   NSpace,
+  NSpin,
   NTag,
   NSwitch,
   NText,
@@ -87,6 +95,15 @@ watch(
 )
 const removalHistoryError = computed(() => props.removalHistoryError)
 const removalHistoryLoading = computed(() => props.removalHistoryLoading)
+
+// Review drawer state
+const API_BASE = props.apiBase
+const REVIEWS_ENDPOINT = `${API_BASE}/marketplace/marketplacereview.php`
+const reviewDrawerVisible = ref(false)
+const reviewingListing = ref(null)
+const reviews = ref([])
+const reviewsLoading = ref(false)
+const reviewSort = ref('newest')
 watch(
   () => filteredListings.value.length,
   () => {
@@ -228,6 +245,7 @@ function normalizeListingItem(raw) {
     contact,
     lastUpdated,
     lastUpdatedDisplay: raw.lastUpdatedDisplay ?? new Date(lastUpdated).toLocaleString(),
+    reviewSummary: raw.reviewSummary ?? null,
   }
 }
 
@@ -308,6 +326,16 @@ const listingColumns = computed(() => [
                 onClick: () => openPreview(row),
               },
               { default: () => 'Preview' },
+            ),
+            h(
+              NButton,
+              {
+                text: true,
+                size: 'small',
+                type: 'info',
+                onClick: () => openReviewDrawer(row),
+              },
+              { default: () => 'Reviews' },
             ),
             h(
               NButton,
@@ -573,6 +601,77 @@ async function deleteListing(listing) {
     message.error(listingActionError.value)
   }
 }
+
+// Review drawer computed and functions
+const sortedReviews = computed(() => {
+  const reviewsCopy = [...reviews.value]
+  
+  switch (reviewSort.value) {
+    case 'highest':
+      return reviewsCopy.sort((a, b) => {
+        const ratingA = a.rating ?? 0
+        const ratingB = b.rating ?? 0
+        return ratingB - ratingA
+      })
+    case 'lowest':
+      return reviewsCopy.sort((a, b) => {
+        const ratingA = a.rating ?? 0
+        const ratingB = b.rating ?? 0
+        return ratingA - ratingB
+      })
+    case 'newest':
+    default:
+      return reviewsCopy.sort((a, b) => {
+        const dateA = new Date(a.createdAt)
+        const dateB = new Date(b.createdAt)
+        return dateB - dateA
+      })
+  }
+})
+
+function openReviewDrawer(listing) {
+  console.log('Opening review drawer for listing:', listing)
+  console.log('Review summary:', listing.reviewSummary)
+  reviewingListing.value = listing
+  reviewDrawerVisible.value = true
+  loadReviews(listing.listingId || listing.id)
+}
+
+function closeReviewDrawer() {
+  reviewDrawerVisible.value = false
+  reviewingListing.value = null
+  reviews.value = []
+  reviewSort.value = 'newest'
+}
+
+async function loadReviews(listingId) {
+  if (!listingId) return
+  reviewsLoading.value = true
+  try {
+    const response = await fetch(`${REVIEWS_ENDPOINT}?listingId=${listingId}&limit=50`)
+    if (!response.ok) {
+      throw new Error('Failed to load reviews.')
+    }
+    let payload
+    try {
+      payload = await response.json()
+    } catch (parseError) {
+      console.error('Failed to parse reviews response', parseError)
+      reviews.value = []
+      return
+    }
+    if (payload.ok === false) {
+      throw new Error(payload.error || 'Failed to load reviews.')
+    }
+    reviews.value = Array.isArray(payload.reviews) ? payload.reviews : []
+  } catch (error) {
+    console.error('Failed to load reviews', error)
+    reviews.value = []
+    message.error(error instanceof Error ? error.message : 'Failed to load reviews')
+  } finally {
+    reviewsLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -777,6 +876,130 @@ async function deleteListing(listing) {
       </n-space>
     </n-space>
   </n-modal>
+
+  <!-- Review Drawer -->
+  <n-drawer
+    v-model:show="reviewDrawerVisible"
+    :width="480"
+    placement="right"
+    @after-leave="closeReviewDrawer"
+  >
+    <n-drawer-content title="Customer Reviews" closable>
+      <n-space vertical size="large" v-if="reviewingListing">
+        <!-- Review Summary -->
+        <div v-if="reviewingListing.reviewSummary && reviewingListing.reviewSummary.totalReviews > 0" class="review-summary-section">
+          <n-text strong style="font-size: 1.1rem; display: block; margin-bottom: 12px;">
+            Review Summary
+          </n-text>
+          
+          <div class="review-rating">
+            <div class="rating-number">
+              {{ reviewingListing.reviewSummary.averageRating?.toFixed(1) || 'N/A' }}
+            </div>
+            <div style="flex: 1;">
+              <n-rate
+                :value="reviewingListing.reviewSummary.averageRating || 0"
+                size="large"
+                readonly
+                allow-half
+              />
+              <div class="rating-count">
+                {{ reviewingListing.reviewSummary.totalReviews || 0 }} review{{ reviewingListing.reviewSummary.totalReviews !== 1 ? 's' : '' }}
+              </div>
+            </div>
+          </div>
+
+          <div class="rating-distribution">
+            <div
+              v-for="star in [5, 4, 3, 2, 1]"
+              :key="star"
+              class="rating-bar-item"
+            >
+              <n-text style="min-width: 60px;">{{ star }} star{{ star > 1 ? 's' : '' }}</n-text>
+              <n-progress
+                type="line"
+                :percentage="reviewingListing.reviewSummary.distribution && reviewingListing.reviewSummary.distribution[star] !== undefined
+                  ? (reviewingListing.reviewSummary.distribution[star] / (reviewingListing.reviewSummary.totalReviews || 1)) * 100
+                  : 0"
+                :show-indicator="false"
+                :height="8"
+              />
+              <n-text depth="3" style="min-width: 30px; text-align: right;">
+                {{ reviewingListing.reviewSummary.distribution && reviewingListing.reviewSummary.distribution[star] !== undefined
+                  ? reviewingListing.reviewSummary.distribution[star]
+                  : 0 }}
+              </n-text>
+            </div>
+          </div>
+        </div>
+
+        <!-- No Reviews Message -->
+        <n-empty
+          v-else-if="!reviewingListing.reviewSummary || reviewingListing.reviewSummary.totalReviews === 0"
+          description="This listing hasn't received any reviews yet"
+          style="padding: 40px 0;"
+        />
+
+        <n-divider v-if="reviewingListing.reviewSummary && reviewingListing.reviewSummary.totalReviews > 0" />
+
+        <!-- Review List with Sorting -->
+        <div v-if="reviewingListing.reviewSummary && reviewingListing.reviewSummary.totalReviews > 0">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <n-text strong style="font-size: 1.1rem;">
+              Reviews
+            </n-text>
+            <n-button-group size="small">
+              <n-button
+                :type="reviewSort === 'newest' ? 'primary' : 'default'"
+                @click="reviewSort = 'newest'"
+              >
+                Newest
+              </n-button>
+              <n-button
+                :type="reviewSort === 'highest' ? 'primary' : 'default'"
+                @click="reviewSort = 'highest'"
+              >
+                Highest
+              </n-button>
+              <n-button
+                :type="reviewSort === 'lowest' ? 'primary' : 'default'"
+                @click="reviewSort = 'lowest'"
+              >
+                Lowest
+              </n-button>
+            </n-button-group>
+          </div>
+
+          <n-spin :show="reviewsLoading">
+            <n-space v-if="sortedReviews.length" vertical size="large">
+              <div v-for="review in sortedReviews" :key="review.id" class="review-item">
+                <n-space align="start" size="medium">
+                  <n-avatar round size="medium" style="flex-shrink: 0;">
+                    {{ review.authorInitials }}
+                  </n-avatar>
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 4px;">
+                      <div>
+                        <n-text strong>{{ review.authorName }}</n-text>
+                        <n-text depth="3" style="display: block; font-size: 0.85rem;">
+                          {{ review.createdAtLabel }}
+                        </n-text>
+                      </div>
+                      <n-rate v-if="review.rating" :value="review.rating" size="small" readonly allow-half />
+                    </div>
+                    <n-text depth="2" style="display: block; line-height: 1.5;">
+                      {{ review.content }}
+                    </n-text>
+                  </div>
+                </n-space>
+              </div>
+            </n-space>
+            <n-empty v-else description="No reviews yet" size="small" />
+          </n-spin>
+        </div>
+      </n-space>
+    </n-drawer-content>
+  </n-drawer>
 </template>
 
 <style scoped>
@@ -854,5 +1077,52 @@ async function deleteListing(listing) {
 
 .removal-history-card__reason :deep(.n-alert__body) {
   padding: 4px 0;
+}
+
+.review-summary-section {
+  margin-top: 8px;
+}
+
+.review-rating {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.rating-number {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.rating-count {
+  font-size: 0.9rem;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.rating-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rating-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.rating-bar-item :deep(.n-progress) {
+  flex: 1;
+}
+
+.review-item {
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.review-item:last-child {
+  border-bottom: none;
 }
 </style>

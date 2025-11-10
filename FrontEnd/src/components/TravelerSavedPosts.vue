@@ -14,6 +14,74 @@
       <n-alert v-if="error" type="error" :closable="false" class="saved-posts-alert">
         {{ error }}
       </n-alert>
+      <div v-else-if="isMarketplaceView">
+        <div v-if="marketplaceListings.length" class="saved-marketplace-grid">
+          <article v-for="listing in marketplaceListings" :key="listing.id" class="marketplace-card">
+            <n-card size="small" :segmented="{ content: true, footer: 'soft' }">
+              <template #cover>
+                <div class="marketplace-card__cover">
+                  <template v-if="listing.images && listing.images.length">
+                    <n-carousel :show-dots="listing.images.length > 1" :show-arrow="listing.images.length > 1" draggable>
+                      <img v-for="img in listing.images" :key="img.id" :src="img.url" :alt="listing.businessName" loading="lazy" />
+                    </n-carousel>
+                  </template>
+                  <template v-else-if="listing.coverImage">
+                    <img :src="listing.coverImage" :alt="listing.businessName" loading="lazy" />
+                  </template>
+                  <template v-else>
+                    <n-icon size="32"><i class="ri-store-3-line" /></n-icon>
+                  </template>
+                </div>
+              </template>
+
+              <div class="marketplace-card__body">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <div style="font-size:1.05rem;font-weight:600;line-height:1.3;">
+                    {{ listing.businessName }}
+                  </div>
+                  <n-button text size="small" :type="listing.isSaved ? 'primary' : 'default'" @click="toggleMarketplaceSave(listing)">
+                    <template #icon>
+                      <n-icon>
+                        <i :class="listing.isSaved ? 'ri-bookmark-fill' : 'ri-bookmark-line'" />
+                      </n-icon>
+                    </template>
+                  </n-button>
+                </div>
+                <n-tag v-if="listing.category" type="success" size="small" bordered>
+                  {{ listing.category }}
+                </n-tag>
+                <n-text v-if="listing.location" depth="3">
+                  {{ listing.location }}
+                </n-text>
+                <n-text v-if="listing.description" depth="3">
+                  {{ truncateListingDescription(listing.description) }}
+                </n-text>
+                <div v-if="listing.priceRange">
+                  <n-text depth="3">Price: </n-text>
+                  <n-text strong>{{ listing.priceRange }}</n-text>
+                </div>
+                <div v-if="listing.reviewSummary && listing.reviewSummary.totalReviews > 0">
+                  <n-space align="center" size="small">
+                    <n-rate :value="listing.reviewSummary.averageRating" size="small" readonly />
+                    <n-text depth="3" style="font-size:0.85rem;">
+                      {{ listing.reviewSummary.averageRating }} ({{ listing.reviewSummary.totalReviews }})
+                    </n-text>
+                  </n-space>
+                </div>
+              </div>
+
+              <template #footer>
+                <div class="marketplace-card__footer">
+                  <n-button text size="small" @click="viewListingInMarketplace(listing)">
+                    View in marketplace
+                  </n-button>
+                </div>
+              </template>
+            </n-card>
+          </article>
+        </div>
+        <n-empty v-else :description="emptyDescription" />
+      </div>
       <TravelerSocialFeed
         v-else-if="filteredPosts.length"
         :key="activeFilter"
@@ -32,8 +100,24 @@
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { NAlert, NEmpty, NSpin, NTabs, NTabPane } from 'naive-ui'
+import {
+  NAlert,
+  NButton,
+  NCard,
+  NCarousel,
+  NEmpty,
+  NIcon,
+  NRate,
+  NSpin,
+  NSpace,
+  NTabs,
+  NTabPane,
+  NTag,
+  NText,
+  useMessage,
+} from 'naive-ui'
 import TravelerSocialFeed from './TravelerSocialFeed.vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const props = defineProps({
   categories: {
@@ -48,11 +132,16 @@ const props = defineProps({
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const COMMUNITY_ENDPOINT = `${API_BASE}/community/posts.php`
+const MARKETPLACE_ENDPOINT = `${API_BASE}/marketplace/marketplace.php`
+const message = useMessage()
+const route = useRoute()
+const router = useRouter()
 
 const filterOptions = [
   { value: 'saved', label: 'Saved posts' },
   { value: 'liked', label: 'Liked posts' },
   { value: 'commented', label: 'Commented posts' },
+  { value: 'marketplace', label: 'Marketplace list' },
 ]
 
 const activeFilter = ref('saved')
@@ -61,6 +150,7 @@ const emptyMessages = {
   saved: "You haven't saved any community stories yet.",
   liked: "You haven't liked any community stories yet.",
   commented: "You haven't commented on any community stories yet.",
+  marketplace: "You haven't saved any marketplace listings yet.",
 }
 
 const viewStates = reactive({
@@ -85,6 +175,13 @@ const viewStates = reactive({
     loaded: false,
     requestToken: 0,
   },
+  marketplace: {
+    loading: false,
+    error: '',
+    posts: [],
+    loaded: false,
+    requestToken: 0,
+  },
 })
 
 const currentUserId = computed(() => {
@@ -103,11 +200,16 @@ const activeState = computed(() => viewStates[activeFilter.value])
 const loading = computed(() => activeState.value?.loading ?? false)
 const error = computed(() => activeState.value?.error ?? '')
 const emptyDescription = computed(() => emptyMessages[activeFilter.value] ?? emptyMessages.saved)
+const isMarketplaceView = computed(() => activeFilter.value === 'marketplace')
+const marketplaceListings = computed(() =>
+  isMarketplaceView.value && Array.isArray(activeState.value?.posts) ? activeState.value.posts : [],
+)
 
 const viewCounts = computed(() => ({
   saved: viewStates.saved.posts.length,
   liked: viewStates.liked.posts.length,
   commented: viewStates.commented.posts.length,
+  marketplace: viewStates.marketplace.posts.length,
 }))
 
 function formatTabLabel(option) {
@@ -393,6 +495,9 @@ function matchesCommented(post, viewerId) {
 }
 
 const filteredPosts = computed(() => {
+  if (isMarketplaceView.value) {
+    return []
+  }
   const state = activeState.value
   const list = state && Array.isArray(state.posts) ? state.posts : []
   if (!list.length) {
@@ -461,6 +566,28 @@ async function loadPosts(view) {
   state.error = ''
 
   try {
+    if (view === 'marketplace') {
+      const params = new URLSearchParams()
+      params.set('filter', 'saved')
+      params.set('travelerId', String(viewerId))
+
+      const response = await fetch(`${MARKETPLACE_ENDPOINT}?${params.toString()}`)
+      const payload = await response.json().catch(() => null)
+
+      if (requestToken !== state.requestToken) {
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? 'Unable to load saved listings.')
+      }
+
+      state.posts = Array.isArray(payload?.listings) ? payload.listings : []
+      state.loaded = true
+      state.error = ''
+      return
+    }
+
     const params = new URLSearchParams()
     params.set('view', view)
     params.set('travelerId', String(viewerId))
@@ -585,6 +712,62 @@ watch(
   },
   { immediate: true }
 )
+
+function truncateListingDescription(text, limit = 120) {
+  if (!text) return ''
+  const trimmed = String(text).trim()
+  return trimmed.length > limit ? `${trimmed.slice(0, limit - 3)}...` : trimmed
+}
+
+async function toggleMarketplaceSave(listing) {
+  if (!listing || !currentUserId.value) {
+    return
+  }
+
+  const previousState = listing.isSaved
+  listing.isSaved = !listing.isSaved
+
+  try {
+    const response = await fetch(MARKETPLACE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'toggle-save',
+        listingId: listing.id,
+        travelerId: currentUserId.value,
+      }),
+    })
+
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data || data.ok !== true) {
+      throw new Error(data?.error || 'Failed to update save status.')
+    }
+
+    listing.isSaved = data.saved
+    if (!listing.isSaved) {
+      const state = viewStates.marketplace
+      state.posts = state.posts.filter((item) => item.id !== listing.id)
+      state.loaded = true
+    }
+  } catch (error) {
+    listing.isSaved = previousState
+    message.error(error instanceof Error ? error.message : 'Failed to update save status.')
+  }
+}
+
+function viewListingInMarketplace(listing) {
+  if (!listing?.id) {
+    return
+  }
+  router.push({
+    path: '/traveler',
+    query: {
+      ...route.query,
+      module: 'marketplace',
+      listingId: listing.id,
+    },
+  }).catch(() => {})
+}
 </script>
 
 <style scoped>
@@ -601,6 +784,49 @@ watch(
 
 .saved-posts-switcher {
   margin-bottom: 12px;
+}
+
+.saved-marketplace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.marketplace-card :deep(.n-card) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.marketplace-card__cover {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  background: #f3f4f6;
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marketplace-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.marketplace-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.marketplace-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 </style>
 

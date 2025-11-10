@@ -320,9 +320,12 @@ $listingRows = $listingStmt->fetchAll();
 
 $listings = [];
 foreach ($listingRows as $row) {
+  $listingId = (int) $row['listingID'];
+  $reviewSummary = fetchReviewSummary($pdo, $listingId);
+  
   $listings[] = [
-    'id' => sprintf('LST-%04d', (int) $row['listingID']),
-    'listingId' => (int) $row['listingID'],
+    'id' => sprintf('LST-%04d', $listingId),
+    'listingId' => $listingId,
     'name' => $row['businessName'],
     'category' => $row['categoryName'] ?? 'Uncategorised',
     'type' => $operatorProfile['businessType'] ?? 'Business',
@@ -337,6 +340,7 @@ foreach ($listingRows as $row) {
     'highlight' => $row['description'] ?? '',
     'reviewNotes' => $row['remarks'] ?: 'Awaiting administrator review.',
     'priceRange' => $row['priceRange'],
+    'reviewSummary' => $reviewSummary,
   ];
 }
 
@@ -396,6 +400,111 @@ echo json_encode([
   'listings' => $listings,
   'mediaAssets' => $mediaAssets,
 ]);
+
+function fetchReviewSummary(PDO $pdo, int $listingId): array
+{
+  ensureListingReviewTable($pdo);
+  
+  try {
+    $stmt = $pdo->prepare(
+      'SELECT 
+        COUNT(*) as totalReviews,
+        AVG(rating) as averageRating,
+        SUM(CASE WHEN rating = 5 THEN 1 ELSE 0 END) as star5,
+        SUM(CASE WHEN rating >= 4.5 AND rating < 5 THEN 1 ELSE 0 END) as star4_5,
+        SUM(CASE WHEN rating >= 4 AND rating < 4.5 THEN 1 ELSE 0 END) as star4,
+        SUM(CASE WHEN rating >= 3.5 AND rating < 4 THEN 1 ELSE 0 END) as star3_5,
+        SUM(CASE WHEN rating >= 3 AND rating < 3.5 THEN 1 ELSE 0 END) as star3,
+        SUM(CASE WHEN rating >= 2.5 AND rating < 3 THEN 1 ELSE 0 END) as star2_5,
+        SUM(CASE WHEN rating >= 2 AND rating < 2.5 THEN 1 ELSE 0 END) as star2,
+        SUM(CASE WHEN rating >= 1.5 AND rating < 2 THEN 1 ELSE 0 END) as star1_5,
+        SUM(CASE WHEN rating >= 1 AND rating < 1.5 THEN 1 ELSE 0 END) as star1,
+        SUM(CASE WHEN rating >= 0.5 AND rating < 1 THEN 1 ELSE 0 END) as star0_5
+       FROM ListingReview
+       WHERE listingID = :listingId AND rating IS NOT NULL'
+    );
+    $stmt->execute([':listingId' => $listingId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row || $row['totalReviews'] == 0) {
+      return [
+        'totalReviews' => 0,
+        'averageRating' => 0,
+        'distribution' => [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0],
+      ];
+    }
+
+    // Group half-stars into full star categories for distribution display
+    $distribution = [
+      5 => (int) $row['star5'],
+      4 => (int) ($row['star4_5'] + $row['star4']),
+      3 => (int) ($row['star3_5'] + $row['star3']),
+      2 => (int) ($row['star2_5'] + $row['star2']),
+      1 => (int) ($row['star1_5'] + $row['star1'] + $row['star0_5']),
+    ];
+
+    return [
+      'totalReviews' => (int) $row['totalReviews'],
+      'averageRating' => $row['averageRating'] ? (float) $row['averageRating'] : 0,
+      'distribution' => $distribution,
+    ];
+  } catch (Throwable $e) {
+    error_log('fetchReviewSummary error: ' . $e->getMessage());
+    return [
+      'totalReviews' => 0,
+      'averageRating' => 0,
+      'distribution' => [5 => 0, 4 => 0, 3 => 0, 2 => 0, 1 => 0],
+    ];
+  }
+}
+
+function ensureListingReviewTable(PDO $pdo): void
+{
+  static $ensured = false;
+  if ($ensured) {
+    return;
+  }
+
+  try {
+    // Check if table exists
+    $pdo->query('SELECT 1 FROM ListingReview LIMIT 1');
+    
+    // Table exists, try to alter rating column to support decimals
+    try {
+      $pdo->exec('ALTER TABLE ListingReview MODIFY COLUMN rating DECIMAL(2,1) DEFAULT NULL');
+    } catch (Throwable) {
+      // Column might already be DECIMAL or alter failed
+    }
+    
+    $ensured = true;
+    return;
+  } catch (Throwable) {
+    // Table doesn't exist, create it
+  }
+
+  $sql = <<<SQL
+CREATE TABLE IF NOT EXISTS ListingReview (
+    reviewID INT AUTO_INCREMENT PRIMARY KEY,
+    listingID INT NOT NULL,
+    travelerID INT NOT NULL,
+    content TEXT NOT NULL,
+    rating DECIMAL(2,1) DEFAULT NULL,
+    createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_listing (listingID),
+    INDEX idx_traveler (travelerID),
+    INDEX idx_created (createdAt)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+SQL;
+
+  try {
+    $pdo->exec($sql);
+  } catch (Throwable $e) {
+    // Table creation failed - might already exist or permission issue
+    error_log('Failed to create ListingReview table: ' . $e->getMessage());
+  }
+  $ensured = true;
+}
+
 function ensureListingUpdatedAtColumn(PDO $pdo): void
 {
   static $ensured = false;

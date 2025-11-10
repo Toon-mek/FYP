@@ -7,10 +7,12 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NScrollbar,
   NSpin,
   NSpace,
   NTag,
   useMessage,
+  useNotification,
 } from 'naive-ui'
 import { extractProfileImage } from '../utils/profileImage.js'
 
@@ -33,6 +35,7 @@ const MALAYSIA_FORMAT = new Intl.DateTimeFormat(MALAYSIA_LOCALE, {
 const CONVERSATION_POLL_INTERVAL_MS = 3000
 
 const message = useMessage()
+const notification = useNotification()
 
 const viewer = computed(() => {
   const source = props.currentUser ?? {}
@@ -106,6 +109,7 @@ watch(
     if (activeThread.value) {
       await loadConversation(activeThread.value)
       startConversationPolling()
+      nextTick(() => scrollConversationToEnd())
     } else {
       conversationState.messages = []
     }
@@ -115,9 +119,18 @@ watch(
 watch(
   () => conversationState.messages.length,
   () => {
-    scrollConversationToEnd()
+    if (!conversationState.loading && conversationPaneRef.value) {
+      nextTick(() => scrollConversationToEnd())
+    }
   }
 )
+
+function scrollConversationToEnd(behavior = 'auto') {
+  if (conversationPaneRef.value?.scrollTo) {
+    conversationPaneRef.value.scrollTo({ top: Number.MAX_SAFE_INTEGER, behavior })
+  }
+}
+
 
 async function loadThreads(options = {}) {
   const { preserveActive = false, silent = false } = options
@@ -178,7 +191,7 @@ async function loadThreads(options = {}) {
 }
 
 async function loadConversation(thread, options = {}) {
-  const { silent = false } = options
+  const { silent = false, notifyOnNew = false } = options
   if (!thread) {
     return
   }
@@ -190,6 +203,10 @@ async function loadConversation(thread, options = {}) {
     conversationState.loading = true
   }
   conversationState.error = ''
+  const previousLastSignature = messageSignature(
+    conversationState.messages[conversationState.messages.length - 1],
+  )
+  const hadPreviousMessages = conversationState.messages.length > 0
   try {
     const params = new URLSearchParams({
       currentType: viewer.value.type,
@@ -203,7 +220,20 @@ async function loadConversation(thread, options = {}) {
     const response = await fetch(`${MESSAGES_ENDPOINT}?${params.toString()}`)
     const payload = await readJsonResponse(response, `Failed to load messages (${response.status})`)
     const rows = Array.isArray(payload?.messages) ? payload.messages : []
-    conversationState.messages = rows.map((item, index) => normaliseConversationMessage(item, index))
+    const normalisedMessages = rows.map((item, index) => normaliseConversationMessage(item, index))
+    const latestMessage = normalisedMessages[normalisedMessages.length - 1]
+    const latestSignature = messageSignature(latestMessage)
+    const incomingMessage =
+      notifyOnNew &&
+      hadPreviousMessages &&
+      latestMessage &&
+      latestSignature &&
+      latestSignature !== previousLastSignature &&
+      !isOwnMessage(latestMessage)
+    conversationState.messages = normalisedMessages
+    if (incomingMessage) {
+      announceIncomingMessage(latestMessage, thread)
+    }
 
     const idx = threadsState.items.findIndex((item) => item.threadKey === thread.threadKey)
     if (idx >= 0) {
@@ -226,7 +256,6 @@ async function loadConversation(thread, options = {}) {
     if (!silent) {
       conversationState.loading = false
     }
-    scrollConversationToEnd()
   }
 }
 
@@ -316,12 +345,7 @@ function updateThreadPreviewAfterSend(thread, messageRecord) {
 
 function selectThread(thread) {
   if (!thread) return
-  const idx = threadsState.items.findIndex((item) => item.threadKey === thread.threadKey)
-  if (idx > 0) {
-    const [picked] = threadsState.items.splice(idx, 1)
-    threadsState.items.unshift(picked)
-  }
-  activeThread.value = threadsState.items[0]
+  activeThread.value = thread
 }
 
 function handleComposerEnter(event) {
@@ -567,16 +591,44 @@ function isOwnMessage(entry) {
   return entry.senderType === viewer.value.type && Number(entry.senderId) === Number(viewerId)
 }
 
-function scrollConversationToEnd() {
-  nextTick(() => {
-    const pane = conversationPaneRef.value
-    if (pane && typeof pane.scrollHeight === 'number') {
-      requestAnimationFrame(() => {
-        pane.scrollTop = pane.scrollHeight
-      })
-    }
+function messageSignature(entry) {
+  if (!entry) return ''
+  const baseId =
+    entry.id ??
+    entry.messageId ??
+    entry.messageID ??
+    entry.clientId ??
+    entry.clientID ??
+    entry.tempId ??
+    ''
+  const stamp = entry.rawSentAt ?? entry.sentAt ?? ''
+  return `${baseId}-${stamp}`
+}
+
+function summariseMessageContent(content) {
+  if (!content) {
+    return 'Open the conversation to reply.'
+  }
+  const text = String(content).trim()
+  if (!text) {
+    return 'Open the conversation to reply.'
+  }
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text
+}
+
+function announceIncomingMessage(messageEntry, thread) {
+  if (!notification || !messageEntry) {
+    return
+  }
+  notification.info({
+    title: thread?.participantName || 'New message',
+    content: summariseMessageContent(messageEntry.content),
+    meta: formatMessageTimestamp(messageEntry.rawSentAt ?? messageEntry.sentAt ?? null),
+    duration: 5000,
+    keepAliveOnHover: true,
   })
 }
+
 
 function startConversationPolling() {
   stopConversationPolling()
@@ -593,10 +645,10 @@ function startConversationPolling() {
     }
     conversationPollInFlight = true
     try {
-      await loadThreads({ preserveActive: true, silent: true })
-      if (activeThread.value) {
-        await loadConversation(activeThread.value, { silent: true })
-      }
+    await loadThreads({ preserveActive: true, silent: true })
+    if (activeThread.value) {
+      await loadConversation(activeThread.value, { silent: true, notifyOnNew: true })
+    }
     } catch (error) {
       console.error('Failed to poll conversation', error)
     } finally {
@@ -696,40 +748,50 @@ onBeforeUnmount(() => {
         </header>
 
         <section class="messages-content__body">
-          <n-spin :show="conversationState.loading">
-            <div class="messages-conversation" ref="conversationPaneRef">
-              <template v-if="conversationState.messages.length">
-                <div v-for="message in conversationState.messages"
-                  :key="message.id ?? `${message.sentAt}-${message.senderId}`" :class="[
-                    'messages-conversation__item',
-                    { 'messages-conversation__item--own': isOwnMessage(message) },
-                  ]">
-                  <div class="messages-conversation__bubble">
-                    {{ message.content }}
+          <n-scrollbar ref="conversationPaneRef" style="height: 100%;">
+            <n-spin :show="conversationState.loading" style="padding: 40px;">
+              <div style="padding: 16px; display: flex; flex-direction: column; gap: 8px;">
+                <template v-if="conversationState.messages.length">
+                  <div v-for="message in conversationState.messages"
+                    :key="message.id ?? `${message.sentAt}-${message.senderId}`"
+                    :style="{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: isOwnMessage(message) ? 'flex-end' : 'flex-start',
+                      width: '100%'
+                    }">
+                    <div :style="{
+                      maxWidth: '60%',
+                      background: isOwnMessage(message) ? '#d1f4e0' : '#f1f3f4',
+                      padding: '8px 12px',
+                      borderRadius: '18px',
+                      wordBreak: 'break-word'
+                    }">
+                      {{ message.content }}
+                    </div>
+                    <div style="font-size: 11px; color: #5f6368; margin-top: 2px; padding: 0 4px;">
+                      {{ formatMessageTimestamp(message.sentAt, message.rawSentAt) }}
+                    </div>
                   </div>
-                  <div class="messages-conversation__timestamp">
-                    {{ formatMessageTimestamp(message.sentAt, message.rawSentAt) }}
-                  </div>
-                </div>
-              </template>
-              <n-empty v-else description="No messages yet. Say hello to start collaborating." />
-            </div>
-          </n-spin>
+                </template>
+                <n-empty v-else description="No messages yet. Say hello to start collaborating." />
+              </div>
+            </n-spin>
+          </n-scrollbar>
         </section>
 
         <footer class="messages-content__composer">
           <n-alert v-if="conversationState.error" type="error" closable @close="conversationState.error = ''">
             {{ conversationState.error }}
           </n-alert>
-          <n-input v-model:value="conversationState.input" type="textarea" :autosize="{ minRows: 3, maxRows: 5 }"
-            maxlength="2000" show-count placeholder="Type your message here..."
-            @keyup.enter.prevent="handleComposerEnter" />
-          <NSpace justify="end">
-            <NButton type="primary" :disabled="!conversationState.input.trim()" :loading="conversationState.sending"
-              @click="sendMessage">
+          <div class="composer-input-row">
+            <n-input v-model:value="conversationState.input" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }"
+              maxlength="2000" show-count placeholder="Message..." @keyup.enter.prevent="handleComposerEnter" />
+            <n-button type="primary" class="composer-send-button" :disabled="!conversationState.input.trim()"
+              :loading="conversationState.sending" @click="sendMessage">
               Send
-            </NButton>
-          </NSpace>
+            </n-button>
+          </div>
         </footer>
       </template>
 
@@ -745,7 +807,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .messages-layout {
   display: flex;
-  height: clamp(520px, 68vh, 720px);
+  height: clamp(600px, 75vh, 850px);
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
@@ -754,7 +816,7 @@ onBeforeUnmount(() => {
 }
 
 .messages-sidebar {
-  width: 320px;
+  width: 420px;
   background: linear-gradient(180deg, #f5fbf8 0%, #fefefe 100%);
   border-right: 1px solid rgba(15, 23, 42, 0.05);
   display: flex;
@@ -880,51 +942,7 @@ onBeforeUnmount(() => {
 
 .messages-content__body {
   flex: 1;
-  padding: 18px 24px;
-  overflow-y: auto;
   min-height: 0;
-}
-
-.messages-conversation {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-right: 6px;
-  overflow-y: auto;
-}
-
-.messages-conversation__item {
-  max-width: 70%;
-  align-self: flex-start;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.messages-conversation__item--own {
-  align-self: flex-end;
-}
-
-.messages-conversation__bubble {
-  background: rgba(15, 23, 42, 0.06);
-  padding: 10px 14px;
-  border-radius: 16px;
-  line-height: 1.5;
-  color: #1f2937;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
-}
-
-.messages-conversation__item--own .messages-conversation__bubble {
-  background: rgba(24, 160, 88, 0.15);
-  color: #15603a;
-  box-shadow: inset 0 0 0 1px rgba(24, 160, 88, 0.18);
-}
-
-.messages-conversation__timestamp {
-  font-size: 0.75rem;
-  color: rgba(15, 23, 42, 0.45);
-  text-align: right;
 }
 
 .messages-content__composer {
@@ -933,6 +951,40 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.composer-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.composer-input-row :deep(.n-input) {
+  flex: 1;
+}
+
+.composer-send-button {
+  min-width: 96px;
+  height: 44px;
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: 0 8px 18px rgba(24, 160, 88, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  padding: 0 24px;
+}
+
+.composer-send-button :deep(.n-button__content) {
+  gap: 6px;
+}
+
+.composer-send-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px rgba(24, 160, 88, 0.3);
+}
+
+.composer-send-button:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 14px rgba(24, 160, 88, 0.25);
 }
 
 .messages-content__placeholder {

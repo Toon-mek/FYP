@@ -31,6 +31,7 @@ try {
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $travelerId = isset($_GET['travelerId']) ? (int) $_GET['travelerId'] : 0;
+$filter = isset($_GET['filter']) ? strtolower(trim((string) $_GET['filter'])) : 'all';
 
 if ($method === 'POST') {
     handlePost($pdo);
@@ -45,7 +46,38 @@ if ($method !== 'GET') {
 
 // Show all approved/active listings that are visible
 // Visibility logic: if status is Approved/Active, it's visible unless visibilityState is explicitly 'Hidden'
-$sql = <<<SQL
+$params = [];
+if ($filter === 'saved') {
+    if ($travelerId <= 0) {
+        echo json_encode(['listings' => []]);
+        exit;
+    }
+    $sql = <<<SQL
+SELECT
+    bl.listingID,
+    bl.businessName,
+    bl.description,
+    bl.location,
+    bl.priceRange,
+    bl.status,
+    bl.visibilityState,
+    cat.categoryName,
+    op.operatorID,
+    op.fullName AS operatorName,
+    op.email AS operatorEmail,
+    op.contactNumber AS operatorPhone,
+    op.businessType AS operatorBusinessType
+FROM BusinessListing bl
+INNER JOIN ListingSave ls ON ls.listingID = bl.listingID AND ls.travelerID = :travelerId
+LEFT JOIN ListingCategory cat ON cat.categoryID = bl.categoryID
+LEFT JOIN TourismOperator op ON op.operatorID = bl.operatorID
+WHERE bl.status IN ('Approved', 'Active')
+  AND (bl.visibilityState IS NULL OR bl.visibilityState = '' OR bl.visibilityState = 'Visible')
+ORDER BY ls.savedAt DESC, bl.listingID DESC
+SQL;
+    $params[':travelerId'] = $travelerId;
+} else {
+    $sql = <<<SQL
 SELECT
     bl.listingID,
     bl.businessName,
@@ -67,10 +99,11 @@ WHERE bl.status IN ('Approved', 'Active')
   AND (bl.visibilityState IS NULL OR bl.visibilityState = '' OR bl.visibilityState = 'Visible')
 ORDER BY bl.submittedDate DESC, bl.listingID DESC
 SQL;
+}
 
 try {
     $stmt = $pdo->prepare($sql);
-    $stmt->execute();
+    $stmt->execute($params);
     $rows = $stmt->fetchAll();
 } catch (Throwable $e) {
     http_response_code(500);
@@ -85,7 +118,9 @@ foreach ($rows as $row) {
         $images = fetchImages($pdo, $listingId);
         $coverImage = !empty($images) ? $images[0]['url'] : null;
         $reviewSummary = fetchReviewSummary($pdo, $listingId);
-        $isSaved = $travelerId > 0 ? checkIfSaved($pdo, $listingId, $travelerId) : false;
+        $isSaved = $filter === 'saved'
+            ? true
+            : ($travelerId > 0 ? checkIfSaved($pdo, $listingId, $travelerId) : false);
 
         $listings[] = [
             'id' => $listingId,

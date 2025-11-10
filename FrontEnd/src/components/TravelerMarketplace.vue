@@ -260,7 +260,7 @@
       v-model:show="imageModalVisible"
       preset="card"
       :segmented="false"
-      :style="{ maxWidth: '50vw', maxHeight: '70vh' }"
+      :style="{ maxWidth: '50vw', maxHeight: '90vh' }"
       @after-leave="closeImageModal"
     >
       <template #header>
@@ -514,6 +514,7 @@ const currentImageIndex = ref(0)
 const imageZoom = ref(1)
 const reviewDrawerVisible = ref(false)
 const reviewingListing = ref(null)
+const pendingListingId = ref(null)
 
 const currentTravelerId = computed(() => {
   const source = props.currentUser ?? {}
@@ -548,32 +549,16 @@ const sortedReviews = computed(() => {
   }
 })
 
-const fallbackCategories = [{ value: 'all', label: 'All' }]
+const categoryOptions = [
+  { value: 'all', label: 'All' },
+  { value: 'homestay', label: 'Homestay', original: 'Homestay' },
+  { value: 'food-beverage', label: 'Food & Beverage', original: 'Food & Beverage' },
+  { value: 'wellness', label: 'Wellness', original: 'Wellness' },
+  { value: 'entertainment', label: 'Entertainment', original: 'Entertainment' },
+  { value: 'dessert', label: 'Dessert', original: 'Dessert' },
+  { value: 'others', label: 'Others', original: 'Others' },
+]
 
-const categoryOptions = computed(() => {
-  const categories = new Set()
-  listings.value.forEach((listing) => {
-    if (listing.category) {
-      categories.add(listing.category)
-    }
-  })
-  const categoryList = Array.from(categories).map((cat) => ({
-    value: cat.toLowerCase().replace(/\s+/g, '-'),
-    label: cat,
-    original: cat,
-  }))
-  return [{ value: 'all', label: 'All' }, ...categoryList]
-})
-
-watch(
-  categoryOptions,
-  (options) => {
-    if (!options.some((option) => option.value === activeCategory.value)) {
-      activeCategory.value = 'all'
-    }
-  },
-  { immediate: true }
-)
 
 watch(selectedListing, (listing) => {
   if (listing) {
@@ -588,7 +573,7 @@ const filteredListings = computed(() => {
   let result = listings.value
 
   if (activeCategory.value !== 'all') {
-    const categoryOption = categoryOptions.value.find((opt) => opt.value === activeCategory.value)
+    const categoryOption = categoryOptions.find((opt) => opt.value === activeCategory.value)
     if (categoryOption && categoryOption.original) {
       result = result.filter((listing) => listing.category === categoryOption.original)
     }
@@ -608,6 +593,7 @@ const filteredListings = computed(() => {
 })
 
 onMounted(() => {
+  activeCategory.value = 'all'
   fetchListings()
 })
 
@@ -633,6 +619,7 @@ async function fetchListings() {
     listings.value = []
   } finally {
     listingsLoading.value = false
+    activeCategory.value = 'all'
   }
 }
 
@@ -803,6 +790,34 @@ function openListingDetail(listing) {
   detailModalVisible.value = true
 }
 
+function openListingById(listingId) {
+  const numeric = Number(listingId)
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return
+  }
+  const target = listings.value.find((item) => Number(item.id) === numeric)
+  if (target) {
+    openListingDetail(target)
+    pendingListingId.value = null
+  } else {
+    pendingListingId.value = numeric
+  }
+}
+
+watch(
+  () => [pendingListingId.value, listings.value],
+  () => {
+    if (!pendingListingId.value) {
+      return
+    }
+    const target = listings.value.find((item) => Number(item.id) === pendingListingId.value)
+    if (target) {
+      openListingDetail(target)
+      pendingListingId.value = null
+    }
+  },
+)
+
 function closeListingDetail() {
   detailModalVisible.value = false
   selectedListing.value = null
@@ -858,6 +873,10 @@ function previousImage() {
     imageZoom.value = 1
   }
 }
+
+defineExpose({
+  openListingById,
+})
 </script>
 
 <style scoped>
@@ -1303,8 +1322,7 @@ function previousImage() {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
-  max-height: 80vh;
+  min-height: 600px;
 }
 
 .image-container {

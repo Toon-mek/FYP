@@ -6,7 +6,7 @@ require_once __DIR__ . '/../helpers/profile_image.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: PUT, OPTIONS');
+header('Access-Control-Allow-Methods: GET, PUT, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -14,7 +14,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-if ($_SERVER['REQUEST_METHOD'] !== 'PUT') {
+$requestMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+try {
+    /** @var PDO $pdo */
+    $pdo = require __DIR__ . '/../../config/db.php';
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Database unavailable']);
+    exit;
+}
+
+if ($requestMethod === 'GET') {
+    handleTravelerLookup($pdo);
+    exit;
+}
+
+if ($requestMethod !== 'PUT') {
     http_response_code(405);
     echo json_encode(['error' => 'Method not allowed']);
     exit;
@@ -31,15 +47,6 @@ $travelerId = (int)($payload['travelerId'] ?? 0);
 if ($travelerId <= 0) {
     http_response_code(400);
     echo json_encode(['error' => 'travelerId is required']);
-    exit;
-}
-
-try {
-    /** @var PDO $pdo */
-    $pdo = require __DIR__ . '/../../config/db.php';
-} catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Database unavailable']);
     exit;
 }
 
@@ -230,4 +237,35 @@ echo json_encode([
     'ok' => true,
     'traveler' => $updated,
 ]);
+
+function handleTravelerLookup(PDO $pdo): void
+{
+    $travelerId = isset($_GET['travelerId']) ? (int) $_GET['travelerId'] : (int) ($_GET['id'] ?? 0);
+    if ($travelerId <= 0) {
+        http_response_code(400);
+        echo json_encode(['error' => 'travelerId is required']);
+        return;
+    }
+
+    $stmt = $pdo->prepare(
+        'SELECT travelerID AS id, username, email, fullName, contactNumber, accountStatus, profileImage
+         FROM Traveler
+         WHERE travelerID = :id
+         LIMIT 1'
+    );
+    $stmt->execute([':id' => $travelerId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$row) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Traveler not found']);
+        return;
+    }
+
+    $row['profileImageUrl'] = profileImagePublicUrl($row['profileImage'] ?? null);
+
+    echo json_encode([
+        'traveler' => $row,
+    ]);
+}
 
