@@ -133,9 +133,10 @@ function resolveNotificationTimestamp(): string
 {
     static $timezone = null;
     if ($timezone === null) {
-        $configured = $_ENV['APP_TIMEZONE'] ?? 'Asia/Kuala_Lumpur';
+        $configured = $_ENV['APP_TIMEZONE'] ?? getenv('APP_TIMEZONE') ?? '';
+        $name = is_string($configured) && trim($configured) !== '' ? trim($configured) : 'Asia/Kuala_Lumpur';
         try {
-            $timezone = new DateTimeZone($configured);
+            $timezone = new DateTimeZone($name);
         } catch (Throwable) {
             $timezone = new DateTimeZone('UTC');
         }

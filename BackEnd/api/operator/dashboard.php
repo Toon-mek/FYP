@@ -25,6 +25,7 @@ if ($operatorId <= 0) {
 try {
   $pdo = require __DIR__ . '/../../config/db.php';
   ensureVisibilityStateColumn($pdo);
+  ensureListingUpdatedAtColumn($pdo);
 } catch (Throwable $e) {
   http_response_code(500);
   echo json_encode(['error' => 'Database unavailable']);
@@ -38,7 +39,9 @@ function resolveAppTimezone(): DateTimeZone
     return $timezone;
   }
 
-  $name = $_ENV['APP_TIMEZONE'] ?? getenv('APP_TIMEZONE') ?? 'Asia/Kuala_Lumpur';
+  $configured = $_ENV['APP_TIMEZONE'] ?? getenv('APP_TIMEZONE') ?? '';
+  $name = is_string($configured) && trim($configured) !== '' ? $configured : 'Asia/Kuala_Lumpur';
+
   try {
     $timezone = new DateTimeZone($name);
   } catch (Throwable) {
@@ -285,11 +288,12 @@ $listingSql = "
     bl.listingID,
     bl.businessName,
     bl.description,
-    bl.location,
     bl.status,
     bl.visibilityState,
     bl.submittedDate,
     bl.priceRange,
+    bl.location,
+    bl.updatedAt,
     lc.categoryName,
     lv.verificationStatus,
     lv.remarks,
@@ -324,7 +328,7 @@ foreach ($listingRows as $row) {
     'type' => $operatorProfile['businessType'] ?? 'Business',
     'status' => $row['status'] ?? 'Pending Review',
     'visibility' => normaliseVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
-    'lastUpdated' => formatDateTime($row['verifiedDate'] ?? $row['submittedDate']),
+    'lastUpdated' => formatDateTime($row['updatedAt'] ?? $row['verifiedDate'] ?? $row['submittedDate']),
     'contact' => [
       'phone' => $operatorProfile['contactNumber'] ?? null,
       'email' => $operatorProfile['email'] ?? null,
@@ -392,3 +396,29 @@ echo json_encode([
   'listings' => $listings,
   'mediaAssets' => $mediaAssets,
 ]);
+function ensureListingUpdatedAtColumn(PDO $pdo): void
+{
+  static $ensured = false;
+  if ($ensured) {
+    return;
+  }
+
+  try {
+    $pdo->query('SELECT updatedAt FROM BusinessListing LIMIT 1');
+    $ensured = true;
+    return;
+  } catch (Throwable) {
+    // column missing
+  }
+
+  try {
+    $pdo->exec(
+      "ALTER TABLE BusinessListing
+       ADD COLUMN updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+    );
+  } catch (Throwable) {
+    // ignore if unable to add
+  }
+
+  $ensured = true;
+}

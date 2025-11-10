@@ -1,6 +1,6 @@
 <script setup>
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { NButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
+import { NButton, NRadioGroup, NRadioButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
 import PaginatedTable from '../shared/PaginatedTable.vue'
 import { RefreshOutline } from '@vicons/ionicons5'
 import { resolveRoleTagType } from './RoleTagTypes.js'
@@ -243,20 +243,30 @@ const sessionHistoryRows = computed(() => {
   return rows.sort((a, b) => (b.loginTimestampValue ?? 0) - (a.loginTimestampValue ?? 0))
 })
 
-const statusOptions = computed(() => {
+const statusRadioOptions = computed(() => {
   if (userForm.type === 'Traveler' || userForm.type === 'Operator') {
-    const options = [
-      { label: 'Active', value: 'Active' },
-      { label: 'Suspended', value: 'Suspended' },
+    const currentStatus = userFormStatus.value
+    return [
+      {
+        label: 'Pending',
+        value: 'Pending',
+        disabled: currentStatus !== 'Pending', // Disable if not currently Pending
+      },
+      {
+        label: 'Active',
+        value: 'Active',
+        disabled: false, // Always enabled
+      },
+      {
+        label: 'Suspended',
+        value: 'Suspended',
+        disabled: currentStatus === 'Pending', // Disable if currently Pending
+      },
     ]
-    if (userForm.status === 'Pending') {
-      options.unshift({ label: 'Pending', value: 'Pending', disabled: true })
-    }
-    return options
   }
   return [
-    { label: 'Active', value: 'Active' },
-    { label: 'Inactive', value: 'Inactive' },
+    { label: 'Active', value: 'Active', disabled: false },
+    { label: 'Inactive', value: 'Inactive', disabled: false },
   ]
 })
 
@@ -292,8 +302,20 @@ const userColumns = [
     title: 'Status',
     key: 'status',
     render(row) {
-      const type = row.status === 'Active' ? 'success' : row.status === 'Pending' ? 'warning' : row.status === 'Suspended' ? 'error' : 'default'
-      return h(NTag, { size: 'small', type, bordered: false }, { default: () => row.status })
+      const statusValue = row.status || 'Unknown'
+      const type = statusValue === 'Active' ? 'success' : statusValue === 'Pending' ? 'warning' : statusValue === 'Suspended' ? 'error' : 'default'
+      return h(
+        NTag,
+        {
+          key: `status-${row.id}-${statusValue}`,
+          size: 'small',
+          type,
+          bordered: false,
+          style: 'cursor: pointer;',
+          onClick: () => openUserModal(row),
+        },
+        { default: () => statusValue },
+      )
     },
   },
   {
@@ -496,11 +518,11 @@ const sessionHistoryColumns = [
 
 const showUserModal = ref(false)
 const editingUserId = ref(null)
+const userFormStatus = ref('Active')
 const userForm = reactive({
   name: '',
   email: '',
   role: 'Traveler',
-  status: 'Pending',
   type: 'Traveler',
   phone: '',
   businessType: '',
@@ -512,7 +534,7 @@ function resetUserForm() {
   userForm.name = ''
   userForm.email = ''
   userForm.role = 'Traveler'
-  userForm.status = 'Pending'
+  userFormStatus.value = 'Active'
   userForm.type = 'Traveler'
   userForm.phone = ''
   userForm.businessType = ''
@@ -524,11 +546,11 @@ function resetUserForm() {
 function openUserModal(row) {
   if (row) {
     editingUserId.value = row.id
-    userForm.name = row.name
-    userForm.email = row.email
-    userForm.role = row.role
-    userForm.status = row.status
-    userForm.type = row.type
+    userForm.name = row.name || ''
+    userForm.email = row.email || ''
+    userForm.role = row.role || row.type || 'Traveler'
+    userFormStatus.value = row.status || null
+    userForm.type = row.type || 'Traveler'
     userForm.phone = row.phone || ''
     userForm.businessType = row.businessType || ''
     userForm.password = ''
@@ -600,7 +622,7 @@ async function saveUser() {
       type: userForm.type,
       name: userForm.name.trim(),
       email: userForm.email.trim(),
-      status: userForm.status,
+      status: userFormStatus.value,
       role: userForm.type === 'Admin' ? userForm.role : undefined,
       phone: userForm.type !== 'Admin' ? userForm.phone.trim() : undefined,
       businessType: userForm.type === 'Operator' ? userForm.businessType.trim() : undefined,
@@ -616,6 +638,7 @@ async function saveUser() {
     if (!response.ok || !data?.ok) {
       throw new Error(data?.error || 'Unable to save user')
     }
+
     showUserModal.value = false
     await fetchUsers()
     await fetchRoles()
@@ -672,7 +695,7 @@ watch(
   () => userForm.type,
   (type) => {
     if (!editingUserId.value) {
-      userForm.status = type === 'Traveler' || type === 'Operator' ? 'Pending' : 'Active'
+      userFormStatus.value = 'Active'
       if (type !== 'Admin') {
         userForm.role = type
       } else {
@@ -706,19 +729,16 @@ defineExpose({
     <n-card title="Account directory" :segmented="{ content: true }">
       <template #header-extra>
         <n-space size="small">
-          <n-select v-model:value="userTypeFilter" size="small" :options="userTypeFilterOptions" style="width: 150px;" />
+          <n-select v-model:value="userTypeFilter" size="small" :options="userTypeFilterOptions"
+            style="width: 150px;" />
           <n-select v-model:value="statusFilter" size="small" :options="statusFilterOptions" style="width: 150px;" />
-          <n-input v-model:value="userSearchTerm" size="small" clearable placeholder="Search name" style="width: 220px;" />
+          <n-input v-model:value="userSearchTerm" size="small" clearable placeholder="Search name"
+            style="width: 220px;" />
         </n-space>
       </template>
-      <PaginatedTable
-        v-model:page="page"
-        :columns="userColumns"
-        :rows="filteredUsers"
-        :loading="loadingUsers"
-        :page-size="pageSize"
-        :table-props="{ bordered: false, size: 'small' }"
-      >
+      <PaginatedTable v-model:page="page" :columns="userColumns" :rows="filteredUsers" :loading="loadingUsers"
+        :page-size="pageSize" :row-key="(row) => `${row.id || 'no-id'}-${row.email || 'no-email'}`"
+        :table-props="{ bordered: false, size: 'small' }">
         <template #range="{ start, end, total }">
           <n-text depth="3" style="font-size: 0.85rem;">
             Showing {{ total === 0 ? 0 : start }}
@@ -741,22 +761,20 @@ defineExpose({
           <n-text depth="3" style="font-size: 0.85rem;">
             {{ activeUsersCount }} active {{ activeUsersCount === 1 ? 'user' : 'users' }}
           </n-text>
-          <n-button quaternary circle size="small" :loading="refreshingSessions" :disabled="refreshingSessions" @click="refreshSessions" title="Refresh live sessions">
-            <n-icon :size="16">
-              <RefreshOutline />
-            </n-icon>
+          <n-button size="small" :loading="refreshingSessions" :disabled="refreshingSessions" @click="refreshSessions"
+            type="success" ghost>
+            <template #icon>
+              <n-icon :size="16">
+                <RefreshOutline />
+              </n-icon>
+            </template>
+            Refresh
           </n-button>
         </n-space>
       </template>
 
-      <n-data-table
-        size="small"
-        :columns="loginActivityColumns"
-        :data="loginActivityRows"
-        :bordered="false"
-        :loading="loadingUsers"
-        :row-key="(row) => row.key"
-      />
+      <n-data-table size="small" :columns="loginActivityColumns" :data="loginActivityRows" :bordered="false"
+        :loading="loadingUsers" :row-key="(row) => row.key" />
 
       <template #footer>
         <n-text depth="3" style="font-size: 0.75rem;">
@@ -766,16 +784,9 @@ defineExpose({
     </n-card>
 
     <n-card title="Recent session durations" :segmented="{ content: true }">
-      <PaginatedTable
-        :columns="sessionHistoryColumns"
-        :rows="sessionHistoryRows"
-        :page-size="SESSION_HISTORY_PAGE_SIZE"
-        :loading="loadingUsers"
-        :row-key="(row) => row.key"
-        :bordered="false"
-        :pagination-props="{ simple: true }"
-        :empty-message="'No session activity recorded yet.'"
-      >
+      <PaginatedTable :columns="sessionHistoryColumns" :rows="sessionHistoryRows" :page-size="SESSION_HISTORY_PAGE_SIZE"
+        :loading="loadingUsers" :row-key="(row) => row.key" :bordered="false" :pagination-props="{ simple: true }"
+        :empty-message="'No session activity recorded yet.'">
         <template #range="{ start, end, total }">
           <n-text depth="3" style="font-size: 0.75rem;">
             Showing {{ total === 0 ? 0 : start }} - {{ total === 0 ? 0 : end }} of {{ total }} session logs.
@@ -783,8 +794,9 @@ defineExpose({
         </template>
       </PaginatedTable>
     </n-card>
-    
-    <n-modal v-model:show="showUserModal" preset="card" :title="editingUserId ? 'Edit user' : 'Add user'" style="max-width: 480px; width: 100%;">
+
+    <n-modal v-model:show="showUserModal" preset="card" :title="editingUserId ? 'Edit user' : 'Add user'"
+      style="max-width: 480px; width: 100%;">
       <n-form label-placement="top">
         <n-form-item label="Account type">
           <template v-if="editingUserId">
@@ -815,8 +827,13 @@ defineExpose({
         <n-form-item v-if="userForm.type === 'Admin'" label="Role">
           <n-select v-model:value="userForm.role" :options="roleOptions" placeholder="Select role" />
         </n-form-item>
-        <n-form-item label="Status">
-          <n-select v-model:value="userForm.status" :options="statusOptions" />
+        <n-form-item v-if="editingUserId" label="Status">
+          <n-radio-group v-model:value="userFormStatus" button-style="solid">
+            <n-radio-button v-for="option in statusRadioOptions" :key="option.value" :value="option.value"
+              :disabled="option.disabled">
+              {{ option.label }}
+            </n-radio-button>
+          </n-radio-group>
         </n-form-item>
       </n-form>
       <template #footer>
@@ -840,10 +857,12 @@ defineExpose({
     opacity: 0.35;
     transform: translateY(4px);
   }
+
   50% {
     opacity: 1;
     transform: translateY(0);
   }
+
   100% {
     opacity: 0.9;
     transform: translateY(0);

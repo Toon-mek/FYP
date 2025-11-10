@@ -9,7 +9,10 @@ import {
   NForm,
   NFormItem,
   NInput,
+  NList,
+  NListItem,
   NModal,
+  NScrollbar,
   NSelect,
   NSpace,
   NTag,
@@ -32,9 +35,27 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  removalHistory: {
+    type: Array,
+    default: () => [],
+  },
+  removalHistoryLoading: {
+    type: Boolean,
+    default: false,
+  },
+  removalHistoryError: {
+    type: String,
+    default: null,
+  },
 })
 
-const emit = defineEmits(['update:listings', 'operator-updated'])
+const emit = defineEmits([
+  'update:listings',
+  'operator-updated',
+  'request-removal-history',
+  'clear-removal-history-error',
+  'listing-touched',
+])
 
 const listingItems = ref([])
 const pageSize = 5
@@ -43,6 +64,26 @@ const paginatedListings = computed(() => {
   const start = (currentPage.value - 1) * pageSize
   return listingItems.value.slice(start, start + pageSize)
 })
+const removalHistoryEntries = computed(() =>
+  Array.isArray(props.removalHistory) ? props.removalHistory : [],
+)
+const removalHistoryPageSize = 3
+const removalHistoryPage = ref(1)
+const paginatedRemovalHistory = computed(() => {
+  const start = (removalHistoryPage.value - 1) * removalHistoryPageSize
+  return removalHistoryEntries.value.slice(start, start + removalHistoryPageSize)
+})
+watch(
+  () => removalHistoryEntries.value.length,
+  () => {
+    const maxPage = Math.max(1, Math.ceil(removalHistoryEntries.value.length / removalHistoryPageSize))
+    if (removalHistoryPage.value > maxPage) {
+      removalHistoryPage.value = maxPage
+    }
+  },
+)
+const removalHistoryError = computed(() => props.removalHistoryError)
+const removalHistoryLoading = computed(() => props.removalHistoryLoading)
 watch(
   () => listingItems.value.length,
   () => {
@@ -65,6 +106,7 @@ const isListingSaving = ref(false)
 const previewModalVisible = ref(false)
 const previewListing = ref(null)
 const editModalVisible = ref(false)
+const historyModalVisible = ref(false)
 const editForm = reactive({
   id: null,
   name: '',
@@ -108,6 +150,24 @@ const listingMetaStyle = {
 
 function formatVisibilityLabel(visibility) {
   return visibility === 'Visible' ? 'Visible' : 'Hidden'
+}
+
+function handleOpenRemovalHistory() {
+  historyModalVisible.value = true
+  emit('request-removal-history')
+}
+
+function handleClearRemovalHistoryError() {
+  emit('clear-removal-history-error')
+}
+
+function formatHistoryDate(value) {
+  if (!value) return '—'
+  try {
+    return new Date(value).toLocaleString()
+  } catch {
+    return value
+  }
 }
 
 function emitListingsUpdate(list) {
@@ -519,6 +579,16 @@ async function deleteListing(listing) {
         Control visibility, update contact details, or remove listings. Each action mirrors the Manage Business Listing use case from your documentation.
       </n-text>
 
+      <div class="removal-history-callout">
+        <div>
+          <div class="removal-history-callout__title">Removed listings history</div>
+          <n-text depth="3">
+            Review which listings administrators removed along with the date and reason. Entries are kept as read-only snapshots.
+          </n-text>
+        </div>
+        <n-button size="small" type="primary" @click="handleOpenRemovalHistory">View history</n-button>
+      </div>
+
       <n-alert
         v-if="listingActionError"
         type="error"
@@ -541,6 +611,86 @@ async function deleteListing(listing) {
       <n-empty v-else description="No listings yet. Submit a business profile to get started." style="margin-top: 16px;" />
     </n-card>
   </n-space>
+
+  <n-modal
+    v-model:show="historyModalVisible"
+    preset="card"
+    title="Removed listings history"
+    :style="{ maxWidth: '640px', width: '100%' }"
+    :header-style="{ borderBottom: 'none' }"
+    :content-style="{ paddingTop: '0' }"
+  >
+    <n-space vertical size="medium">
+      <n-text depth="3">
+        Listings removed by administrators stay archived here so you can revisit the details and the reason they were taken down.
+      </n-text>
+      <n-alert
+        v-if="removalHistoryError"
+        type="error"
+        closable
+        @close="handleClearRemovalHistoryError"
+      >
+        {{ removalHistoryError }}
+      </n-alert>
+      <n-alert
+        v-else-if="removalHistoryLoading"
+        type="info"
+      >
+        Fetching removal history…
+      </n-alert>
+      <n-empty
+        v-else-if="!removalHistoryEntries.length"
+        description="No listings have been removed yet."
+      />
+      <template v-else>
+        <div class="removal-history-list">
+          <n-list bordered :show-divider="false">
+            <n-list-item
+              v-for="entry in paginatedRemovalHistory"
+              :key="entry.id ?? entry.listingId"
+            >
+              <div class="removal-history-card">
+                <div class="removal-history-card__header">
+                  <div>
+                    <div class="removal-history-card__title">{{ entry.businessName }}</div>
+                    <n-text depth="3" v-if="entry.location || entry.details?.address">
+                      {{ entry.location || entry.details?.address }}
+                    </n-text>
+                  </div>
+                  <div class="removal-history-card__badges">
+                    <n-tag size="small" type="error" bordered>Removed</n-tag>
+                    <n-tag size="small" type="info" v-if="entry.category" bordered>{{ entry.category }}</n-tag>
+                  </div>
+                </div>
+                <n-text depth="3" class="removal-history-card__description">
+                  {{ entry.details?.description || 'No description captured for this listing.' }}
+                </n-text>
+                <n-alert type="warning" size="small" class="removal-history-card__reason" v-if="entry.removalReason">
+                  <strong>Reason:</strong> {{ entry.removalReason }}
+                </n-alert>
+                <n-text depth="3">
+                  Removed {{ formatHistoryDate(entry.removedAt) }}
+                  <template v-if="entry.removedBy"> by {{ entry.removedBy }}</template>
+                </n-text>
+              </div>
+            </n-list-item>
+          </n-list>
+        </div>
+        <n-space justify="end" style="margin-top: 12px;">
+          <SimplePagination
+            v-model:page="removalHistoryPage"
+            :page-size="removalHistoryPageSize"
+            :item-count="removalHistoryEntries.length"
+          />
+        </n-space>
+      </template>
+    </n-space>
+    <template #footer>
+      <n-space justify="end">
+        <n-button type="primary" @click="historyModalVisible = false">Close</n-button>
+      </n-space>
+    </template>
+  </n-modal>
 
   <n-modal
     v-model:show="previewModalVisible"
@@ -642,5 +792,64 @@ async function deleteListing(listing) {
 
 .preview-row span:last-child {
   flex: 1;
+}
+
+.removal-history-callout {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.removal-history-callout__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.removal-history-list {
+  display: flex;
+  gap: 12px;
+}
+
+.removal-history-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.02);
+}
+
+.removal-history-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.removal-history-card__title {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.removal-history-card__badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.removal-history-card__description {
+  white-space: pre-line;
+}
+
+.removal-history-card__reason :deep(.n-alert__body) {
+  padding: 4px 0;
 }
 </style>

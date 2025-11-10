@@ -7,6 +7,7 @@ header('Access-Control-Allow-Methods: GET, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
 
 require_once __DIR__ . '/../helpers/notifications.php';
+require_once __DIR__ . '/../helpers/listing_history.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -17,6 +18,8 @@ try {
     /** @var PDO $pdo */
     $pdo = require __DIR__ . '/../../config/db.php';
     ensureVisibilityStateColumn($pdo);
+    ensureListingRemovalHistoryTable($pdo);
+    ensureListingUpdatedAtColumn($pdo);
 } catch (Throwable) {
     http_response_code(500);
     echo json_encode(['error' => 'Database unavailable']);
@@ -176,7 +179,11 @@ function handleDelete(PDO $pdo): void
     }
 
     $stmt = $pdo->prepare(
-        'SELECT listingID, operatorID, businessName FROM BusinessListing WHERE listingID = :listingId LIMIT 1'
+        'SELECT bl.*, cat.categoryName
+         FROM BusinessListing bl
+         LEFT JOIN ListingCategory cat ON cat.categoryID = bl.categoryID
+         WHERE bl.listingID = :listingId
+         LIMIT 1'
     );
     $stmt->execute([':listingId' => $listingId]);
     $listing = $stmt->fetch();
@@ -189,6 +196,8 @@ function handleDelete(PDO $pdo): void
 
     try {
         $pdo->beginTransaction();
+
+        archiveListingRemoval($pdo, $listing, $adminId > 0 ? $adminId : null, $reason);
 
         $delete = $pdo->prepare('DELETE FROM BusinessListing WHERE listingID = :listingId');
         $delete->execute([':listingId' => $listingId]);
@@ -306,6 +315,33 @@ function ensureVisibilityStateColumn(PDO $pdo): void
     } catch (Throwable) {
         // ignore
     }
+}
+
+function ensureListingUpdatedAtColumn(PDO $pdo): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    try {
+        $pdo->query('SELECT updatedAt FROM BusinessListing LIMIT 1');
+        $checked = true;
+        return;
+    } catch (Throwable) {
+        // column missing
+    }
+
+    try {
+        $pdo->exec(
+            "ALTER TABLE BusinessListing
+             ADD COLUMN updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        );
+    } catch (Throwable) {
+        // ignore if unable to add
+    }
+
+    $checked = true;
 }
 
 function formatDateString(?string $value): ?string

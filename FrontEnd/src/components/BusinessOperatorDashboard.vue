@@ -28,6 +28,7 @@ import BusinessOperatorGuidelines from "./BusinessOperatorGuidelines.vue"
 import BusinessOperatorManageListings from "./BusinessOperatorManageListings.vue"
 import BusinessOperatorMediaManager from "./BusinessOperatorMediaManager.vue"
 import BusinessOperatorUploadInfo from "./BusinessOperatorUploadInfo.vue"
+import SimplePagination from "./shared/SimplePagination.vue"
 import { extractProfileImage } from "../utils/profileImage.js"
 import NotificationCenter from "./NotificationCenter.vue"
 import { notificationFeedSymbol, useNotificationFeed } from "../composables/useNotificationFeed.js"
@@ -73,6 +74,15 @@ const lastLoadedOperatorId = ref(null)
 
 const listings = ref([])
 const mediaLibrary = ref([])
+const removalHistory = ref([])
+const isRemovalHistoryLoading = ref(false)
+const removalHistoryError = ref(null)
+const lastRemovalHistoryOperatorId = ref(null)
+const operatorListingTouches = ref({})
+const RECENT_ACTIVITY_PAGE_SIZE = 3
+const recentActivityPage = ref(1)
+const storageAvailable =
+  typeof window !== "undefined" && typeof window.localStorage !== "undefined"
 
 function normaliseOperatorId(value) {
   if (value == null) {
@@ -204,6 +214,11 @@ const currentOperatorId = computed(
     ),
 )
 
+const listingTouchStorageKey = computed(() => {
+  const id = normaliseOperatorId(currentOperatorId.value)
+  return id ? `operator:${id}:listingTouches` : null
+})
+
 watch(
   currentOperatorId,
   (operatorId) => {
@@ -217,6 +232,32 @@ watch(
     }
     if (normalizedId !== lastLoadedOperatorId.value) {
       loadOperatorDashboard(normalizedId)
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  currentOperatorId,
+  () => {
+    removalHistory.value = []
+    lastRemovalHistoryOperatorId.value = null
+  },
+  { immediate: false },
+)
+
+watch(
+  listingTouchStorageKey,
+  (key) => {
+    if (!storageAvailable || !key) {
+      operatorListingTouches.value = {}
+      return
+    }
+    try {
+      const raw = window.localStorage.getItem(key)
+      operatorListingTouches.value = raw ? JSON.parse(raw) : {}
+    } catch {
+      operatorListingTouches.value = {}
     }
   },
   { immediate: true },
@@ -424,7 +465,86 @@ const summaryCards = computed(() => [
   },
 ])
 
-const recentListings = computed(() => listings.value.slice(0, 3))
+const recentActivityEntries = computed(() => {
+  const normalizeTimestamp = (value, fallbackIndex) => {
+    if (!value) {
+      return { raw: null, order: -fallbackIndex }
+    }
+    const ms = Date.parse(value)
+    if (Number.isNaN(ms)) {
+      return { raw: value, order: -fallbackIndex }
+    }
+    return { raw: value, order: ms }
+  }
+
+  const activeEntries = listings.value.map((listing, index) => {
+    const listingId = extractListingId(listing) ?? listing.id ?? `listing-${index}`
+    const overrideTimestamp = operatorListingTouches.value[listingId] ?? null
+    const baseTimestamp =
+      listing.lastUpdated ??
+      listing.lastUpdatedDisplay ??
+      listing.submittedDate ??
+      listing.createdAt ??
+      null
+    const timestamp = resolveEffectiveTimestamp(listingId, baseTimestamp, overrideTimestamp)
+    const normalizedTimestamp = normalizeTimestamp(timestamp, index)
+    return {
+      id: listingId,
+      listingId,
+      name: listing.name ?? listing.businessName ?? "Untitled listing",
+      category: listing.category ?? listing.type ?? "Uncategorised",
+      address: listing.address ?? listing.location ?? "",
+      status: listing.status ?? "Pending Review",
+      statusType: resolveStatusTagType(listing.status),
+      timestamp: normalizedTimestamp.raw,
+      timestampOrder: normalizedTimestamp.order,
+      timestampLabel: overrideTimestamp || listing.lastUpdated ? "Updated" : "Submitted",
+      reason: null,
+      isRemoved: false,
+    }
+  })
+
+  const historyEntries = removalHistory.value.map((entry, index) => {
+    const normalizedTimestamp = normalizeTimestamp(entry.removedAt, index)
+    return {
+      id: entry.id ?? entry.listingId ?? `removed-${index}`,
+      listingId: entry.listingId ?? entry.id ?? `removed-${index}`,
+      name: entry.businessName ?? "Archived listing",
+      category: entry.category ?? "Uncategorised",
+      address: entry.location ?? entry.details?.address ?? "",
+      status: "Removed",
+      statusType: "error",
+      timestamp: normalizedTimestamp.raw,
+      timestampOrder: normalizedTimestamp.order,
+      timestampLabel: "Removed",
+      reason: entry.removalReason ?? "",
+      isRemoved: true,
+    }
+  })
+
+  return [...activeEntries, ...historyEntries].sort((a, b) => b.timestampOrder - a.timestampOrder)
+})
+
+const recentListings = computed(() => {
+  const start = (recentActivityPage.value - 1) * RECENT_ACTIVITY_PAGE_SIZE
+  return recentActivityEntries.value.slice(start, start + RECENT_ACTIVITY_PAGE_SIZE)
+})
+
+const recentActivityItemCount = computed(() => recentActivityEntries.value.length)
+
+watch(
+  () => recentActivityEntries.value.length,
+  (length) => {
+    if (length === 0) {
+      recentActivityPage.value = 1
+      return
+    }
+    const maxPage = Math.max(1, Math.ceil(length / RECENT_ACTIVITY_PAGE_SIZE))
+    if (recentActivityPage.value > maxPage) {
+      recentActivityPage.value = maxPage
+    }
+  },
+)
 
 const sampleEntryModalVisible = ref(false)
 const sampleMediaModalVisible = ref(false)
@@ -477,6 +597,72 @@ const quickActions = computed(() => {
   return []
 })
 
+function persistListingTouches() {
+  const key = listingTouchStorageKey.value
+  if (!storageAvailable || !key) {
+    return
+  }
+  try {
+    window.localStorage.setItem(key, JSON.stringify(operatorListingTouches.value))
+  } catch {
+    /* ignore storage failures */
+  }
+}
+
+function recordListingTouch(listingId, timestamp = new Date().toISOString()) {
+  if (!listingId) return
+  operatorListingTouches.value = {
+    ...(operatorListingTouches.value ?? {}),
+    [listingId]: timestamp,
+  }
+  persistListingTouches()
+}
+
+function removeListingTouch(listingId) {
+  if (!listingId || !operatorListingTouches.value?.[listingId]) {
+    return
+  }
+  const next = { ...(operatorListingTouches.value ?? {}) }
+  delete next[listingId]
+  operatorListingTouches.value = next
+  persistListingTouches()
+}
+
+function resolveEffectiveTimestamp(listingId, baseTimestamp, overrideTimestamp) {
+  if (!overrideTimestamp) {
+    return baseTimestamp
+  }
+
+  const overrideMs = Date.parse(overrideTimestamp)
+  if (Number.isNaN(overrideMs)) {
+    removeListingTouch(listingId)
+    return baseTimestamp
+  }
+
+  const baseMs = baseTimestamp ? Date.parse(baseTimestamp) : Number.NaN
+  if (Number.isNaN(baseMs) || overrideMs > baseMs) {
+    return overrideTimestamp
+  }
+
+  // backend timestamp is newer or equal, discard stale override
+  removeListingTouch(listingId)
+  return baseTimestamp
+}
+
+function handleListingTouched(payload) {
+  if (!payload) return
+  const listingId = payload.listingId ?? extractListingId(payload.listing ?? null)
+  const timestamp = payload.timestamp ?? new Date().toISOString()
+  if (!listingId) return
+
+  if (payload.removed) {
+    removeListingTouch(listingId)
+    return
+  }
+
+  recordListingTouch(listingId, timestamp)
+}
+
 function handleMenuSelect(section) {
   goToSection(section)
 }
@@ -506,6 +692,10 @@ function handleListingCreated(listing) {
     normalized,
     ...listings.value.filter((item) => extractListingId(item) !== extractListingId(normalized)),
   ]
+  const listingId = extractListingId(normalized) ?? normalized.id ?? null
+  if (listingId) {
+    recordListingTouch(listingId, normalized.lastUpdated ?? new Date().toISOString())
+  }
 }
 
 function handleOperatorUpdated(patch) {
@@ -534,6 +724,92 @@ function handleOperatorNavigate(event) {
   const section = resolveSectionFromHash(detail)
   if (section) {
     goToSection(section)
+  }
+}
+
+function formatReadableDate(value) {
+  if (!value) return "-"
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(value))
+  } catch {
+    return value
+  }
+}
+
+function resolveStatusTagType(status) {
+  if (!status || typeof status !== "string") {
+    return "default"
+  }
+  const normalized = status.toLowerCase()
+  if (["approved", "active", "visible", "published"].includes(normalized)) {
+    return "success"
+  }
+  if (["pending", "pending review", "submitted", "under review"].includes(normalized)) {
+    return "warning"
+  }
+  if (["rejected", "removed", "hidden"].includes(normalized)) {
+    return "error"
+  }
+  return "info"
+}
+
+async function handleRemovalHistoryRequest() {
+  const targetId = normaliseOperatorId(currentOperatorId.value)
+  if (!targetId) {
+    removalHistoryError.value = "Unable to determine the active operator account."
+    return
+  }
+  await loadRemovalHistory(targetId)
+}
+
+function clearRemovalHistoryError() {
+  removalHistoryError.value = null
+}
+
+async function loadRemovalHistory(operatorId, options = {}) {
+  const { silent = false } = options
+  const targetId = normaliseOperatorId(operatorId)
+  if (!targetId) {
+    if (!silent) {
+      removalHistoryError.value = "Unable to determine the active operator account."
+    }
+    return
+  }
+  if (
+    isRemovalHistoryLoading.value ||
+    (silent && lastRemovalHistoryOperatorId.value === targetId && removalHistory.value.length)
+  ) {
+    return
+  }
+
+  isRemovalHistoryLoading.value = true
+  if (!silent) {
+    removalHistoryError.value = null
+  }
+
+  try {
+    const response = await fetch(
+      `${API_BASE}/operator/listing_history.php?operatorId=${encodeURIComponent(targetId)}`,
+    )
+    const payload = await response
+      .json()
+      .catch(() => null)
+    if (!response.ok || !payload?.history || !Array.isArray(payload.history)) {
+      throw new Error(payload?.error || `Failed to load removal history (HTTP ${response.status})`)
+    }
+    removalHistory.value = payload.history
+    lastRemovalHistoryOperatorId.value = targetId
+    recentActivityPage.value = 1
+  } catch (error) {
+    if (!silent) {
+      removalHistoryError.value =
+        error instanceof Error ? error.message : "Unable to load removal history."
+    }
+  } finally {
+    isRemovalHistoryLoading.value = false
   }
 }
 
@@ -626,6 +902,7 @@ async function loadOperatorDashboard(operatorId) {
     }
 
     lastLoadedOperatorId.value = targetId
+    loadRemovalHistory(targetId, { silent: true }).catch(() => {})
   } catch (error) {
     dashboardError.value =
       error instanceof Error ? error.message : "Unable to load operator dashboard."
@@ -932,15 +1209,35 @@ function cryptoRandomId() {
                   <template v-if="recentListings.length">
                     <n-list bordered :show-divider="false">
                       <n-list-item v-for="item in recentListings" :key="item.id ?? item.listingId">
-                        <n-space justify="space-between" align="center" style="width: 100%;">
-                          <n-space vertical size="small">
-                            <span style="font-weight: 600;">{{ item.name }}</span>
-                            <n-text depth="3">{{ item.category }} - {{ item.address }}</n-text>
-                          </n-space>
-                          <n-tag type="info" size="small" bordered>{{ item.status }}</n-tag>
-                        </n-space>
+                        <div class="recent-entry">
+                          <div class="recent-entry__header">
+                            <div>
+                              <div class="recent-entry__title">{{ item.name }}</div>
+                              <n-text depth="3">{{ item.category }} · {{ item.address }}</n-text>
+                            </div>
+                            <n-tag size="small" :type="item.statusType" bordered>{{ item.status }}</n-tag>
+                          </div>
+                          <n-text depth="3">
+                            {{ item.timestampLabel }} {{ formatReadableDate(item.timestamp) }}
+                          </n-text>
+                          <n-alert
+                            v-if="item.reason"
+                            type="warning"
+                            size="small"
+                            class="recent-entry__reason"
+                          >
+                            <strong>Reason:</strong> {{ item.reason }}
+                          </n-alert>
+                        </div>
                       </n-list-item>
                     </n-list>
+                    <n-space justify="end" style="margin-top: 12px;">
+                      <SimplePagination
+                        v-model:page="recentActivityPage"
+                        :page-size="RECENT_ACTIVITY_PAGE_SIZE"
+                        :item-count="recentActivityItemCount"
+                      />
+                    </n-space>
                   </template>
                   <template v-else>
                     <n-empty description="No listings submitted yet." />
@@ -1024,7 +1321,13 @@ function cryptoRandomId() {
           :api-base="API_BASE"
           :operator-id="currentOperatorId"
           v-model:listings="listings"
+          :removal-history="removalHistory"
+          :removal-history-loading="isRemovalHistoryLoading"
+          :removal-history-error="removalHistoryError"
           @operator-updated="handleOperatorUpdated"
+          @request-removal-history="handleRemovalHistoryRequest"
+          @clear-removal-history-error="clearRemovalHistoryError"
+          @listing-touched="handleListingTouched"
         />
 
         <NotificationCenter
@@ -1193,6 +1496,27 @@ function cryptoRandomId() {
 
 .quick-action-item :deep(.n-button) {
   align-self: flex-start;
+}
+
+.recent-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recent-entry__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.recent-entry__title {
+  font-weight: 600;
+}
+
+.recent-entry__reason :deep(.n-alert__body) {
+  padding: 4px 0;
 }
 
 .dashboard-main {

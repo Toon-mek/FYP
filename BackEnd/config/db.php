@@ -16,6 +16,21 @@ $options = [
 
 try {
   $pdo = new PDO($dsn, $user, $pass, $options);
+$configuredTimezone = $_ENV['APP_TIMEZONE'] ?? getenv('APP_TIMEZONE') ?? '';
+$appTimezone = is_string($configuredTimezone) && trim($configuredTimezone) !== ''
+  ? trim($configuredTimezone)
+  : 'Asia/Kuala_Lumpur';
+  try {
+    $tz = new DateTimeZone($appTimezone);
+    $now = new DateTimeImmutable('now', $tz);
+    $offsetSeconds = $tz->getOffset($now);
+    $hours = intdiv($offsetSeconds, 3600);
+    $minutes = abs(intdiv($offsetSeconds % 3600, 60));
+    $formattedOffset = sprintf('%+03d:%02d', $hours, $minutes);
+    $pdo->exec(sprintf("SET time_zone = '%s'", $formattedOffset));
+  } catch (Throwable $e) {
+    // ignore if timezone cannot be set
+  }
 } catch (PDOException $e) {
   http_response_code(500);
   header('Content-Type: application/json');

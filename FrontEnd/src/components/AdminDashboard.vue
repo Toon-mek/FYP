@@ -484,7 +484,7 @@ const headerButtons = computed(() => {
       ]
     }
     default:
-      return [{ key: 'configure', label: 'Configure module', type: 'primary' }]
+      return []
   }
 })
 </script>

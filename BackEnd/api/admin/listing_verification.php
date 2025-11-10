@@ -17,6 +17,7 @@ try {
     /** @var PDO $pdo */
     $pdo = require __DIR__ . '/../../config/db.php';
     ensureVisibilityStateColumn($pdo);
+    ensureListingUpdatedAtColumn($pdo);
 } catch (Throwable) {
     http_response_code(500);
     echo json_encode(['error' => 'Database unavailable']);
@@ -215,8 +216,9 @@ function handleDecision(PDO $pdo): void
     try {
         $pdo->beginTransaction();
 
-        updateListingStatus($pdo, $listingId, $finalStatus, $visibilityState);
-        recordVerification($pdo, $adminId, $listingId, $finalStatus, $remarks);
+    updateListingStatus($pdo, $listingId, $finalStatus, $visibilityState);
+    touchListingUpdatedAt($pdo, $listingId);
+    recordVerification($pdo, $adminId, $listingId, $finalStatus, $remarks);
 
         if ($notifyOperator) {
             notifyOperator(
@@ -324,6 +326,33 @@ function ensureVisibilityStateColumn(PDO $pdo): void
     } catch (Throwable) {
         // Normalisation is best-effort.
     }
+}
+
+function ensureListingUpdatedAtColumn(PDO $pdo): void
+{
+    static $checked = false;
+    if ($checked) {
+        return;
+    }
+
+    try {
+        $pdo->query('SELECT updatedAt FROM BusinessListing LIMIT 1');
+        $checked = true;
+        return;
+    } catch (Throwable) {
+        // column missing
+    }
+
+    try {
+        $pdo->exec(
+            "ALTER TABLE BusinessListing
+             ADD COLUMN updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+        );
+    } catch (Throwable) {
+        // ignore if unable to add
+    }
+
+    $checked = true;
 }
 
 function fetchImages(PDO $pdo, array $listingIds): array
@@ -554,6 +583,16 @@ function notifyOperator(PDO $pdo, int $operatorId, string $listingName, string $
     $message = implode(' ', $messageParts);
 
     recordNotification($pdo, 'Operator', $operatorId, $title, $message);
+}
+
+function touchListingUpdatedAt(PDO $pdo, int $listingId): void
+{
+    try {
+        $stmt = $pdo->prepare('UPDATE BusinessListing SET updatedAt = NOW() WHERE listingID = :listingId');
+        $stmt->execute([':listingId' => $listingId]);
+    } catch (Throwable) {
+        // ignore best-effort touch
+    }
 }
 
 function mapDecisionToStatus(string $decision): ?string

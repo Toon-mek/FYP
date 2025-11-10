@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/../helpers/listing_history.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, PUT, PATCH, DELETE, OPTIONS');
@@ -32,6 +34,8 @@ try {
   /** @var PDO $pdo */
   $pdo = require __DIR__ . '/../../config/db.php';
   ensureVisibilityStateColumn($pdo);
+  ensureListingRemovalHistoryTable($pdo);
+  ensureListingUpdatedAtColumn($pdo);
 } catch (Throwable $e) {
   http_response_code(500);
   echo json_encode(['error' => 'Database unavailable']);
@@ -52,8 +56,9 @@ function formatDateTime(?string $value): ?string
   }
 
   try {
-    $dt = new DateTimeImmutable($value);
-    return $dt->format(DateTimeInterface::ATOM);
+    $tz = resolveAppTimezone();
+    $dt = new DateTimeImmutable($value, $tz);
+    return $dt->setTimezone($tz)->format(DateTimeInterface::ATOM);
   } catch (Throwable) {
     return null;
   }
@@ -81,6 +86,31 @@ function normaliseVisibility(?string $status, ?string $visibilityState = null): 
   }
 
   return $statusLower === 'hidden' ? 'Hidden' : 'Hidden';
+}
+
+function resolveAppTimezone(): DateTimeZone
+{
+  static $timezone = null;
+  if ($timezone instanceof DateTimeZone) {
+    return $timezone;
+  }
+
+  $configured = $_ENV['APP_TIMEZONE'] ?? getenv('APP_TIMEZONE') ?? '';
+  $name = is_string($configured) && trim($configured) !== '' ? trim($configured) : 'Asia/Kuala_Lumpur';
+
+  try {
+    $timezone = new DateTimeZone($name);
+  } catch (Throwable) {
+    $timezone = new DateTimeZone('UTC');
+  }
+
+  return $timezone;
+}
+
+function currentAppDate(): string
+{
+  $timezone = resolveAppTimezone();
+  return (new DateTimeImmutable('now', $timezone))->format('Y-m-d');
 }
 function normalisePriceRangeValue($value): ?string
 {
@@ -158,6 +188,63 @@ function ensureVisibilityStateColumn(PDO $pdo): void
   }
 }
 
+function ensureListingUpdatedAtColumn(PDO $pdo): void
+{
+  static $ensured = false;
+  if ($ensured) {
+    return;
+  }
+
+  try {
+    $pdo->query('SELECT updatedAt FROM BusinessListing LIMIT 1');
+    $ensured = true;
+    return;
+  } catch (Throwable) {
+    // column missing
+  }
+
+  try {
+    $pdo->exec(
+      "ALTER TABLE BusinessListing
+       ADD COLUMN updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+    );
+  } catch (Throwable) {
+    // ignore if unable to add
+  }
+
+  $ensured = true;
+}
+
+function fetchListingSnapshot(PDO $pdo, int $operatorId, int $listingId): ?array
+{
+  $stmt = $pdo->prepare(
+    'SELECT bl.*, cat.categoryName
+     FROM BusinessListing bl
+     LEFT JOIN ListingCategory cat ON cat.categoryID = bl.categoryID
+     WHERE bl.listingID = :listingId AND bl.operatorID = :operatorId
+     LIMIT 1'
+  );
+  $stmt->execute([':listingId' => $listingId, ':operatorId' => $operatorId]);
+  $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+  if (!$row) {
+    return null;
+  }
+
+  return [
+    'listingID' => (int) $row['listingID'],
+    'operatorID' => (int) $row['operatorID'],
+    'businessName' => $row['businessName'],
+    'categoryName' => $row['categoryName'],
+    'location' => $row['location'],
+    'priceRange' => $row['priceRange'],
+    'status' => $row['status'],
+    'visibilityState' => $row['visibilityState'],
+    'description' => $row['description'],
+    'submittedDate' => $row['submittedDate'],
+  ];
+}
+
 function fetchOperator(PDO $pdo, int $operatorId): ?array
 {
   $stmt = $pdo->prepare(
@@ -217,6 +304,7 @@ function fetchListing(PDO $pdo, int $operatorId, int $listingId, array $operator
       bl.status,
       bl.visibilityState,
       bl.submittedDate,
+      bl.updatedAt,
       bl.priceRange,
       lc.categoryName
     FROM BusinessListing bl
@@ -240,7 +328,8 @@ function fetchListing(PDO $pdo, int $operatorId, int $listingId, array $operator
     'type' => $operatorProfile['businessType'] ?? 'Business',
     'status' => $row['status'] ?? 'Pending Review',
     'visibility' => normaliseVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
-    'lastUpdated' => formatDateTime($row['submittedDate']),
+    'lastUpdated' => formatDateTime($row['updatedAt'] ?? $row['submittedDate']),
+    'submittedDate' => formatDateTime($row['submittedDate']),
     'contact' => [
       'phone' => $operatorProfile['contactNumber'] ?? '',
       'email' => $operatorProfile['email'] ?? '',
@@ -315,7 +404,7 @@ function handleCreate(PDO $pdo, array $payload): void
       ':priceRange' => $priceRange,
       ':visibilityState' => 'Hidden',
       ':status' => 'Pending Review',
-      ':submittedDate' => date('Y-m-d'),
+      ':submittedDate' => currentAppDate(),
     ]);
 
     $listingId = (int) $pdo->lastInsertId();
@@ -459,6 +548,8 @@ function handleDelete(PDO $pdo, array $payload): void
     respond(400, ['error' => 'operatorId and listingId are required.']);
   }
 
+  $snapshot = fetchListingSnapshot($pdo, $operatorId, $listingId);
+
   $stmt = $pdo->prepare(
     'DELETE FROM BusinessListing WHERE listingID = :listingId AND operatorID = :operatorId'
   );
@@ -466,6 +557,10 @@ function handleDelete(PDO $pdo, array $payload): void
 
   if ($stmt->rowCount() === 0) {
     respond(404, ['error' => 'Listing not found for this operator.']);
+  }
+
+  if ($snapshot) {
+    archiveListingRemoval($pdo, $snapshot, null, 'Removed by operator');
   }
 
   respond(200, ['ok' => true, 'deleted' => true, 'message' => 'Listing removed from the platform.']);
