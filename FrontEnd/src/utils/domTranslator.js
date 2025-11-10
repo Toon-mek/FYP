@@ -2,6 +2,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const TRANSLATE_ENDPOINT = `${API_BASE.replace(/\/$/, '')}/external/translate.php`
 const STORAGE_PREFIX = 'mst-dom-translation-cache'
 const SKIP_PARENT_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'CODE', 'PRE'])
+const NO_TRANSLATE_SELECTOR = '[data-no-translate]'
 const MAX_CACHE_ENTRIES = 2000
 const MAX_CHUNK_SIZE = 80
 const MAX_CHUNK_CHARS = 3500
@@ -69,6 +70,23 @@ function schedulePersist(locale) {
   }, 250)
 }
 
+function isNodeExcluded(node) {
+  if (!node) {
+    return false
+  }
+  if (typeof Node === 'undefined') {
+    return false
+  }
+  if (!(node instanceof Node)) {
+    return false
+  }
+  const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+  if (!element) {
+    return false
+  }
+  return Boolean(element.closest(NO_TRANSLATE_SELECTOR))
+}
+
 function collectTextNodes(root) {
   if (!root) {
     return []
@@ -78,7 +96,7 @@ function collectTextNodes(root) {
   let current = walker.nextNode()
   while (current) {
     const parent = current.parentElement
-    if (parent && !SKIP_PARENT_TAGS.has(parent.tagName)) {
+    if (parent && !SKIP_PARENT_TAGS.has(parent.tagName) && !isNodeExcluded(parent)) {
       const textContent = current.textContent
       if (textContent && /\S/.test(textContent)) {
         nodes.push(current)
@@ -95,10 +113,50 @@ function ensureNodeRecord(node, locale) {
     record = {
       text: node.textContent ?? '',
       baseLocale: locale,
+      isTranslatorWriting: false,
+      lastTranslatedValue: node.textContent ?? '',
     }
     nodeRecords.set(node, record)
   }
   return record
+}
+
+function setNodeTextContent(node, record, value) {
+  if (!node) {
+    return
+  }
+  if (node.textContent === value) {
+    record.lastTranslatedValue = value
+    return
+  }
+  record.isTranslatorWriting = true
+  node.textContent = value
+  record.lastTranslatedValue = value
+  const resetFlag = () => {
+    record.isTranslatorWriting = false
+  }
+  if (typeof queueMicrotask === 'function') {
+    queueMicrotask(resetFlag)
+  } else {
+    Promise.resolve().then(resetFlag)
+  }
+}
+
+function handleTextMutation(node) {
+  if (!node || node.nodeType !== Node.TEXT_NODE) {
+    return false
+  }
+  const record = nodeRecords.get(node)
+  if (!record || record.isTranslatorWriting) {
+    return false
+  }
+  const current = node.textContent ?? ''
+  if (current === record.text) {
+    return false
+  }
+  record.text = current
+  record.baseLocale = 'en'
+  return true
 }
 
 function shouldTranslate(original) {
@@ -173,16 +231,13 @@ async function translateDocument(locale) {
     textNodes.forEach((node) => {
       const record = ensureNodeRecord(node, locale)
       const current = node.textContent ?? ''
-      if (record.baseLocale === 'en') {
+      if (record.baseLocale !== 'en') {
         if (current !== record.text) {
-          node.textContent = record.text
-        }
-      } else {
-        if (current !== record.text) {
-          // Assume current text reflects canonical English copy
-          record.text = current
+          setNodeTextContent(node, record, record.text)
         }
         record.baseLocale = 'en'
+      } else if (current !== record.text) {
+        record.text = current
       }
     })
     return
@@ -252,8 +307,9 @@ async function translateDocument(locale) {
     if (typeof translated === 'string' && translated !== '') {
       const adjusted = applySpacing(base, translated)
       if (node.textContent !== adjusted) {
-        node.textContent = adjusted
+        setNodeTextContent(node, record, adjusted)
       }
+      record.baseLocale = locale
     }
   })
 }
@@ -277,11 +333,17 @@ function attachObserver(locale) {
     observer.disconnect()
   }
   observer = new MutationObserver((mutations) => {
+    let shouldRefresh = false
     for (const mutation of mutations) {
-      if (mutation.type === 'childList' || mutation.type === 'characterData') {
-        scheduleObserver()
-        break
+      if (mutation.type === 'characterData') {
+        const updated = handleTextMutation(mutation.target)
+        shouldRefresh = shouldRefresh || updated
+      } else if (mutation.type === 'childList') {
+        shouldRefresh = true
       }
+    }
+    if (shouldRefresh) {
+      scheduleObserver()
     }
   })
   observer.observe(document.body, {
