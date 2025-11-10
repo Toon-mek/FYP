@@ -99,7 +99,16 @@ export function useNotificationFeed(options = {}) {
       }
 
       const body = await response.json().catch(() => ({}))
-      const list = Array.isArray(body.notifications) ? body.notifications : []
+      let list = Array.isArray(body.notifications) ? body.notifications : []
+      
+      // Filter out "Announcement Created" notifications for admins
+      if (recipientType.value === 'Admin') {
+        list = list.filter((item) => {
+          const title = String(item?.title || '').toLowerCase()
+          return !title.includes('announcement created')
+        })
+      }
+      
       notifications.value = list
       unreadCount.value = Number(body?.meta?.unreadCount ?? 0) || 0
       lastFetchedAt.value = new Date()

@@ -1,10 +1,11 @@
 <script setup>
 import { computed, h, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { NAvatar, NButton, NEmpty, NSpin, NSpace, NTag, NText, useMessage } from 'naive-ui'
+import { NAlert, NAvatar, NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpin, NSpace, NTag, NText, useMessage } from 'naive-ui'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
 import AdminCommunityModeration from './admin/AdminCommunityModeration.vue'
 import AdminListingVerification from './admin/AdminListingVerification.vue'
 import AdminNotificationOutbox from './admin/AdminNotificationOutbox.vue'
+import AdminAnalytics from './admin/AdminAnalytics.vue'
 import UserAndRole from './admin/UserAndRole.vue'
 import { notificationFeedSymbol, useNotificationFeed } from '../composables/useNotificationFeed.js'
 import { extractProfileImage } from '../utils/profileImage.js'
@@ -107,7 +108,7 @@ const menuOptions = [
       { key: 'notifications', label: 'Notifications & outreach' },
     ],
   },
-  { key: 'reports', label: 'System reports' },
+  { key: 'analytics', label: 'System Monitoring & Reports' },
   { key: 'settings', label: 'Platform settings' },
 ]
 
@@ -136,9 +137,9 @@ const moduleMeta = {
     title: 'Notifications & outreach',
     subtitle: 'Send broadcasts and manage platform-wide announcements',
   },
-  reports: {
-    title: 'System reports',
-    subtitle: 'Generate analytics snapshots for stakeholders',
+  analytics: {
+    title: 'System Monitoring and Reports',
+    subtitle: 'Generate usage reports and view real-time analytics',
   },
   settings: {
     title: 'Platform settings',
@@ -146,53 +147,11 @@ const moduleMeta = {
   },
 }
 
-const summaryCards = [
-  { key: 'travelers', label: 'Active travelers', value: '1,284', trendLabel: '+8.4% vs last month', trendType: 'success' },
-  { key: 'operators', label: 'Verified operators', value: '312', trendLabel: '+12 this week', trendType: 'success' },
-  { key: 'itineraries', label: 'Shared itineraries', value: '485', trendLabel: '23 awaiting review', trendType: 'warning' },
-  { key: 'reports', label: 'Open reports', value: '9', trendLabel: '2 critical items', trendType: 'error' },
-]
-
-const verificationProgress = { completed: 42, total: 60 }
-
-const pendingApprovals = ref([
-  {
-    key: 1,
-    company: 'Green Trails Sdn Bhd',
-    contact: 'Aisyah Rahman',
-    email: 'aisyah@greentrails.my',
-    submitted: '25 Oct 2025',
-    status: 'Background check',
-  },
-  {
-    key: 2,
-    company: 'Borneo Eco Dive',
-    contact: 'Daniel Lim',
-    email: 'daniel@borneo.eco',
-    submitted: '24 Oct 2025',
-    status: 'Awaiting documents',
-  },
-  {
-    key: 3,
-    company: 'Penang Heritage Walks',
-    contact: 'Mei Ling Tan',
-    email: 'meiling@heritagewalks.my',
-    submitted: '24 Oct 2025',
-    status: 'Ready for call',
-  },
-])
-
 const activityItems = ref([])
 const activityLoading = ref(false)
 const activityError = ref('')
 const activityLastFetched = ref(null)
 let activityRefreshHandle = null
-
-const quickActions = [
-  { key: 'create-report', label: 'Generate system report', type: 'primary' },
-  { key: 'review-guidelines', label: 'Update operator checklist', type: 'default' },
-  { key: 'broadcast', label: 'Send sustainability bulletin', type: 'default' },
-]
 
 function capitalize(value) {
   if (typeof value !== 'string' || value.length === 0) {
@@ -243,10 +202,56 @@ function formatRelativeTime(value) {
   return future ? `in ${label}` : `${label} ago`
 }
 
+const MALAYSIA_TIMEZONE = 'Asia/Kuala_Lumpur'
+
 function safeDate(value) {
   if (!value) return null
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? null : date
+  
+  // If it's already a Date object, return it
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+  
+  // If it's a number (timestamp), create Date from it
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  
+  // If it's a string, parse it assuming Malaysia timezone
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    
+    // If it already has timezone info, parse directly
+    if (trimmed.includes('Z') || trimmed.includes('+') || trimmed.includes('-') && /[+-]\d{2}:?\d{2}$/.test(trimmed)) {
+      const date = new Date(trimmed)
+      return Number.isNaN(date.getTime()) ? null : date
+    }
+    
+    // Otherwise, assume it's in Malaysia timezone and append timezone offset
+    // Malaysia is UTC+8
+    try {
+      // Try parsing as-is first
+      let date = new Date(trimmed)
+      if (!Number.isNaN(date.getTime())) {
+        // If the string doesn't have timezone, treat it as Malaysia local time
+        // We need to adjust for timezone difference
+        const malaysiaOffset = 8 * 60 // Malaysia is UTC+8 in minutes
+        const localOffset = date.getTimezoneOffset() // Local timezone offset in minutes
+        const offsetDiff = malaysiaOffset + localOffset // Difference in minutes
+        date = new Date(date.getTime() - offsetDiff * 60 * 1000)
+        return date
+      }
+    } catch (e) {
+      // Fallback to direct parsing
+    }
+    
+    const date = new Date(trimmed)
+    return Number.isNaN(date.getTime()) ? null : date
+  }
+  
+  return null
 }
 
 function mapCommunityStoryActivity(record) {
@@ -354,11 +359,11 @@ async function loadActivityStream(options = {}) {
     const errors = []
     results.forEach((result) => {
       if (result.status === 'fulfilled') {
-    aggregated.push(...result.value)
-  } else if (result.reason) {
-    errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
-  }
-})
+        aggregated.push(...result.value)
+      } else if (result.reason) {
+        errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason))
+      }
+    })
     if (errors.length) {
       activityError.value = errors.join(' ')
       if (!silent) {
@@ -367,24 +372,31 @@ async function loadActivityStream(options = {}) {
     } else {
       activityError.value = ''
     }
-    aggregated.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
-
-    const firstWithTime = aggregated.find((entry) => entry.timestamp instanceof Date)
-    if (firstWithTime && firstWithTime.timestamp) {
-      const drift = firstWithTime.timestamp.getTime() - Date.now()
-      if (drift > 60 * 60 * 1000) {
-        aggregated.forEach((entry) => {
-          if (entry.timestamp instanceof Date) {
-            entry.timestamp = new Date(entry.timestamp.getTime() - drift)
-          }
-        })
-      }
-    }
+    aggregated.sort((a, b) => {
+      const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : (typeof a.timestamp === 'number' ? a.timestamp : 0)
+      const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : (typeof b.timestamp === 'number' ? b.timestamp : 0)
+      return timeB - timeA
+    })
 
     activityItems.value = aggregated.slice(0, ACTIVITY_FETCH_LIMIT).map((item) => {
-      const displayTimestamp = item.timestamp
-        ? item.timestamp.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-        : ''
+      let displayTimestamp = ''
+      if (item.timestamp) {
+        try {
+          const date = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp)
+          if (!Number.isNaN(date.getTime())) {
+            displayTimestamp = date.toLocaleDateString('en-MY', {
+              timeZone: MALAYSIA_TIMEZONE,
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            })
+          }
+        } catch (e) {
+          displayTimestamp = item.timestamp instanceof Date 
+            ? item.timestamp.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+            : ''
+        }
+      }
       return {
         ...item,
         displayTimestamp: displayTimestamp || formatRelativeTime(item.timestamp),
@@ -453,36 +465,98 @@ const activeModule = ref('overview')
 const activeModuleMeta = computed(() => moduleMeta[activeModule.value] ?? moduleMeta.overview)
 const userModuleRef = ref(null)
 
+const announcementModal = ref({
+  visible: false,
+  loading: false,
+  title: '',
+  message: '',
+  error: '',
+})
+
 function handleMenuSelect(key) {
   activeModule.value = key
+}
+
+function openAnnouncementModal() {
+  announcementModal.value.visible = true
+  announcementModal.value.title = ''
+  announcementModal.value.message = ''
+  announcementModal.value.error = ''
+}
+
+function closeAnnouncementModal() {
+  announcementModal.value.visible = false
+  announcementModal.value.title = ''
+  announcementModal.value.message = ''
+  announcementModal.value.error = ''
+}
+
+async function submitAnnouncement() {
+  const title = (announcementModal.value.title || '').trim()
+  const message = (announcementModal.value.message || '').trim()
+
+  if (!title) {
+    announcementModal.value.error = 'Please enter a title for the announcement.'
+    return
+  }
+
+  if (!message) {
+    announcementModal.value.error = 'Please enter a message for the announcement.'
+    return
+  }
+
+  announcementModal.value.loading = true
+  announcementModal.value.error = ''
+
+  try {
+    const response = await fetch(`${API_BASE}/admin/announcements.php`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title,
+        message,
+        adminId: adminRecipientId.value,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.error || 'Failed to create announcement')
+    }
+
+    const result = await response.json()
+    // Use info method which is available, or create with success type
+    if (typeof message.create === 'function') {
+      message.create({
+        type: 'success',
+        content: 'Announcement created successfully! All users have been notified.',
+        duration: 3000,
+      })
+    } else if (typeof message.info === 'function') {
+      message.info('Announcement created successfully! All users have been notified.')
+    }
+    closeAnnouncementModal()
+
+    // Refresh notification feed to show the admin notification
+    if (adminNotificationFeed?.refreshNotifications) {
+      adminNotificationFeed.refreshNotifications()
+    }
+  } catch (error) {
+    console.error('Error creating announcement:', error)
+    announcementModal.value.error = error instanceof Error ? error.message : 'Failed to create announcement. Please try again.'
+  } finally {
+    announcementModal.value.loading = false
+  }
 }
 
 const headerButtons = computed(() => {
   switch (activeModule.value) {
     case 'overview':
       return [
-        { key: 'draft-announcement', label: 'Draft announcement', tertiary: true },
-        { key: 'schedule-review', label: 'Schedule review', type: 'primary' },
+        { key: 'draft-announcement', label: 'Draft announcement', tertiary: true, onClick: openAnnouncementModal },
       ]
-    case 'users': {
-      const refreshing = userModuleRef.value?.refreshingSessions?.value ?? false
-      return [
-        {
-          key: 'add-user',
-          label: 'Add user',
-          type: 'primary',
-          onClick: () => userModuleRef.value?.openUserModal?.(),
-        },
-        {
-          key: 'refresh-sessions',
-          label: 'Refresh sessions',
-          tertiary: true,
-          loading: refreshing,
-          disabled: refreshing,
-          onClick: () => userModuleRef.value?.refreshSessions?.(),
-        },
-      ]
-    }
     default:
       return []
   }
@@ -531,85 +605,24 @@ const headerButtons = computed(() => {
       <n-layout-content embedded style="padding: 24px;">
         <template v-if="activeModule === 'overview'">
           <n-space vertical size="large">
-            <n-grid cols="1 m:2 l:4" :x-gap="16" :y-gap="16">
-              <n-grid-item v-for="card in summaryCards" :key="card.key">
-                <n-card size="medium" :segmented="{ content: true, footer: false }">
-                  <n-space vertical size="small">
-                    <n-text depth="3">{{ card.label }}</n-text>
-                    <span style="font-size: 2rem; font-weight: 600;">{{ card.value }}</span>
-                    <n-tag :type="card.trendType" size="small" bordered>{{ card.trendLabel }}</n-tag>
-                  </n-space>
-                </n-card>
-              </n-grid-item>
-            </n-grid>
-
-            <n-grid cols="1 m:3" :x-gap="16" :y-gap="16">
-              <n-grid-item span="1 m:2">
-                <n-card title="Pending operator approvals" :segmented="{ content: true }">
-                  <n-data-table size="small" :columns="approvalColumns" :data="pendingApprovals" :bordered="false" />
-                </n-card>
-              </n-grid-item>
-              <n-grid-item>
-                <n-space vertical size="large">
-                  <n-card title="Verification throughput" :segmented="{ content: true }">
-                    <n-space vertical size="small">
-                      <span style="font-size: 2.2rem; font-weight: 600;">
-                        {{ Math.round((verificationProgress.completed / verificationProgress.total) * 100) }}%
-                      </span>
-                      <n-text depth="3">
-                        {{ verificationProgress.completed }} of {{ verificationProgress.total }} check-ins completed
-                        this week
-                      </n-text>
-                      <n-progress type="line"
-                        :percentage="Math.round((verificationProgress.completed / verificationProgress.total) * 100)"
-                        indicator-placement="inside" processing />
-                    </n-space>
-                  </n-card>
-                  <n-card title="Quick actions" :segmented="{ content: true }">
-                    <n-space vertical>
-                      <n-button v-for="action in quickActions" :key="action.key" :type="action.type" block>
-                        {{ action.label }}
-                      </n-button>
-                    </n-space>
-                  </n-card>
-                </n-space>
-              </n-grid-item>
-            </n-grid>
-
             <n-card title="Community activity stream" :segmented="{ content: true }">
               <template #header-extra>
                 <n-space align="center" size="small">
-                  <n-text
-                    v-if="activityLastUpdatedLabel"
-                    depth="3"
-                    style="font-size: 0.85rem;"
-                  >
+                  <n-text v-if="activityLastUpdatedLabel" depth="3" style="font-size: 0.85rem;">
                     Updated {{ activityLastUpdatedLabel }}
                   </n-text>
-                  <n-button
-                    size="small"
-                    quaternary
-                    :loading="activityLoading"
-                    @click="loadActivityStream()"
-                  >
+                  <n-button size="small" quaternary :loading="activityLoading" @click="loadActivityStream()">
                     Refresh
                   </n-button>
                 </n-space>
               </template>
               <n-spin :show="activityLoading">
-                <n-alert
-                  v-if="activityError"
-                  type="error"
-                  style="margin-bottom: 12px;"
-                  closable
-                  @close="activityError = ''"
-                >
+                <n-alert v-if="activityError" type="error" style="margin-bottom: 12px;" closable
+                  @close="activityError = ''">
                   {{ activityError }}
                 </n-alert>
-                <n-empty
-                  v-if="!activityLoading && !activityError && !activityItems.length"
-                  description="No recent community activity recorded."
-                />
+                <n-empty v-if="!activityLoading && !activityError && !activityItems.length"
+                  description="No recent community activity recorded." />
                 <template v-else-if="activityItems.length">
                   <n-list bordered :show-divider="false">
                     <n-list-item v-for="item in activityItems" :key="item.id">
@@ -617,7 +630,8 @@ const headerButtons = computed(() => {
                         <n-space vertical size="small">
                           <span style="font-weight: 600;">
                             {{ item.actor }}
-                            <n-tag v-if="item.category" size="tiny" type="info" style="margin-left: 8px;" :bordered="false">
+                            <n-tag v-if="item.category" size="tiny" type="info" style="margin-left: 8px;"
+                              :bordered="false">
                               {{ item.category }}
                             </n-tag>
                           </span>
@@ -655,6 +669,10 @@ const headerButtons = computed(() => {
           <UserAndRole ref="userModuleRef" :current-admin-id="props.currentAdminId" />
         </template>
 
+        <template v-else-if="activeModule === 'analytics'">
+          <AdminAnalytics />
+        </template>
+
         <template v-else>
           <n-card title="Module workspace" :segmented="{ content: true }">
             <n-space vertical size="large">
@@ -668,4 +686,35 @@ const headerButtons = computed(() => {
       </n-layout-content>
     </n-layout>
   </n-layout>
+
+  <!-- Announcement Modal -->
+  <n-modal v-model:show="announcementModal.visible" preset="card" title="Draft Announcement" :mask-closable="false"
+    :closable="!announcementModal.loading" style="max-width: 600px; width: 100%;">
+    <n-form>
+      <n-form-item label="Title" required>
+        <n-input v-model:value="announcementModal.title" placeholder="Enter announcement title"
+          :disabled="announcementModal.loading" :maxlength="120" show-count />
+      </n-form-item>
+      <n-form-item label="Message" required>
+        <n-input v-model:value="announcementModal.message" type="textarea" placeholder="Enter announcement message"
+          :disabled="announcementModal.loading" :rows="6" :maxlength="2000" show-count />
+      </n-form-item>
+    </n-form>
+
+    <n-alert v-if="announcementModal.error" type="error" style="margin-top: 16px;" closable
+      @close="announcementModal.error = ''">
+      {{ announcementModal.error }}
+    </n-alert>
+
+    <template #footer>
+      <n-space justify="end">
+        <n-button :disabled="announcementModal.loading" @click="closeAnnouncementModal">
+          Cancel
+        </n-button>
+        <n-button type="primary" :loading="announcementModal.loading" @click="submitAnnouncement">
+          Create Announcement
+        </n-button>
+      </n-space>
+    </template>
+  </n-modal>
 </template>

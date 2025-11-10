@@ -768,8 +768,7 @@ const fallbackCategories = [
   { value: 'adventure', label: 'Adventure' },
   { value: 'community', label: 'Community' },
   { value: 'food', label: 'Food' },
-  { value: 'lodging', label: 'Lodging' },
-  { value: 'volunteering', label: 'Volunteering' },
+  { value: 'others', label: 'Others' },
 ]
 
 
