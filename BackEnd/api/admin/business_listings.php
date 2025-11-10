@@ -61,6 +61,23 @@ function handleGet(PDO $pdo): void
     $categoryFilter = isset($_GET['category']) ? trim((string) $_GET['category']) : '';
     $searchTerm = isset($_GET['search']) ? trim((string) $_GET['search']) : '';
 
+    if (isRemovedFilter($statusFilter)) {
+        $listings = loadRemovedListings($pdo, $categoryFilter, $searchTerm);
+        $summary = buildSummary($listings);
+
+        echo json_encode([
+            'listings' => $listings,
+            'summary' => $summary,
+            'filters' => [
+                'categories' => array_values(array_unique(array_filter(array_map(
+                    static fn(array $item): ?string => $item['category'] ?? null,
+                    $listings
+                )))),
+            ],
+        ]);
+        return;
+    }
+
     $where = [];
     $params = [];
 
@@ -153,6 +170,63 @@ SQL;
     ]);
 }
 
+function loadRemovedListings(PDO $pdo, string $categoryFilter, string $searchTerm): array
+{
+    if (function_exists('ensureHistoryImagesColumn')) {
+        ensureHistoryImagesColumn($pdo);
+    }
+    $where = [];
+    $params = [];
+
+    if ($categoryFilter !== '') {
+        $where[] = 'history.categoryName = ?';
+        $params[] = $categoryFilter;
+    }
+
+    if ($searchTerm !== '') {
+        $where[] = '(history.businessName LIKE ? OR op.fullName LIKE ? OR op.email LIKE ? OR history.location LIKE ? OR history.removalReason LIKE ?)';
+        $like = '%' . $searchTerm . '%';
+        array_push($params, $like, $like, $like, $like, $like);
+    }
+
+    $sql = <<<SQL
+SELECT
+    history.removalID,
+    history.listingID,
+    history.operatorID,
+    history.businessName,
+    history.categoryName,
+    history.location,
+    history.priceRange,
+    history.status,
+    history.visibilityState,
+    history.removalReason,
+    history.removedBy,
+    history.removedAt,
+    history.imagesSnapshot,
+    op.fullName AS operatorName,
+    op.email AS operatorEmail,
+    op.contactNumber AS operatorPhone,
+    op.businessType AS operatorBusinessType,
+    adm.fullName AS removedByName
+FROM ListingRemovalHistory history
+LEFT JOIN TourismOperator op ON op.operatorID = history.operatorID
+LEFT JOIN Administrator adm ON adm.adminID = history.removedBy
+SQL;
+
+    if ($where) {
+        $sql .= "\nWHERE " . implode(' AND ', $where);
+    }
+
+    $sql .= "\nORDER BY history.removedAt DESC, history.removalID DESC";
+
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll();
+
+    return array_map(static fn(array $row): array => formatRemovedListingRow($row), $rows);
+}
+
 function handleDelete(PDO $pdo): void
 {
     $payload = json_decode(file_get_contents('php://input') ?: '[]', true);
@@ -197,7 +271,8 @@ function handleDelete(PDO $pdo): void
     try {
         $pdo->beginTransaction();
 
-        archiveListingRemoval($pdo, $listing, $adminId > 0 ? $adminId : null, $reason);
+        $images = fetchImages($pdo, $listingId);
+        archiveListingRemoval($pdo, $listing, $adminId > 0 ? $adminId : null, $reason, $images);
 
         $delete = $pdo->prepare('DELETE FROM BusinessListing WHERE listingID = :listingId');
         $delete->execute([':listingId' => $listingId]);
@@ -239,6 +314,11 @@ function normaliseStatusFilter(string $filter): ?array
         'active' => ['Active', 'Approved'],
         default => null,
     };
+}
+
+function isRemovedFilter(string $filter): bool
+{
+    return strtolower(trim($filter)) === 'removed';
 }
 
 function normaliseVisibilityFilter(string $filter): ?string
@@ -422,6 +502,76 @@ function formatListingRow(array $row): array
     ];
 }
 
+function formatRemovedListingRow(array $row): array
+{
+    $removedTimestamp = null;
+    if (!empty($row['removedAt'])) {
+        try {
+            $removedTimestamp = (new DateTimeImmutable($row['removedAt']))->getTimestamp();
+        } catch (Throwable) {
+            $removedTimestamp = null;
+        }
+    }
+
+    $images = decodeImagesSnapshot($row['imagesSnapshot'] ?? null);
+
+    return [
+        'id' => (int) $row['listingID'],
+        'businessName' => $row['businessName'],
+        'description' => null,
+        'status' => 'Removed',
+        'visibility' => 'Hidden',
+        'submittedDate' => null,
+        'submittedTimestamp' => null,
+        'location' => $row['location'],
+        'priceRange' => $row['priceRange'],
+        'category' => $row['categoryName'],
+        'operator' => [
+            'id' => (int) $row['operatorID'],
+            'name' => $row['operatorName'],
+            'email' => $row['operatorEmail'],
+            'phone' => $row['operatorPhone'],
+            'businessType' => $row['operatorBusinessType'],
+        ],
+        'latestVerification' => null,
+        'imageCount' => count($images),
+        'images' => $images,
+        'removalReason' => $row['removalReason'],
+        'removedAt' => formatDateString($row['removedAt'] ?? null),
+        'removedTimestamp' => $removedTimestamp,
+        'removedBy' => [
+            'id' => $row['removedBy'] !== null ? (int) $row['removedBy'] : null,
+            'name' => $row['removedByName'],
+        ],
+    ];
+}
+
+function decodeImagesSnapshot(?string $snapshot): array
+{
+    if (!$snapshot) {
+        return [];
+    }
+    try {
+        $decoded = json_decode($snapshot, true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        return array_values(array_filter(array_map(static function ($item) {
+            if (!is_array($item)) {
+                return null;
+            }
+            return [
+                'id' => isset($item['id']) ? (int) $item['id'] : null,
+                'url' => isset($item['url']) ? buildAssetUrl((string) $item['url']) : null,
+                'caption' => $item['caption'] ?? null,
+                'uploadedDate' => $item['uploadedDate'] ?? null,
+            ];
+        }, $decoded)));
+    } catch (Throwable) {
+        return [];
+    }
+}
+
 function loadListing(PDO $pdo, int $listingId): ?array
 {
     $stmt = $pdo->prepare(
@@ -572,6 +722,7 @@ function buildSummary(array $listings): array
         'Approved' => 0,
         'Rejected' => 0,
         'Active' => 0,
+        'Removed' => 0,
     ];
     $visible = 0;
     $hidden = 0;

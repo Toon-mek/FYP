@@ -69,6 +69,10 @@ const fixedContact = reactive({
   phone: '',
   email: '',
 })
+const priceRangeEditing = reactive({
+  min: false,
+  max: false,
+})
 
 const priceRangeSliderValue = computed({
   get: () => [formState.priceRange.min, formState.priceRange.max],
@@ -100,7 +104,7 @@ watch(
       formState.priceRange.min = sanitized
       return
     }
-    if (formState.priceRange.max < sanitized) {
+    if (!priceRangeEditing.max && formState.priceRange.max < sanitized) {
       formState.priceRange.max = sanitized
     }
   },
@@ -109,16 +113,38 @@ watch(
 watch(
   () => formState.priceRange.max,
   (value) => {
-    const sanitized = sanitisePriceInput(value, formState.priceRange.min)
+    const sanitized = sanitisePriceInput(value, formState.priceRange.max)
     if (sanitized !== value) {
       formState.priceRange.max = sanitized
       return
     }
-    if (sanitized < formState.priceRange.min) {
-      formState.priceRange.min = sanitized
+    if (!priceRangeEditing.max && sanitized < formState.priceRange.min) {
+      formState.priceRange.max = formState.priceRange.min
     }
   },
 )
+
+function handleMinFocus() {
+  priceRangeEditing.min = true
+}
+
+function handleMinBlur() {
+  priceRangeEditing.min = false
+  if (formState.priceRange.min > formState.priceRange.max) {
+    formState.priceRange.max = formState.priceRange.min
+  }
+}
+
+function handleMaxFocus() {
+  priceRangeEditing.max = true
+}
+
+function handleMaxBlur() {
+  priceRangeEditing.max = false
+  if (formState.priceRange.max < formState.priceRange.min) {
+    formState.priceRange.max = formState.priceRange.min
+  }
+}
 
 watch(
   () => ({
@@ -362,6 +388,8 @@ async function submitListing() {
                     :step="PRICE_RANGE_STEP"
                     prefix="RM"
                     size="small"
+                    @focus="handleMinFocus"
+                    @blur="handleMinBlur"
                   />
                   <n-input-number
                     v-model:value="formState.priceRange.max"
@@ -370,6 +398,8 @@ async function submitListing() {
                     :step="PRICE_RANGE_STEP"
                     prefix="RM"
                     size="small"
+                    @focus="handleMaxFocus"
+                    @blur="handleMaxBlur"
                   />
                 </n-space>
               </div>

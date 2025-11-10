@@ -60,9 +60,12 @@ const emit = defineEmits([
 const listingItems = ref([])
 const pageSize = 5
 const currentPage = ref(1)
+const filteredListings = computed(() =>
+  listingItems.value.filter((item) => (item.status || '').toLowerCase() !== 'rejected'),
+)
 const paginatedListings = computed(() => {
   const start = (currentPage.value - 1) * pageSize
-  return listingItems.value.slice(start, start + pageSize)
+  return filteredListings.value.slice(start, start + pageSize)
 })
 const removalHistoryEntries = computed(() =>
   Array.isArray(props.removalHistory) ? props.removalHistory : [],
@@ -85,9 +88,9 @@ watch(
 const removalHistoryError = computed(() => props.removalHistoryError)
 const removalHistoryLoading = computed(() => props.removalHistoryLoading)
 watch(
-  () => listingItems.value.length,
+  () => filteredListings.value.length,
   () => {
-    const maxPage = Math.max(1, Math.ceil(listingItems.value.length / pageSize))
+    const maxPage = Math.max(1, Math.ceil(filteredListings.value.length / pageSize))
     if (currentPage.value > maxPage) currentPage.value = maxPage
   },
 )
@@ -598,13 +601,13 @@ async function deleteListing(listing) {
         {{ listingActionError }}
       </n-alert>
 
-      <template v-if="listingItems.length">
+      <template v-if="filteredListings.length">
         <n-data-table :columns="listingColumns" :data="paginatedListings" :single-line="false" style="margin-top: 16px;" />
         <n-space justify="end" style="margin-top: 12px;">
           <SimplePagination
             v-model:page="currentPage"
             :page-size="pageSize"
-            :item-count="listingItems.length"
+            :item-count="filteredListings.length"
           />
         </n-space>
      </template>

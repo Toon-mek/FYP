@@ -245,6 +245,29 @@ function fetchListingSnapshot(PDO $pdo, int $operatorId, int $listingId): ?array
   ];
 }
 
+function fetchListingImagesForHistory(PDO $pdo, int $listingId): array
+{
+  $stmt = $pdo->prepare(
+    'SELECT imageID, imageURL, caption, uploadedDate
+     FROM ListingImage
+     WHERE listingID = :listingId
+     ORDER BY uploadedDate DESC, imageID DESC'
+  );
+  $stmt->execute([':listingId' => $listingId]);
+
+  $images = [];
+  while ($row = $stmt->fetch()) {
+    $images[] = [
+      'id' => isset($row['imageID']) ? (int) $row['imageID'] : null,
+      'url' => $row['imageURL'] ?? null,
+      'caption' => $row['caption'] ?? null,
+      'uploadedDate' => $row['uploadedDate'] ?? null,
+    ];
+  }
+
+  return $images;
+}
+
 function fetchOperator(PDO $pdo, int $operatorId): ?array
 {
   $stmt = $pdo->prepare(
@@ -549,6 +572,7 @@ function handleDelete(PDO $pdo, array $payload): void
   }
 
   $snapshot = fetchListingSnapshot($pdo, $operatorId, $listingId);
+  $images = fetchListingImagesForHistory($pdo, $listingId);
 
   $stmt = $pdo->prepare(
     'DELETE FROM BusinessListing WHERE listingID = :listingId AND operatorID = :operatorId'
@@ -560,7 +584,7 @@ function handleDelete(PDO $pdo, array $payload): void
   }
 
   if ($snapshot) {
-    archiveListingRemoval($pdo, $snapshot, null, 'Removed by operator');
+    archiveListingRemoval($pdo, $snapshot, null, 'Removed by operator', $images);
   }
 
   respond(200, ['ok' => true, 'deleted' => true, 'message' => 'Listing removed from the platform.']);

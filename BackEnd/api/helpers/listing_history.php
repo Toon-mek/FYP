@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS ListingRemovalHistory (
     removedBy INT DEFAULT NULL,
     removedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     snapshot LONGTEXT DEFAULT NULL,
+    imagesSnapshot LONGTEXT DEFAULT NULL,
     INDEX idx_history_operator (operatorID),
     INDEX idx_history_listing (listingID),
     INDEX idx_history_removed_at (removedAt)
@@ -33,9 +34,25 @@ SQL;
     $ensured = true;
 }
 
-function archiveListingRemoval(PDO $pdo, array $listingRow, ?int $removedBy, string $reason): void
+function ensureHistoryImagesColumn(PDO $pdo): void
+{
+    static $ensured = false;
+    if ($ensured) {
+        return;
+    }
+
+    try {
+        $pdo->query('SELECT imagesSnapshot FROM ListingRemovalHistory LIMIT 1');
+    } catch (Throwable) {
+        $pdo->exec('ALTER TABLE ListingRemovalHistory ADD COLUMN imagesSnapshot LONGTEXT DEFAULT NULL');
+    }
+    $ensured = true;
+}
+
+function archiveListingRemoval(PDO $pdo, array $listingRow, ?int $removedBy, string $reason, array $images = []): void
 {
     ensureListingRemovalHistoryTable($pdo);
+    ensureHistoryImagesColumn($pdo);
     $snapshot = null;
     try {
         $snapshot = json_encode($listingRow, JSON_UNESCAPED_UNICODE);
@@ -43,11 +60,18 @@ function archiveListingRemoval(PDO $pdo, array $listingRow, ?int $removedBy, str
         $snapshot = null;
     }
 
+    $imagesSnapshot = null;
+    try {
+        $imagesSnapshot = json_encode($images, JSON_UNESCAPED_UNICODE);
+    } catch (Throwable) {
+        $imagesSnapshot = null;
+    }
+
     $insert = $pdo->prepare(
         'INSERT INTO ListingRemovalHistory
-            (listingID, operatorID, businessName, categoryName, location, priceRange, status, visibilityState, removalReason, removedBy, snapshot)
+            (listingID, operatorID, businessName, categoryName, location, priceRange, status, visibilityState, removalReason, removedBy, snapshot, imagesSnapshot)
          VALUES
-            (:listingId, :operatorId, :businessName, :categoryName, :location, :priceRange, :status, :visibilityState, :reason, :removedBy, :snapshot)'
+            (:listingId, :operatorId, :businessName, :categoryName, :location, :priceRange, :status, :visibilityState, :reason, :removedBy, :snapshot, :imagesSnapshot)'
     );
 
     $insert->execute([
@@ -62,5 +86,6 @@ function archiveListingRemoval(PDO $pdo, array $listingRow, ?int $removedBy, str
         ':reason' => $reason,
         ':removedBy' => $removedBy ?: null,
         ':snapshot' => $snapshot,
+        ':imagesSnapshot' => $imagesSnapshot,
     ]);
 }

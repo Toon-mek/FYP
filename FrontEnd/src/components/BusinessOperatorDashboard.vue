@@ -407,15 +407,22 @@ const listingMetrics = computed(() => {
     active: 0,
     pending: 0,
     hidden: 0,
+    rejected: 0,
   }
 
   const pendingStatuses = ["pending review", "pending", "under review"]
   const hiddenStatuses = ["hidden", "inactive", "suspended", "draft"]
   const activeStatuses = ["active", "approved", "published"]
+  const rejectedStatuses = ["rejected", "declined", "failed"]
 
   listings.value.forEach((listing) => {
     const status = typeof listing.status === "string" ? listing.status.toLowerCase() : ""
     const visibility = typeof listing.visibility === "string" ? listing.visibility.toLowerCase() : ""
+
+    if (rejectedStatuses.includes(status)) {
+      metrics.rejected += 1
+      return
+    }
 
     if (pendingStatuses.includes(status)) {
       metrics.pending += 1
@@ -455,6 +462,13 @@ const summaryCards = computed(() => [
     value: listingMetrics.value.active,
     type: "number",
     accent: "linear-gradient(135deg, #42b883, #0b3b26)",
+  },
+  {
+    key: "rejected",
+    label: "Rejected",
+    value: listingMetrics.value.rejected,
+    type: "number",
+    accent: "linear-gradient(135deg, #f87171, #be123c)",
   },
   {
     key: "hidden",

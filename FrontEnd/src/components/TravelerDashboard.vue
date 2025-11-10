@@ -7,6 +7,7 @@ import BookingLiveStays from './BookingLiveStays.vue'
 import TravelerSocialFeed from './TravelerSocialFeed.vue'
 import TravelerSavedPosts from './TravelerSavedPosts.vue'
 import TravelerMessages from './TravelerMessages.vue'
+import TravelerMarketplace from './TravelerMarketplace.vue'
 import NotificationCenter from './NotificationCenter.vue'
 import { notificationFeedSymbol, useNotificationFeed } from '../composables/useNotificationFeed.js'
 import { extractProfileImage } from '../utils/profileImage.js'
@@ -176,6 +177,7 @@ const sidebarOptions = [
   { key: 'saved-posts', label: 'Saved posts', icon: renderIcon('ri-bookmark-line') },
   { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
+  { key: 'marketplace', label: 'Marketplace', icon: renderIcon('ri-store-3-line') },
   { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
   { key: 'saved', label: 'Saved places', disabled: true, icon: renderIcon('ri-heart-3-line') },
   { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
@@ -274,6 +276,44 @@ function handleCommunityContact(post) {
   if (!target) {
     message.error('Unable to contact this creator at the moment.')
     return
+  }
+
+  contactDialog.target = target
+  contactDialog.messages = []
+  contactDialog.input = ''
+  contactDialog.error = ''
+  contactDialog.visible = true
+  loadContactMessages()
+}
+
+function handleMarketplaceContact(listing) {
+  const viewerId = currentTravelerId.value
+  if (!viewerId) {
+    message.error('Unable to determine your traveler profile. Please sign in again.')
+    return
+  }
+
+  if (!listing || !listing.operator) {
+    message.error('Unable to contact this business at the moment.')
+    return
+  }
+
+  const operatorId = Number(listing.operator.id ?? listing.operator.operatorID ?? 0)
+  if (!operatorId) {
+    message.error('Unable to contact this business at the moment.')
+    return
+  }
+
+  const target = {
+    authorId: operatorId,
+    authorType: 'Operator',
+    authorTypeRaw: 'operator',
+    authorName: listing.operator.name || 'Business Operator',
+    authorUsername: listing.operator.email || '',
+    authorAvatar: '',
+    authorInitials: computeInitialsFromName(listing.operator.name || 'Operator'),
+    postId: listing.id,
+    caption: `Inquiry about ${listing.businessName}`,
   }
 
   contactDialog.target = target
@@ -778,6 +818,9 @@ const collapsedMenuContainerStyle = computed(() => ({
             description="Admins and operators share updates with you here."
           />
         </div>
+        <div v-else-if="selectedMenu === 'marketplace'" class="marketplace-panel">
+          <TravelerMarketplace :current-user="traveler" @contact="handleMarketplaceContact" />
+        </div>
         <div v-else class="dashboard-main">
           <n-space vertical size="large">
             <n-card :segmented="{ content: true }" :style="{
@@ -1175,6 +1218,12 @@ const collapsedMenuContainerStyle = computed(() => ({
 .notifications-panel {
   max-width: 960px;
   margin: 0 auto;
+  padding-bottom: 24px;
+}
+
+.marketplace-panel {
+  width: 100%;
+  max-width: none;
   padding-bottom: 24px;
 }
 

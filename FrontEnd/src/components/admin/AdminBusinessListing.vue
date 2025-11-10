@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import {
   NAlert,
@@ -44,7 +44,7 @@ const statusOptions = [
   { label: 'Pending', value: 'pending' },
   { label: 'Approved', value: 'approved' },
   { label: 'Rejected', value: 'rejected' },
-  { label: 'Active', value: 'active' },
+  { label: 'Removed', value: 'removed' },
 ]
 
 const visibilityOptions = [
@@ -93,7 +93,7 @@ watch(
 function statusTagType(status) {
   const value = (status || '').toLowerCase()
   if (value === 'approved' || value === 'active') return 'success'
-  if (value === 'rejected') return 'error'
+  if (value === 'rejected' || value === 'removed') return 'error'
   if (value === 'pending review' || value === 'pending') return 'warning'
   return 'default'
 }
@@ -102,21 +102,32 @@ function visibilityTagType(visibility) {
   return (visibility || '').toLowerCase() === 'visible' ? 'success' : 'default'
 }
 
+function isRemovedStatus(value) {
+  return (value || '').toLowerCase() === 'removed'
+}
+
 const columns = computed(() => [
   {
     title: 'Listing',
     key: 'businessName',
     minWidth: 230,
     render(row) {
-      return h('div', { style: 'display:flex;flex-direction:column;gap:4px;' }, [
-        h('div', { style: 'font-weight:600;' }, row.businessName),
+      const infoLine =
         row.category || row.location
           ? h(
             'div',
             { style: 'font-size:12px;color:var(--n-text-color-3,#6b7280);' },
             [row.category ? `${row.category} • ` : '', row.location ?? 'Location not provided'].join(''),
           )
-          : null,
+          : null
+      const removalNotes =
+        isRemovedStatus(row.status) && row.removalReason
+          ? h('div', { style: 'font-size:12px;color:#b91c1c;' }, `Removal reason: ${row.removalReason}`)
+          : null
+      return h('div', { style: 'display:flex;flex-direction:column;gap:4px;' }, [
+        h('div', { style: 'font-weight:600;' }, row.businessName),
+        infoLine,
+        removalNotes,
       ])
     },
   },
@@ -140,8 +151,11 @@ const columns = computed(() => [
   {
     title: 'Submitted',
     key: 'submittedDate',
-    width: 120,
+    width: 140,
     render(row) {
+      if (isRemovedStatus(row.status)) {
+        return row.removedAt ? `Removed ${row.removedAt}` : 'Removed'
+      }
       return row.submittedDate || '—'
     },
   },
@@ -182,34 +196,33 @@ const columns = computed(() => [
     key: 'actions',
     width: 160,
     render(row) {
-      return h(
-        NSpace,
-        { size: 'small' },
-        {
-          default: () => [
-            h(
-              NButton,
-              {
-                size: 'small',
-                tertiary: true,
-                type: 'primary',
-                onClick: () => openDetails(row),
-              },
-              { default: () => 'Details' },
-            ),
-            h(
-              NButton,
-              {
-                size: 'small',
-                tertiary: true,
-                type: 'error',
-                onClick: () => openDelete(row),
-              },
-              { default: () => 'Delete' },
-            ),
-          ],
-        },
-      )
+      const buttons = [
+        h(
+          NButton,
+          {
+            size: 'small',
+            tertiary: true,
+            type: 'primary',
+            onClick: () => openDetails(row),
+          },
+          { default: () => 'Details' },
+        ),
+      ]
+      if (!isRemovedStatus(row.status)) {
+        buttons.push(
+          h(
+            NButton,
+            {
+              size: 'small',
+              tertiary: true,
+              type: 'error',
+              onClick: () => openDelete(row),
+            },
+            { default: () => 'Delete' },
+          ),
+        )
+      }
+      return h(NSpace, { size: 'small' }, { default: () => buttons })
     },
   },
 ])
@@ -266,6 +279,33 @@ async function openDetails(row) {
   detailState.loading = true
   detailState.error = ''
   detailState.data = null
+
+  if (isRemovedStatus(row.status)) {
+    detailState.data = {
+      id: row.id,
+      businessName: row.businessName,
+      description: row.removalReason
+        ? `Removed listing snapshot. Reason: ${row.removalReason}`
+        : 'This listing was removed from the marketplace.',
+      status: row.status,
+      visibility: row.visibility,
+      submittedDate: null,
+      location: row.location,
+      priceRange: row.priceRange,
+      category: {
+        name: row.category,
+      },
+      operator: row.operator || {},
+      tags: [],
+      images: row.images || [],
+      history: [],
+      removalReason: row.removalReason,
+      removedAt: row.removedAt,
+      removedBy: row.removedBy,
+    }
+    detailState.loading = false
+    return
+  }
 
   try {
     const response = await fetch(`${API_BASE}/admin/business_listings.php?listingId=${row.id}`)
@@ -339,6 +379,7 @@ const summaryRows = computed(() => [
   { key: 'pending', label: 'Pending review', value: statusSummary.value['Pending Review'] ?? 0 },
   { key: 'approved', label: 'Approved', value: statusSummary.value.Approved ?? 0 },
   { key: 'rejected', label: 'Rejected', value: statusSummary.value.Rejected ?? 0 },
+  { key: 'removed', label: 'Removed listings', value: statusSummary.value.Removed ?? 0 },
   { key: 'visible', label: 'Visible to travelers', value: visibilitySummary.value.Visible ?? 0 },
 ])
 </script>
@@ -366,7 +407,7 @@ const summaryRows = computed(() => [
 
           <n-form-item label="Visibility">
             <n-select v-model:value="filters.visibility" :options="visibilityOptions" size="small"
-              style="width: 150px" />
+              style="width: 150px" :disabled="filters.status === 'removed'" />
           </n-form-item>
 
           <n-form-item label="Category">
@@ -431,7 +472,7 @@ const summaryRows = computed(() => [
       <n-drawer-content :title="detailState.data?.businessName ?? 'Listing details'">
         <n-space vertical size="large">
           <template v-if="detailState.loading">
-            <n-text depth="3">Loading listing details…</n-text>
+            <n-text depth="3">Loading listing detailsâ€¦</n-text>
           </template>
 
           <template v-else-if="detailState.error">
@@ -501,6 +542,26 @@ const summaryRows = computed(() => [
               </div>
             </section>
 
+            <section v-if="detailState.data.status === 'Removed'" class="detail-section">
+              <h3>Removal log</h3>
+              <div class="detail-grid detail-grid--compact">
+                <div class="detail-label">Removed at</div>
+                <div class="detail-value">
+                  {{ detailState.data.removedAt || 'Not recorded' }}
+                </div>
+
+                <div class="detail-label">Removed by</div>
+                <div class="detail-value">
+                  {{ detailState.data.removedBy?.name || 'Admin team' }}
+                </div>
+
+                <div class="detail-label">Reason</div>
+                <div class="detail-value detail-value--multiline">
+                  {{ detailState.data.removalReason || 'No reason provided.' }}
+                </div>
+              </div>
+            </section>
+
             <section class="detail-section">
               <h3>Sustainability tags</h3>
               <template v-if="detailState.data.tags?.length">
@@ -537,7 +598,7 @@ const summaryRows = computed(() => [
                       <n-tag :type="statusTagType(entry.status)" size="small" :bordered="false">
                         {{ entry.status }}
                       </n-tag>
-                      <span>{{ entry.verifiedDate || '—' }}</span>
+                      <span>{{ entry.verifiedDate || 'â€”' }}</span>
                     </div>
                     <div class="history-list__body">
                       <strong>{{ entry.adminName || 'Admin' }}</strong>
@@ -689,3 +750,5 @@ const summaryRows = computed(() => [
   color: var(--n-text-color-3, #6b7280);
 }
 </style>
+
+
