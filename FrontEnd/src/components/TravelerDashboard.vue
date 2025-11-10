@@ -173,8 +173,8 @@ const sidebarOptions = [
   { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
   { key: 'marketplace', label: 'Marketplace', icon: renderIcon('ri-store-3-line') },
-  { key: 'trips', label: 'Trip planner', disabled: true, icon: renderIcon('ri-calendar-event-line') },
-  { key: 'saved', label: 'Saved places', disabled: true, icon: renderIcon('ri-heart-3-line') },
+  { key: 'trips', label: 'Trip planner', icon: renderIcon('ri-calendar-event-line') },
+  { key: 'saved', label: 'Saved places', icon: renderIcon('ri-heart-3-line') },
   { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
 ]
 
