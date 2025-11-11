@@ -96,7 +96,7 @@ function stayProviderTag(item) {
   const provider = (item?.provider || item?.metadata?.provider || 'google').toLowerCase()
   switch (provider) {
     case 'google':
-      return 'google'
+      return ''
     case 'booking':
       return 'booking.com'
     case 'fallback':
@@ -110,12 +110,15 @@ function stayThemeTag(item) {
   return item?.tags?.[0] || item?.metadata?.theme || 'Stay'
 }
 
-function experiencePriceLabel(item, theme) {
+function experiencePriceLabel(item) {
   if (!item) return null
-  if (String(theme).toLowerCase() !== 'adventure') {
-    return null
+  if (item.priceText) {
+    return item.priceText
   }
-  return item.priceText || null
+  if (item.metadata?.priceRange?.text) {
+    return item.metadata.priceRange.text
+  }
+  return null
 }
 
 function stayRatingValue(item) {
@@ -258,8 +261,8 @@ function sanitizeSubtitle(value) {
                     {{ item.rating }}
                     <small v-if="item.reviews">({{ item.reviews }})</small>
                   </span>
-                  <span v-if="experiencePriceLabel(item, section.theme)">
-                    {{ experiencePriceLabel(item, section.theme) }}
+                  <span v-if="experiencePriceLabel(item)">
+                    {{ experiencePriceLabel(item) }}
                   </span>
                 </div>
               </div>
@@ -330,13 +333,12 @@ function sanitizeSubtitle(value) {
                       <strong v-if="stayRatingValue(item)">{{ stayRatingValue(item) }}</strong>
                       <span v-if="stayReviewLabel(item)">{{ stayReviewLabel(item) }}</span>
                     </div>
-                    <span v-else class="curation-stay-card__rating-empty">Awaiting reviews</span>
                   </div>
                   <div class="curation-stay-card__price" v-if="stayPriceDisplay(item)">
                     {{ stayPriceDisplay(item) }}
                   </div>
                 </div>
-                <div class="curation-stay-card__rating-row">
+                <div class="curation-stay-card__rating-row" v-if="stayProviderTag(item)">
                   <n-tag size="tiny" bordered type="primary">{{ stayProviderTag(item) }}</n-tag>
                 </div>
               </div>
@@ -621,10 +623,10 @@ function sanitizeSubtitle(value) {
 
 .curation-stay-carousel__track {
   display: flex;
-  gap: 14px;
+  gap: 18px;
   overflow-x: auto;
   scroll-behavior: smooth;
-  padding-bottom: 6px;
+  padding-bottom: 10px;
 }
 
 .curation-stay-carousel__track::-webkit-scrollbar {
@@ -663,8 +665,8 @@ function sanitizeSubtitle(value) {
 }
 
 .curation-stay-card {
-  min-width: 230px;
-  max-width: 280px;
+  min-width: 260px;
+  max-width: 320px;
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 18px;
   overflow: hidden;

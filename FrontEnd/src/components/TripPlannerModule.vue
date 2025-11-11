@@ -18,6 +18,10 @@ import {
   buildStaticMapUrl,
   reverseGeocode,
   fetchHotelsByCoordinates,
+  fetchBookingHotelReviewScores,
+  fetchBookingHotelPhotos,
+  searchBookingAttractions,
+  searchBookingAttractionLocations,
   buildPlacePhotoUrl,
   fetchTravelInsights,
   savePlacesPackage,
@@ -36,6 +40,11 @@ const ACCOMMODATION_LABELS = {
   comfort: 'Comfort',
   premium: 'Premium',
   luxury: 'Luxury',
+}
+const STYLE_PRICE_HINTS = {
+  comfort: 'RM 240 / night',
+  premium: 'RM 360 / night',
+  luxury: 'RM 520 / night',
 }
 const ORIGIN_COORDINATES = {
   Cheras: { lat: 3.0856, lng: 101.7441 },
@@ -193,52 +202,65 @@ const THEME_BLUEPRINTS = {
     type: 'restaurant',
     icon: 'ri-restaurant-2-line',
   },
-    relax: {
-      provider: 'google',
-      label: 'Relax & wellness',
-      description: 'Spas, hot springs, and calming escapes.',
-      query: (destination) => `wellness spa in ${destination}, Malaysia`,
-      type: 'spa',
-      icon: 'ri-leaf-line',
+  relax: {
+    provider: 'booking-attractions',
+    label: 'Relax & wellness',
+    description: 'Spas, hot springs, and calming escapes.',
+    query: (destination) => `wellness spa in ${destination}, Malaysia`,
+    type: 'spa',
+    booking: {
+      taxonomySlugs: ['tours'],
+      keywordIncludes: ['spa', 'wellness', 'massage', 'hot spring', 'retreat'],
     },
-    nature: {
-      provider: 'google',
-      label: 'Nature escapes',
-      description: 'National parks, mangrove cruises, and rainforest walks.',
-      query: (destination) => `nature attractions near ${destination}, Malaysia`,
-      type: 'park',
-      radius: 45000,
-      icon: 'ri-mountain-line',
+    icon: 'ri-leaf-line',
+  },
+  nature: {
+    provider: 'google',
+    label: 'Nature escapes',
+    description: 'National parks, mangrove cruises, and rainforest walks.',
+    query: (destination) => `nature attractions near ${destination}, Malaysia`,
+    type: 'park',
+    radius: 45000,
+    icon: 'ri-mountain-line',
+  },
+  adventure: {
+    provider: 'booking-attractions',
+    label: 'Adventure thrills',
+    description: 'Zip-lines, theme parks, treks, and active fun.',
+    query: (destination) => `adventure activities in ${destination}, Malaysia`,
+    type: 'tourist_attraction',
+    radius: 40000,
+    booking: {
+      taxonomySlugs: ['tours', 'nature-outdoor'],
+      keywordIncludes: ['adventure', 'forest', 'river', 'rafting', 'park', 'caves', 'trail'],
     },
-    adventure: {
-      provider: 'google',
-      label: 'Adventure thrills',
-      description: 'Zip-lines, theme parks, treks, and active fun.',
-      query: (destination) => `adventure activities in ${destination}, Malaysia`,
-      type: 'tourist_attraction',
-      radius: 40000,
-      icon: 'ri-compass-3-line',
+    icon: 'ri-compass-3-line',
+  },
+  city: {
+    provider: 'booking-attractions',
+    label: 'City highlights',
+    description: 'Modern city walks, rooftop views, and galleries.',
+    query: (destination) => `city experiences in ${destination}, Malaysia`,
+    type: 'tourist_attraction',
+    radius: 30000,
+    booking: {
+      taxonomySlugs: ['tours', 'museums-arts-culture'],
+      keywordIncludes: ['city', 'heritage', 'museum', 'street', 'tour', 'gallery'],
     },
-    city: {
-      provider: 'google',
-      label: 'City highlights',
-      description: 'Modern city walks, rooftop views, and galleries.',
-      query: (destination) => `city experiences in ${destination}, Malaysia`,
-      type: 'tourist_attraction',
-      radius: 30000,
-      icon: 'ri-building-4-line',
-    },
-    historical: {
-      provider: 'google',
-      label: 'Heritage trails',
-      description: 'Museums, forts, and UNESCO-listed landmarks.',
-      query: (destination) => `historical places in ${destination}, Malaysia`,
-      type: 'tourist_attraction',
-      radius: 35000,
-      icon: 'ri-ancient-gate-line',
-    },
-  }
+    icon: 'ri-building-4-line',
+  },
+  historical: {
+    provider: 'google',
+    label: 'Heritage trails',
+    description: 'Museums, forts, and UNESCO-listed landmarks.',
+    query: (destination) => `historical places in ${destination}, Malaysia`,
+    type: 'tourist_attraction',
+    radius: 35000,
+    icon: 'ri-ancient-gate-line',
+  },
+}
 const BOOKING_THEME_KEYS = new Set(['nature', 'adventure', 'city', 'historical'])
+const COST_SUMMARY_THEMES = new Set(['travel', 'adventure', 'city', 'relax'])
 const accommodationCache = new Map()
 const MAX_ACCOMMODATION_CACHE = 8
 const MAX_ACCOMMODATION_RESULTS = 12
@@ -1506,6 +1528,13 @@ async function fetchThemeRecommendations(theme, context) {
   if (blueprint.provider === 'google') {
     return fetchGoogleThemeRecommendations(theme, blueprint, context)
   }
+  if (blueprint.provider === 'booking-attractions') {
+    const bookingSection = await fetchBookingAttractionRecommendations(theme, blueprint, context)
+    if (bookingSection?.items?.length) {
+      return bookingSection
+    }
+    return fetchGoogleThemeRecommendations(theme, { ...blueprint, provider: 'google' }, context)
+  }
   if (blueprint.provider === 'booking') {
     const items = await fetchBookingThemeOptions(theme, blueprint, context)
     return {
@@ -1548,6 +1577,7 @@ async function fetchBookingThemeOptions(theme, blueprint, context) {
   try {
     const startDate = plannerPreferences.value.startDate
     const endDate = plannerPreferences.value.endDate
+    const styleLevel = plannerPreferences.value.accommodation || 'comfort'
     if (!startDate || !endDate) {
       return []
     }
@@ -1568,7 +1598,7 @@ async function fetchBookingThemeOptions(theme, blueprint, context) {
       },
     })
     const candidates = normaliseBookingCandidates(response)
-    let hotels = candidates.map((hotel) => normaliseBookingHotel(hotel, theme)).filter(Boolean)
+    let hotels = dedupeStayEntries(candidates.map((hotel) => normaliseBookingHotel(hotel, theme)).filter(Boolean))
     if (hotels.length < MAX_ACCOMMODATION_RESULTS) {
       const googleHotels = await fetchGoogleLodgingOptions(
         context,
@@ -1585,10 +1615,66 @@ async function fetchBookingThemeOptions(theme, blueprint, context) {
         MAX_ACCOMMODATION_RESULTS,
       )
     }
-    return hotels.slice(0, MAX_ACCOMMODATION_RESULTS)
+    const shortlist = await fillMissingGoogleStayPrices(hotels.slice(0, MAX_ACCOMMODATION_RESULTS), {
+      lat: context.lat,
+      lng: context.lng,
+      startDate,
+      endDate,
+      adults,
+      rooms,
+      styleLevel,
+    })
+    return await maybeEnrichBookingStays(shortlist)
   } catch (error) {
     console.error('Booking curation failed', error)
     return []
+  }
+}
+
+async function fetchBookingAttractionRecommendations(theme, blueprint, context) {
+  try {
+    const location = await resolveBookingAttractionLocation(context)
+    if (!location?.id) {
+      return null
+    }
+    const params = {
+      id: location.id,
+      currencyCode: 'MYR',
+      languageCode: 'en-gb',
+      orderBy: blueprint.booking?.orderBy ?? 'trending',
+    }
+    if (location.ufi) {
+      params.ufiFilters = [location.ufi]
+    }
+    if (Array.isArray(blueprint.booking?.typeFilters)) {
+      params.typeFilters = blueprint.booking.typeFilters
+    }
+    if (Array.isArray(blueprint.booking?.priceFilters)) {
+      params.priceFilters = blueprint.booking.priceFilters
+    }
+    const response = await searchBookingAttractions(params)
+    const items = applyBookingAttractionThemeFilters(
+      normaliseBookingAttractions(response, {
+        theme,
+        label: blueprint.label,
+        destination: context.destination || plannerPreferences.value.destination || 'Malaysia',
+      }),
+      blueprint,
+    ).slice(0, MAX_THEME_RESULTS)
+    if (!items.length) {
+      return null
+    }
+    return {
+      theme,
+      provider: 'booking',
+      label: blueprint.label,
+      description: blueprint.description,
+      icon: blueprint.icon,
+      items,
+    }
+  } catch (error) {
+    console.warn('Booking attractions fetch failed', error)
+    return null
   }
 }
 
@@ -1629,7 +1715,7 @@ async function fetchAccommodationOptions(context) {
       extra: buildAccommodationFilters(styleLevel),
     })
     const candidates = normaliseBookingCandidates(response)
-    let hotels = candidates.map((hotel) => normaliseBookingHotel(hotel, 'stay')).filter(Boolean)
+    let hotels = dedupeStayEntries(candidates.map((hotel) => normaliseBookingHotel(hotel, 'stay')).filter(Boolean))
     if (hotels.length < MAX_ACCOMMODATION_RESULTS) {
       const googleHotels = await fetchGoogleLodgingOptions(context, MAX_ACCOMMODATION_RESULTS - hotels.length)
       hotels = mergeAccommodationLists(hotels, googleHotels, MAX_ACCOMMODATION_RESULTS)
@@ -1637,8 +1723,18 @@ async function fetchAccommodationOptions(context) {
     const shortlist = hotels.length
       ? hotels.slice(0, MAX_ACCOMMODATION_RESULTS)
       : buildFallbackStayOptions(context.destination, styleLevel, null, MAX_ACCOMMODATION_RESULTS)
-    memoiseAccommodationResult(cacheKey, shortlist)
-    return shortlist
+    const pricedShortlist = await fillMissingGoogleStayPrices(shortlist, {
+      lat: context.lat,
+      lng: context.lng,
+      startDate,
+      endDate,
+      adults,
+      rooms,
+      styleLevel,
+    })
+    const hydrated = await maybeEnrichBookingStays(pricedShortlist)
+    memoiseAccommodationResult(cacheKey, hydrated)
+    return hydrated
   } catch (error) {
     const fallback = buildFallbackStayOptions(context.destination, styleLevel, null, MAX_ACCOMMODATION_RESULTS)
     if (isRateLimitError(error)) {
@@ -1681,17 +1777,9 @@ async function fetchGoogleLodgingOptions(context, limit = MAX_ACCOMMODATION_RESU
 function mergeAccommodationLists(primary = [], secondary = [], limit = MAX_ACCOMMODATION_RESULTS) {
   const merged = []
   const identifiers = new Set()
-  const normaliseKey = (item) => {
-    if (!item) return null
-    const placeId = item.metadata?.placeId || item.metadata?.hotelId
-    if (placeId) {
-      return placeId
-    }
-    return `${item.title ?? ''}|${item.subtitle ?? ''}`.toLowerCase()
-  }
   const pushUnique = (item) => {
     if (!item) return
-    const key = normaliseKey(item)
+    const key = buildStayIdentifier(item)
     if (key && identifiers.has(key)) {
       return
     }
@@ -1703,6 +1791,629 @@ function mergeAccommodationLists(primary = [], secondary = [], limit = MAX_ACCOM
   primary.forEach(pushUnique)
   secondary.forEach(pushUnique)
   return merged.slice(0, limit)
+}
+
+function dedupeStayEntries(entries = []) {
+  if (!Array.isArray(entries) || !entries.length) {
+    return []
+  }
+  const identifiers = new Set()
+  const deduped = []
+  entries.forEach((item) => {
+    if (!item) {
+      return
+    }
+    const key = buildStayIdentifier(item)
+    if (key && identifiers.has(key)) {
+      return
+    }
+    deduped.push(item)
+    if (key) {
+      identifiers.add(key)
+    }
+  })
+  return deduped
+}
+
+function buildStayIdentifier(item) {
+  if (!item) {
+    return null
+  }
+  const candidates = [
+    item.metadata?.hotelId,
+    item.metadata?.placeId,
+    item.id,
+    item.metadata?.provider === 'google' ? item.metadata?.placeId : null,
+    item.metadata?.provider === 'booking' ? item.metadata?.url : null,
+    item.title && item.subtitle ? `${item.title}|${item.subtitle}` : null,
+    item.title,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().toLowerCase()
+    }
+  }
+  return null
+}
+
+async function maybeEnrichBookingStays(list = []) {
+  if (!Array.isArray(list) || !list.length) {
+    return list
+  }
+  const needsEnrichment = list.some(
+    (item) => item?.metadata?.provider === 'booking' && item?.metadata?.hotelId,
+  )
+  if (!needsEnrichment) {
+    return list
+  }
+  try {
+    return await enrichBookingStaysWithDetails(list)
+  } catch (error) {
+    console.warn('Booking stay enrichment failed', error)
+    return list
+  }
+}
+
+async function enrichBookingStaysWithDetails(list = []) {
+  if (!Array.isArray(list) || !list.length) {
+    return list
+  }
+  const reviewTargets = []
+  const photoTargets = []
+  const reviewSet = new Set()
+  const photoSet = new Set()
+  list.forEach((item) => {
+    const hotelId = item?.metadata?.hotelId
+    if (!hotelId) {
+      return
+    }
+    const missingScore = !hasFiniteNumber(item?.rating) || !item?.metadata?.reviewSummary
+    const missingReviewCount = !hasFiniteNumber(item?.reviews) || !hasFiniteNumber(item?.metadata?.reviewCount)
+    if ((missingScore || missingReviewCount) && !reviewSet.has(hotelId)) {
+      reviewSet.add(hotelId)
+      reviewTargets.push(hotelId)
+    }
+    if ((!item?.photoUrl || !item.photoUrl.trim()) && !photoSet.has(hotelId)) {
+      photoSet.add(hotelId)
+      photoTargets.push(hotelId)
+    }
+  })
+  const [reviewMap, photoMap] = await Promise.all([
+    reviewTargets.length ? fetchBookingHotelReviewScores(reviewTargets) : Promise.resolve(new Map()),
+    photoTargets.length ? fetchBookingHotelPhotos(photoTargets, { limit: 1 }) : Promise.resolve(new Map()),
+  ])
+  return list.map((entry) => {
+    if (!entry) {
+      return entry
+    }
+    const next = { ...entry, metadata: { ...(entry.metadata || {}) } }
+    const hotelId = next.metadata.hotelId
+    if (hotelId) {
+      const reviewData = reviewMap.get(hotelId)
+      if (reviewData) {
+        const score = coerceFiniteNumber(reviewData.score)
+        const reviewCount = coerceFiniteNumber(reviewData.count)
+        if (!hasFiniteNumber(next.rating) && score !== null) {
+          next.rating = Math.round(score * 10) / 10
+        }
+        if (!hasFiniteNumber(next.metadata.rating) && score !== null) {
+          next.metadata.rating = Math.round(score * 10) / 10
+        }
+        if (!hasFiniteNumber(next.reviews) && reviewCount !== null) {
+          next.reviews = Math.max(0, Math.round(reviewCount))
+        }
+        if (!hasFiniteNumber(next.metadata.reviewCount) && reviewCount !== null) {
+          next.metadata.reviewCount = Math.max(0, Math.round(reviewCount))
+        }
+        if (!next.metadata.reviewSummary && typeof reviewData.summary === 'string' && reviewData.summary.trim()) {
+          next.metadata.reviewSummary = reviewData.summary.trim()
+        }
+      }
+      const photos = photoMap.get(hotelId)
+      if (photos && photos.length && (!next.photoUrl || !next.photoUrl.trim())) {
+        next.photoUrl = photos[0]
+      }
+    }
+    return next
+  })
+}
+
+function coerceFiniteNumber(value) {
+  if (value === '' || value === null || value === undefined) {
+    return null
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  const numeric = Number(value)
+  if (Number.isFinite(numeric)) {
+    return numeric
+  }
+  if (typeof value === 'string') {
+    const cleaned = Number(value.replace(/[^0-9.]/g, ''))
+    if (Number.isFinite(cleaned)) {
+      return cleaned
+    }
+  }
+  return null
+}
+
+function hasFiniteNumber(value) {
+  return coerceFiniteNumber(value) !== null
+}
+
+async function fillMissingGoogleStayPrices(list = [], context = {}) {
+  if (!Array.isArray(list) || !list.length) {
+    return list
+  }
+  const targets = list.filter((item) => item?.metadata?.provider === 'google' && !item?.priceText)
+  if (!targets.length) {
+    return list
+  }
+  let referenceHotels = []
+  if (
+    Number.isFinite(context.lat) &&
+    Number.isFinite(context.lng) &&
+    context.startDate &&
+    context.endDate
+  ) {
+    try {
+      const response = await fetchHotelsByCoordinates({
+        lat: context.lat,
+        lng: context.lng,
+        arrivalDate: context.startDate,
+        departureDate: context.endDate,
+        adults: context.adults,
+        rooms: context.rooms,
+        currency: 'MYR',
+        locale: 'en-gb',
+        orderBy: 'distance',
+      })
+      const candidates = normaliseBookingCandidates(response)
+      referenceHotels = dedupeStayEntries(
+        candidates.map((hotel) => normaliseBookingHotel(hotel, 'stay')).filter(Boolean),
+      )
+    } catch (error) {
+      console.warn('Booking price reference fetch failed', error)
+    }
+  }
+  const fallbackPriceLabel = buildStylePriceFallback(context.styleLevel)
+  return list.map((item) => {
+    if (!item || item.metadata?.provider !== 'google' || item.priceText) {
+      return item
+    }
+    const match = referenceHotels.length
+      ? findMatchingBookingReferenceForGoogleStay(item, referenceHotels)
+      : null
+    const next = { ...item, metadata: { ...(item.metadata || {}) } }
+    if (match && match.priceText) {
+      next.priceText = match.priceText
+      next.metadata.price = match.metadata?.price ?? next.metadata.price ?? null
+      next.metadata.currency = match.metadata?.currency ?? next.metadata.currency ?? 'MYR'
+    } else if (fallbackPriceLabel) {
+      next.priceText = fallbackPriceLabel
+    }
+    return next
+  })
+}
+
+function buildStylePriceFallback(styleLevel) {
+  const key = typeof styleLevel === 'string' ? styleLevel.toLowerCase() : 'comfort'
+  if (STYLE_PRICE_HINTS[key]) {
+    return STYLE_PRICE_HINTS[key]
+  }
+  return STYLE_PRICE_HINTS.comfort
+}
+
+function findMatchingBookingReferenceForGoogleStay(googleStay, bookingCandidates = []) {
+  if (!googleStay) {
+    return null
+  }
+  const googleName = normaliseStayNameKey(googleStay.title)
+  const googleCity = normaliseStayNameKey(googleStay.metadata?.city)
+  const googleLat = Number(googleStay.metadata?.lat)
+  const googleLng = Number(googleStay.metadata?.lng)
+  let bestMatch = null
+  let bestScore = 0
+  bookingCandidates.forEach((candidate) => {
+    if (!candidate) {
+      return
+    }
+    const candidateName = normaliseStayNameKey(candidate.title)
+    if (!candidateName) {
+      return
+    }
+    let score = 0
+    if (googleName && candidateName) {
+      if (googleName === candidateName) {
+        score += 0.7
+      } else if (googleName.includes(candidateName) || candidateName.includes(googleName)) {
+        score += 0.5
+      }
+    }
+    const candidateCity = normaliseStayNameKey(candidate.metadata?.city)
+    if (googleCity && candidateCity && googleCity === candidateCity) {
+      score += 0.2
+    }
+    const distanceKm = computeDistanceKm(
+      googleLat,
+      googleLng,
+      Number(candidate.metadata?.lat),
+      Number(candidate.metadata?.lng),
+    )
+    if (distanceKm !== null) {
+      if (distanceKm <= 0.5) {
+        score += 0.5
+      } else if (distanceKm <= 1.5) {
+        score += 0.3
+      } else if (distanceKm <= 3) {
+        score += 0.1
+      }
+    }
+    if (score > bestScore && score >= 0.6) {
+      bestScore = score
+      bestMatch = candidate
+    }
+  })
+  return bestMatch
+}
+
+function normaliseStayNameKey(value) {
+  if (!value) {
+    return ''
+  }
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function computeDistanceKm(lat1, lng1, lat2, lng2) {
+  if (
+    !Number.isFinite(lat1) ||
+    !Number.isFinite(lng1) ||
+    !Number.isFinite(lat2) ||
+    !Number.isFinite(lng2)
+  ) {
+    return null
+  }
+  const toRad = (deg) => (deg * Math.PI) / 180
+  const R = 6371
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
+function resolveFirstPhotoFromList(collection) {
+  if (!Array.isArray(collection) || !collection.length) {
+    return null
+  }
+  for (const entry of collection) {
+    if (typeof entry === 'string' && entry.trim()) {
+      return entry.trim()
+    }
+    if (entry && typeof entry === 'object') {
+      const candidate = pickFirstString(
+        entry.url_original,
+        entry.url,
+        entry.url_max,
+        entry.url_max300,
+        entry.url_1440,
+        entry.url_square60,
+        entry.photo_url,
+        entry.image_url,
+      )
+      if (candidate) {
+        return candidate
+      }
+    }
+  }
+  return null
+}
+
+function pickFirstString(...values) {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+  }
+  return null
+}
+
+async function resolveBookingAttractionLocation(context) {
+  const destinationLabel = context.destination || plannerPreferences.value.destination || ''
+  try {
+    const payload = await searchBookingAttractionLocations({
+      query: destinationLabel || undefined,
+      latitude: Number.isFinite(context.lat) ? context.lat : undefined,
+      longitude: Number.isFinite(context.lng) ? context.lng : undefined,
+    })
+    const locations = normaliseBookingAttractionLocations(payload)
+    if (!locations.length) {
+      return null
+    }
+    if (destinationLabel) {
+      const exact = locations.find((entry) =>
+        entry.name?.toLowerCase().includes(destinationLabel.toLowerCase()),
+      )
+      if (exact) {
+        return exact
+      }
+    }
+    return locations[0]
+  } catch (error) {
+    console.warn('Booking attraction location lookup failed', error)
+    return null
+  }
+}
+
+function normaliseBookingAttractionLocations(payload) {
+  if (Array.isArray(payload?.data?.destinations) && payload.data.destinations.length) {
+    return payload.data.destinations
+      .map((destination) => ({
+        id: destination.id ?? null,
+        name: destination.cityName ?? destination.name ?? '',
+        lat: destination.latitude ?? null,
+        lng: destination.longitude ?? null,
+        ufi: destination.ufi ?? null,
+      }))
+      .filter((entry) => entry && entry.id)
+  }
+  const containers = [
+    payload?.data?.data,
+    payload?.data?.locations,
+    payload?.data,
+    payload?.result,
+    payload?.locations,
+    payload,
+  ]
+  for (const container of containers) {
+    if (Array.isArray(container)) {
+      return container
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null
+          }
+          const lat = coerceFiniteNumber(entry.latitude ?? entry.lat)
+          const lng = coerceFiniteNumber(entry.longitude ?? entry.lng)
+          return {
+            id: entry.id ?? entry.location_id ?? entry.uuid ?? null,
+            name: entry.name ?? entry.city ?? entry.title ?? '',
+            lat: lat !== null ? lat : null,
+            lng: lng !== null ? lng : null,
+            ufi: entry.ufi ?? entry.location_ufi ?? null,
+          }
+        })
+        .filter((entry) => entry && entry.id)
+    }
+    if (container && typeof container === 'object') {
+      const values = Object.values(container)
+      if (values.some((value) => Array.isArray(value))) {
+        return values
+          .filter(Array.isArray)
+          .flat()
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object') {
+              return null
+            }
+            const lat = coerceFiniteNumber(entry.latitude ?? entry.lat)
+            const lng = coerceFiniteNumber(entry.longitude ?? entry.lng)
+            return {
+              id: entry.id ?? entry.location_id ?? entry.uuid ?? null,
+              name: entry.name ?? entry.city ?? entry.title ?? '',
+              lat: lat !== null ? lat : null,
+              lng: lng !== null ? lng : null,
+              ufi: entry.ufi ?? entry.location_ufi ?? null,
+            }
+          })
+          .filter((entry) => entry && entry.id)
+      }
+    }
+  }
+  return []
+}
+
+function normaliseBookingAttractions(payload, meta) {
+  const list = extractBookingAttractionList(payload)
+  return list
+    .map((attraction) => normaliseBookingAttraction(attraction, meta))
+    .filter(Boolean)
+}
+
+function extractBookingAttractionList(payload) {
+  const containers = [
+    payload?.data?.data,
+    payload?.data?.results,
+    payload?.data?.items,
+    payload?.data?.attractions,
+    payload?.result,
+    payload?.items,
+    payload?.attractions,
+    payload?.data,
+    payload,
+  ]
+  for (const container of containers) {
+    if (Array.isArray(container)) {
+      return container
+    }
+    if (container && typeof container === 'object') {
+      const values = Object.values(container).filter((value) => Array.isArray(value))
+      if (values.length) {
+        return values[0]
+      }
+    }
+  }
+  return []
+}
+
+function normaliseBookingAttraction(attraction, meta = {}) {
+  if (!attraction || typeof attraction !== 'object') {
+    return null
+  }
+  const title =
+    attraction.name ?? attraction.title ?? attraction.attraction_name ?? attraction.short_title ?? null
+  if (!title) {
+    return null
+  }
+  const addressParts = [
+    attraction.address ?? attraction.full_address ?? null,
+    attraction.city ?? attraction.city_name ?? null,
+    attraction.country ?? attraction.country_name ?? null,
+  ]
+    .filter((part) => typeof part === 'string' && part.trim())
+  const subtitle =
+    addressParts.join(', ') || attraction.short_description || meta.destination || 'Malaysia'
+  const ratingCandidate =
+    attraction.review_score ??
+    attraction.rating ??
+    attraction.review_score_avg ??
+    attraction.attr_score ??
+    attraction.reviewsStats?.combinedNumericStats?.average ??
+    null
+  const rating =
+    ratingCandidate != null && Number.isFinite(Number(ratingCandidate))
+      ? Math.round(Number(ratingCandidate) * 10) / 10
+      : null
+  const reviewsCandidate =
+    attraction.review_count ??
+    attraction.review_nr ??
+    attraction.number_of_reviews ??
+    attraction.reviewsStats?.combinedNumericStats?.total ??
+    attraction.reviewsStats?.allReviewsCount ??
+    null
+  const reviews =
+    reviewsCandidate != null && Number.isFinite(Number(reviewsCandidate))
+      ? Math.max(0, Math.round(Number(reviewsCandidate)))
+      : null
+  const priceInfo = resolveAttractionPriceInfo(attraction)
+  const imageFromArray =
+    Array.isArray(attraction.images) && attraction.images.length
+      ? attraction.images
+          .map((img) => {
+            if (typeof img === 'string') return img
+            if (img && typeof img === 'object') {
+              return img.url ?? img.image_url ?? img.href ?? img.src ?? null
+            }
+            return null
+          })
+          .find((entry) => typeof entry === 'string' && entry.trim())
+      : null
+  const photoUrl =
+    pickFirstString(
+      attraction.main_photo_url,
+      attraction.photo_url,
+      attraction.image_url,
+      attraction.cover_image,
+      attraction.primaryPhoto?.small,
+      attraction.primaryPhoto?.medium,
+      attraction.primaryPhoto?.large,
+      imageFromArray,
+    ) || ''
+  const attractionId = attraction.id ?? attraction.attraction_id ?? attraction.product_id ?? null
+  return {
+    id: `booking-attraction-${attractionId || createLocalId()}`,
+    provider: 'booking',
+    title,
+    subtitle,
+    rating,
+    reviews,
+    priceText: priceInfo.text,
+    photoUrl,
+    tags: [meta.label || 'Experience'],
+    metadata: {
+      provider: 'booking',
+      theme: meta.theme,
+      attractionId,
+      price: priceInfo.amount,
+      currency: priceInfo.currency,
+      rating,
+      reviewCount: reviews,
+      address: subtitle,
+      taxonomySlug: attraction.taxonomySlug ?? null,
+      description: attraction.shortDescription ?? attraction.short_description ?? '',
+    },
+    raw: attraction,
+  }
+}
+
+function resolveAttractionPriceInfo(attraction) {
+  const amountCandidates = [
+    attraction.price_from,
+    attraction.price?.from,
+    attraction.starting_price,
+    attraction.lowest_price,
+    attraction.price_from_value,
+    attraction.price?.amount,
+    attraction.representativePrice?.chargeAmount,
+    attraction.representativePrice?.publicAmount,
+  ]
+  let amount = null
+  for (const candidate of amountCandidates) {
+    const numeric = coerceFiniteNumber(candidate)
+    if (numeric !== null) {
+      amount = numeric
+      break
+    }
+  }
+  const currency =
+    attraction.price_currency ??
+    attraction.currency_code ??
+    attraction.price?.currency ??
+    attraction.representativePrice?.currency ??
+    'MYR'
+  let text =
+    attraction.price_display ??
+    attraction.price_text ??
+    (amount !== null ? formatCurrencyDisplay(amount, currency) : null)
+  if (text && amount !== null && !text.toLowerCase().includes('ticket')) {
+    text = `${formatCurrencyDisplay(amount, currency)} / ticket`
+  }
+  return {
+    amount,
+    currency,
+    text,
+  }
+}
+
+function applyBookingAttractionThemeFilters(items = [], blueprint) {
+  if (!Array.isArray(items) || !items.length) {
+    return []
+  }
+  let filtered = [...items]
+  const taxonomySlugs = blueprint?.booking?.taxonomySlugs
+  if (Array.isArray(taxonomySlugs) && taxonomySlugs.length) {
+    filtered = filtered.filter((item) => {
+      const slug = (item.metadata?.taxonomySlug || item.raw?.taxonomySlug || '').trim()
+      return slug && taxonomySlugs.includes(slug)
+    })
+  }
+  const keywordIncludes = blueprint?.booking?.keywordIncludes
+  if (Array.isArray(keywordIncludes) && keywordIncludes.length) {
+    const keywords = keywordIncludes.map((keyword) => keyword.toLowerCase())
+    const matchKeywords = (value) => {
+      if (!value) return false
+      const lower = value.toLowerCase()
+      return keywords.some((keyword) => lower.includes(keyword))
+    }
+    const keywordMatches = filtered.filter(
+      (item) =>
+        matchKeywords(item.title) ||
+        matchKeywords(item.subtitle) ||
+        matchKeywords(item.metadata?.description),
+    )
+    if (keywordMatches.length) {
+      filtered = keywordMatches
+    }
+  }
+  return filtered.length ? filtered : items
 }
 
 function buildAccommodationFilterFromTheme(theme) {
@@ -2188,6 +2899,10 @@ function resolveBookingPriceInfo(hotel, fallbackPrice, fallbackCurrency = 'MYR')
 
 function normaliseBookingHotel(hotel, theme) {
   if (!hotel) return null
+  const property = hotel.property && typeof hotel.property === 'object' ? hotel.property : {}
+  const canonicalHotelId =
+    hotel.hotel_id ?? hotel.id ?? hotel.property_id ?? hotel.propertyId ?? hotel.hotelId ?? hotel.uuid ?? null
+  const normalizedHotelId = canonicalHotelId != null ? String(canonicalHotelId) : null
   const fallbackPrice =
     hotel.min_total_price ??
     hotel.priceBreakdown?.grossPrice?.value ??
@@ -2216,7 +2931,14 @@ function normaliseBookingHotel(hotel, theme) {
   const subtitle = addressParts.join(', ')
   const priceInfo = resolveBookingPriceInfo(hotel, fallbackPrice, fallbackCurrency)
   const ratingCandidate =
-    hotel.review_score ?? hotel.reviewScore ?? hotel.review_score_avg ?? hotel.rating ?? hotel.property_rating ?? null
+    hotel.review_score ??
+    hotel.reviewScore ??
+    hotel.review_score_avg ??
+    hotel.rating ??
+    hotel.reviewScoreWord ??
+    property.reviewScore ??
+    property.rating ??
+    null
   const ratingNumber = ratingCandidate != null ? Number(ratingCandidate) : null
   const rating = Number.isFinite(ratingNumber) ? Math.round(ratingNumber * 10) / 10 : null
   const reviewCountCandidate =
@@ -2225,19 +2947,33 @@ function normaliseBookingHotel(hotel, theme) {
     hotel.review_number ??
     hotel.number_of_reviews ??
     hotel.property_review_count ??
+    property.review_nr ??
+    property.reviewCount ??
+    property.review_count ??
     null
   const reviewCountNumber = reviewCountCandidate != null ? Number(reviewCountCandidate) : null
   const reviewCount = Number.isFinite(reviewCountNumber) ? Math.max(0, Math.round(reviewCountNumber)) : null
-  const reviewSummary = hotel.review_score_word ?? hotel.reviewScoreWord ?? null
+  const reviewSummary = hotel.review_score_word ?? hotel.reviewScoreWord ?? property.reviewScoreWord ?? null
+  const photoUrl =
+    pickFirstString(
+      hotel.max_photo_url,
+      hotel.main_photo_url,
+      hotel.photoMainUrl,
+      hotel.photo_url,
+      hotel.image_url,
+      hotel.image?.url,
+      resolveFirstPhotoFromList(hotel.photoUrls),
+      resolveFirstPhotoFromList(hotel.photos),
+    ) || ''
   return {
-    id: `booking-${hotel.hotel_id || hotel.id || createLocalId()}`,
+    id: `booking-${normalizedHotelId || createLocalId()}`,
     provider: 'booking',
     title,
     subtitle: subtitle || hotel.city || 'Malaysia',
     rating,
     reviews: reviewCount,
     priceText: priceInfo.priceText,
-    photoUrl: hotel.max_photo_url ?? hotel.main_photo_url ?? hotel.photoMainUrl ?? '',
+    photoUrl,
     tags: [THEME_BLUEPRINTS[theme]?.label ?? 'Stay'],
     metadata: {
       lat,
@@ -2249,7 +2985,7 @@ function normaliseBookingHotel(hotel, theme) {
       provider: 'booking',
       currency: priceInfo.currency,
       price: priceInfo.priceValue,
-      hotelId: hotel.hotel_id ?? hotel.id ?? null,
+      hotelId: normalizedHotelId,
       url: hotel.url ?? '',
       reviewCount,
       reviewSummary,
@@ -2393,6 +3129,172 @@ function serialiseCurationSelections() {
   return { experiences, stays }
 }
 
+function buildPackageCostSummary(selection) {
+  const summary = {
+    total: 0,
+    currency: 'MYR',
+    categories: {},
+    picks: [],
+  }
+  if (!selection) {
+    return summary
+  }
+  const ensureCurrency = (candidate) => {
+    if (candidate && typeof candidate === 'string' && candidate.trim()) {
+      summary.currency = candidate.trim().toUpperCase()
+    }
+  }
+  const trackPick = (theme, pick) => {
+    if (!COST_SUMMARY_THEMES.has(theme)) {
+      return
+    }
+    const priceInfo = extractSelectionPriceInfo(pick)
+    if (!priceInfo || !priceInfo.price || priceInfo.price <= 0) {
+      return
+    }
+    const themeKey = theme || 'travel'
+    ensureCurrency(priceInfo.currency)
+    summary.categories[themeKey] = (summary.categories[themeKey] ?? 0) + priceInfo.price
+    summary.total += priceInfo.price
+    summary.picks.push({
+      theme: themeKey,
+      id: pick?.id ?? null,
+      title: pick?.title ?? '',
+      price: priceInfo.price,
+      currency: priceInfo.currency || summary.currency,
+    })
+  }
+  selection.experiences?.forEach((section) => {
+    section?.picks?.forEach((pick) => trackPick(section.theme, pick))
+  })
+  summary.total = Math.round(summary.total * 100) / 100
+  Object.keys(summary.categories).forEach((key) => {
+    summary.categories[key] = Math.round(summary.categories[key] * 100) / 100
+  })
+  summary.totalFormatted =
+    summary.total > 0 ? formatCurrencyDisplay(summary.total, summary.currency) : null
+  return summary
+}
+
+function extractSelectionPriceInfo(entry) {
+  if (!entry) {
+    return null
+  }
+  const metadata = entry.metadata || {}
+  const priceCandidates = [
+    entry.priceValue,
+    metadata.priceValue,
+    metadata.price,
+    metadata.pricing,
+    metadata.priceRange?.start,
+    metadata.priceRange?.value,
+    metadata.price_range?.start,
+    metadata.price_range?.value,
+    metadata.priceRange?.min,
+    metadata.price_range?.min,
+    metadata.representativePrice?.chargeAmount,
+    metadata.representativePrice?.publicAmount,
+    metadata.priceMin,
+    metadata.priceMax,
+  ]
+  let price = null
+  for (const candidate of priceCandidates) {
+    const value = normalisePriceCandidate(candidate)
+    if (value != null) {
+      price = value
+      break
+    }
+  }
+  if (price == null) {
+    const parsed = parsePriceFromText(entry.priceText)
+    if (parsed != null) {
+      price = parsed
+    }
+  }
+  const currencyCandidates = [
+    metadata.currency,
+    metadata.priceCurrency,
+    metadata.priceRange?.currency,
+    metadata.price_range?.currency,
+    metadata.representativePrice?.currency,
+    detectCurrencyFromText(entry.priceText),
+  ]
+  const currency = (currencyCandidates.find((value) => typeof value === 'string' && value.trim()) || 'MYR')
+    .toUpperCase()
+  if (price == null || price <= 0) {
+    return null
+  }
+  return { price, currency }
+}
+
+function normalisePriceCandidate(candidate) {
+  if (candidate == null || candidate === '') {
+    return null
+  }
+  if (typeof candidate === 'number') {
+    return Number.isFinite(candidate) ? candidate : null
+  }
+  if (typeof candidate === 'string') {
+    const cleaned = Number(candidate.replace(/[^0-9.]/g, ''))
+    return Number.isFinite(cleaned) ? cleaned : null
+  }
+  if (typeof candidate === 'object') {
+    if (candidate.value != null) {
+      return normalisePriceCandidate(candidate.value)
+    }
+    if (candidate.amount != null) {
+      return normalisePriceCandidate(candidate.amount)
+    }
+    if (candidate.min != null && candidate.max != null) {
+      const min = normalisePriceCandidate(candidate.min)
+      const max = normalisePriceCandidate(candidate.max)
+      if (min != null && max != null) {
+        return (min + max) / 2
+      }
+      return min ?? max ?? null
+    }
+  }
+  return null
+}
+
+function parsePriceFromText(text) {
+  if (!text || typeof text !== 'string') {
+    return null
+  }
+  const matches = text.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/g)
+  if (!matches || !matches.length) {
+    return null
+  }
+  const numbers = matches.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+  if (!numbers.length) {
+    return null
+  }
+  if (numbers.length === 1) {
+    return numbers[0]
+  }
+  const avg = numbers.reduce((sum, value) => sum + value, 0) / numbers.length
+  return Math.round(avg * 100) / 100
+}
+
+function detectCurrencyFromText(text) {
+  if (!text || typeof text !== 'string') {
+    return null
+  }
+  if (/MYR|RM/i.test(text)) {
+    return 'MYR'
+  }
+  if (/USD|\$/i.test(text)) {
+    return 'USD'
+  }
+  if (/EUR|€/i.test(text)) {
+    return 'EUR'
+  }
+  if (/SGD/i.test(text)) {
+    return 'SGD'
+  }
+  return null
+}
+
 async function persistSelectionsAsPackage(selection) {
   if (!props.travelerId) {
     return
@@ -2405,6 +3307,7 @@ async function persistSelectionsAsPackage(selection) {
     return
   }
   const destination = derivePackageDestination()
+  const costSummary = buildPackageCostSummary(selection)
   const payload = {
     travelerId: Number(props.travelerId),
     title: buildPackageTitle(destination),
@@ -2412,6 +3315,9 @@ async function persistSelectionsAsPackage(selection) {
     coverPhoto: derivePackageCover(selection),
     summary: buildPackageSummary(selection, destination),
     selections: selection,
+    costSummary,
+    totalCost: costSummary.total,
+    currency: costSummary.currency,
   }
   try {
     await savePlacesPackage(payload)
@@ -4690,40 +5596,3 @@ function createPlacesSessionToken() {
 }
 
 </style>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

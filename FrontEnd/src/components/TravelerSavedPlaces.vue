@@ -99,6 +99,66 @@ function packageSelectionCount(pkg) {
   return experiences + stays
 }
 
+function packageCostLabel(pkg) {
+  const total = packageTotalCost(pkg)
+  return total?.label ?? ''
+}
+
+function formatCurrencyAmount(amount, currency = 'MYR') {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return ''
+  }
+  try {
+    return new Intl.NumberFormat('en-MY', {
+      style: 'currency',
+      currency: currency || 'MYR',
+      maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    }).format(amount)
+  } catch {
+    const safeCurrency = currency || 'MYR'
+    const rounded = amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2)
+    return `${safeCurrency} ${rounded}`
+  }
+}
+
+function packageTotalCost(pkg) {
+  const summary = pkg?.costSummary
+  const total = Number(summary?.total ?? pkg?.totalCost ?? 0)
+  if (!Number.isFinite(total) || total <= 0) {
+    return null
+  }
+  const currency = summary?.currency || pkg?.currency || 'MYR'
+  return {
+    amount: Math.round(total * 100) / 100,
+    currency,
+    label: formatCurrencyAmount(total, currency),
+  }
+}
+
+const COST_THEME_LABELS = {
+  travel: 'Travel essentials',
+  adventure: 'Adventure thrills',
+  city: 'City highlights',
+  relax: 'Relax & wellness',
+}
+
+function packageCostBreakdown(pkg) {
+  const summary = pkg?.costSummary
+  if (!summary?.categories || typeof summary.categories !== 'object') {
+    return []
+  }
+  const currency = summary.currency || pkg?.currency || 'MYR'
+  return Object.entries(summary.categories)
+    .filter(([, amount]) => Number(amount) > 0)
+    .map(([theme, amount]) => ({
+      theme,
+      label: COST_THEME_LABELS[theme] || theme,
+      amount: Math.round(Number(amount) * 100) / 100,
+      formatted: formatCurrencyAmount(Number(amount), currency),
+    }))
+    .sort((a, b) => b.amount - a.amount)
+}
+
 function computeCoverPhoto(pkg) {
   if (pkg.coverPhoto) return pkg.coverPhoto
   const stay = pkg.selections?.stays?.find((item) => item.photoUrl)?.photoUrl
@@ -203,6 +263,9 @@ function stayReviewLabel(entry) {
                       - {{ pkg.summary.durationLabel }}
                     </span>
                   </div>
+                  <div v-if="packageCostLabel(pkg)" class="saved-package-cover__cost">
+                    {{ packageCostLabel(pkg) }}
+                  </div>
                   <div class="saved-package-cover__stats">
                     <n-tag round size="tiny" type="info">
                       {{ packageSelectionCount(pkg) }} selections
@@ -219,6 +282,9 @@ function stayReviewLabel(entry) {
               </div>
               <n-text depth="3">
                 {{ pkg.summary?.themeSummary || 'Saved picks from your planner' }}
+              </n-text>
+              <n-text v-if="packageCostLabel(pkg)" depth="2" class="saved-package-card__caption-cost">
+                Total tickets: <strong>{{ packageCostLabel(pkg) }}</strong>
               </n-text>
             </div>
 
@@ -324,6 +390,18 @@ function stayReviewLabel(entry) {
                 <strong>{{ activePackage.summary?.durationLabel || 'Flexible stay' }}</strong>
               </div>
             </div>
+            <div class="package-modal__meta-item" v-if="packageCostLabel(activePackage)">
+              <div class="package-modal__meta-icon">
+                <i class="ri-money-dollar-circle-line" />
+              </div>
+              <div>
+                <span>Tickets & activities</span>
+                <strong>{{ packageCostLabel(activePackage) }}</strong>
+                <small v-if="packageCostBreakdown(activePackage).length">
+                  Covers Travel, Adventure, City & Relax picks
+                </small>
+              </div>
+            </div>
             <div
               class="package-modal__meta-item package-modal__meta-item--accent"
               v-if="activePackage.summary?.themeSummary"
@@ -335,6 +413,16 @@ function stayReviewLabel(entry) {
                 <span>Theme focus</span>
                 <strong>{{ activePackage.summary.themeSummary }}</strong>
               </div>
+            </div>
+          </div>
+          <div v-if="packageCostBreakdown(activePackage).length" class="package-cost-breakdown">
+            <div
+              v-for="entry in packageCostBreakdown(activePackage)"
+              :key="entry.theme"
+              class="package-cost-breakdown__row"
+            >
+              <span>{{ entry.label }}</span>
+              <strong>{{ entry.formatted }}</strong>
             </div>
           </div>
         </div>
@@ -579,6 +667,12 @@ function stayReviewLabel(entry) {
   opacity: 0.85;
 }
 
+.saved-package-cover__cost {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fef3c7;
+}
+
 .saved-package-cover__stats {
   display: flex;
   justify-content: space-between;
@@ -605,6 +699,10 @@ function stayReviewLabel(entry) {
 .saved-package-card__caption :deep(.n-text) {
   font-size: 0.82rem;
   color: rgba(15, 23, 42, 0.65);
+}
+
+.saved-package-card__caption-cost {
+  margin-top: 4px;
 }
 
 .saved-package-delete {
@@ -797,6 +895,13 @@ function stayReviewLabel(entry) {
   color: #0f172a;
 }
 
+.package-modal__meta-item small {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: rgba(15, 23, 42, 0.55);
+}
+
 .package-modal__meta-item--accent {
   background: linear-gradient(135deg, #e0fbfc, #f1fff7);
   border: 1px solid rgba(34, 197, 94, 0.35);
@@ -817,6 +922,29 @@ function stayReviewLabel(entry) {
 .package-modal__meta-item--accent .package-modal__meta-icon {
   background: rgba(34, 197, 94, 0.15);
   color: #0f5132;
+}
+
+.package-cost-breakdown {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.package-cost-breakdown__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.75);
+}
+
+.package-cost-breakdown__row strong {
+  font-weight: 600;
+  color: #0f172a;
 }
 
 .package-modal__section {

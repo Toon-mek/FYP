@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const BOOKING_RAPIDAPI_KEY = 'a8637705ffmsh6761cfe0a11fc19p180c50jsn2402161ed017';
+const BOOKING_RAPIDAPI_KEY = '1d79978ae7msh16de8e83e0a4d8ep1b1735jsnc38f3d34df3c';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -49,6 +49,19 @@ $resourceMap = [
     'hotel-details' => '/api/v1/hotels/getHotelDetails',
     'hotel-photos' => '/api/v1/hotels/getHotelPhotos',
     'hotel-description' => '/api/v1/hotels/getDescriptionAndInfo',
+    'hotel-review-scores' => '/api/v1/hotels/getHotelReviewScores',
+    'attractions-search' => '/api/v1/attraction/searchAttractions',
+    'attraction-search' => '/api/v1/attraction/searchAttractions',
+    'attractions-location' => '/api/v1/attraction/searchLocation',
+    'attraction-location' => '/api/v1/attraction/searchLocation',
+    'attractions-availability' => '/api/v1/attraction/getAvailability',
+    'attraction-availability' => '/api/v1/attraction/getAvailability',
+    'attractions-availability-calendar' => '/api/v1/attraction/getAvailabilityCalendar',
+    'attraction-availability-calendar' => '/api/v1/attraction/getAvailabilityCalendar',
+    'attractions-details' => '/api/v1/attraction/getAttractionDetails',
+    'attraction-details' => '/api/v1/attraction/getAttractionDetails',
+    'attractions-reviews' => '/api/v1/attraction/getAttractionReviews',
+    'attraction-reviews' => '/api/v1/attraction/getAttractionReviews',
 ];
 
 $resourceKey = isset($_GET['resource']) ? strtolower(trim((string) $_GET['resource'])) : 'destinations';

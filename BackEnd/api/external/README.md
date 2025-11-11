@@ -18,12 +18,19 @@ Perform a GET request against `/api/external/booking_proxy.php` with a `resource
 
 Supported `resource` values:
 
-- `destinations` → `/api/v1/hotels/searchDestination`
-- `hotels` → `/api/v1/hotels/searchHotels`
-- `hotels-by-coordinates` → `/api/v1/hotels/searchHotelsByCoordinates`
-- `hotel-details` → `/api/v1/hotels/getHotelDetails`
-- `hotel-photos` → `/api/v1/hotels/getHotelPhotos`
-- `hotel-description` → `/api/v1/hotels/getDescriptionAndInfo`
+- `destinations` -> `/api/v1/hotels/searchDestination`
+- `hotels` -> `/api/v1/hotels/searchHotels`
+- `hotels-by-coordinates` -> `/api/v1/hotels/searchHotelsByCoordinates`
+- `hotel-details` -> `/api/v1/hotels/getHotelDetails`
+- `hotel-photos` -> `/api/v1/hotels/getHotelPhotos`
+- `hotel-description` -> `/api/v1/hotels/getDescriptionAndInfo`
+- `hotel-review-scores` -> `/api/v1/hotels/getHotelReviewScores`
+- `attractions-search` -> `/api/v1/attraction/searchAttractions`
+- `attractions-location` -> `/api/v1/attraction/searchAttractionLocation`
+- `attractions-availability` -> `/api/v1/attraction/getAvailability`
+- `attractions-availability-calendar` -> `/api/v1/attraction/getAvailabilityCalendar`
+- `attractions-details` -> `/api/v1/attraction/getAttractionDetails`
+- `attractions-reviews` -> `/api/v1/attraction/getAttractionReviews`
 
 Example (search destinations for Kuala Lumpur):
 

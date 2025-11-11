@@ -340,6 +340,302 @@ export async function fetchHotelsByCoordinates({
   return handleResponse(response)
 }
 
+export async function searchBookingAttractionLocations({ query, latitude, longitude, radius = 50000 } = {}) {
+  const params = new URLSearchParams({ resource: 'attractions-location' })
+  if (query) params.set('query', query)
+  if (Number.isFinite(latitude)) params.set('latitude', String(latitude))
+  if (Number.isFinite(longitude)) params.set('longitude', String(longitude))
+  if (Number.isFinite(radius)) params.set('radius', String(radius))
+  const response = await fetch(`${BOOKING_PROXY_ENDPOINT}?${params.toString()}`)
+  return handleResponse(response)
+}
+
+export async function searchBookingAttractions({
+  id,
+  page = 1,
+  orderBy = 'trending',
+  currencyCode = 'MYR',
+  languageCode = 'en-gb',
+  typeFilters = [],
+  priceFilters = [],
+  ufiFilters = [],
+  ...extra
+} = {}) {
+  if (!id) {
+    throw new Error('Booking attractions search requires an id parameter.')
+  }
+  const params = new URLSearchParams({
+    resource: 'attractions-search',
+    id: String(id),
+    page: String(page),
+    currency_code: currencyCode,
+    languagecode: languageCode,
+  })
+  params.set('orderBy', orderBy)
+  params.set('order_by', orderBy)
+  const appendCsv = (key, value) => {
+    const list = Array.isArray(value) ? value : [value]
+    const entries = list
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+      .filter(Boolean)
+    if (entries.length) {
+      params.set(key, entries.join(','))
+    }
+  }
+  appendCsv('typeFilters', typeFilters)
+  appendCsv('priceFilters', priceFilters)
+  appendCsv('ufiFilters', ufiFilters)
+  Object.entries(extra || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return
+    }
+    params.set(key, String(value))
+  })
+  const response = await fetch(`${BOOKING_PROXY_ENDPOINT}?${params.toString()}`)
+  return handleResponse(response)
+}
+
+export async function fetchBookingHotelReviewScores(hotelIds, { languagecode = 'en-gb' } = {}) {
+  const ids = normaliseBookingHotelIdList(hotelIds)
+  if (!ids.length) {
+    return new Map()
+  }
+  const results = new Map()
+  await Promise.all(
+    ids.map(async (hotelId) => {
+      const params = new URLSearchParams({
+        resource: 'hotel-review-scores',
+        hotel_id: hotelId,
+      })
+      if (languagecode) {
+        params.set('languagecode', languagecode)
+      }
+      try {
+        const response = await fetch(`${BOOKING_PROXY_ENDPOINT}?${params.toString()}`)
+        const payload = await handleResponse(response)
+        const record = normaliseBookingReviewScore(payload)
+        if (record) {
+          results.set(record.hotelId || hotelId, record)
+        }
+      } catch (error) {
+        console.warn(`Booking review score fetch failed for hotel ${hotelId}`, error)
+      }
+    }),
+  )
+  return results
+}
+
+export async function fetchBookingHotelPhotos(hotelIds, { limit = 4 } = {}) {
+  const ids = normaliseBookingHotelIdList(hotelIds)
+  if (!ids.length) {
+    return new Map()
+  }
+  const results = new Map()
+  await Promise.all(
+    ids.map(async (hotelId) => {
+      const params = new URLSearchParams({
+        resource: 'hotel-photos',
+        hotel_id: hotelId,
+      })
+      if (Number.isFinite(limit) && limit > 0) {
+        params.set('limit', String(limit))
+      }
+      try {
+        const response = await fetch(`${BOOKING_PROXY_ENDPOINT}?${params.toString()}`)
+        const payload = await handleResponse(response)
+        const photos = normaliseBookingPhotoList(payload)
+        if (photos.length) {
+          results.set(hotelId, photos.slice(0, limit > 0 ? limit : photos.length))
+        }
+      } catch (error) {
+        console.warn(`Booking photo fetch failed for hotel ${hotelId}`, error)
+      }
+    }),
+  )
+  return results
+}
+
+function normaliseBookingHotelIdList(hotelIds) {
+  const entries = Array.isArray(hotelIds) ? hotelIds : [hotelIds]
+  const cleaned = entries
+    .map((value) => {
+      if (value == null) return ''
+      if (typeof value === 'object') {
+        if (typeof value.hotelId === 'string' && value.hotelId.trim()) {
+          return value.hotelId.trim()
+        }
+        if (typeof value.metadata?.hotelId === 'string' && value.metadata.hotelId.trim()) {
+          return value.metadata.hotelId.trim()
+        }
+        if (typeof value.id === 'string' && value.id.trim()) {
+          return value.id.trim()
+        }
+      }
+      const stringValue = String(value).trim()
+      return stringValue
+    })
+    .filter(Boolean)
+  return Array.from(new Set(cleaned))
+}
+
+function normaliseBookingReviewScore(payload) {
+  const container = payload?.data ?? payload?.result ?? payload?.reviews ?? payload
+  const candidates = extractBookingRecordCandidates(container)
+  const record = candidates.find((entry) => entry && typeof entry === 'object')
+  if (!record) {
+    return null
+  }
+  const hotelId =
+    record.hotel_id ??
+    record.hotelId ??
+    record.id ??
+    record.property_id ??
+    record.propertyId ??
+    record.hotel ??
+    null
+  const scoreCandidate =
+    record.review_score ??
+    record.score ??
+    record.average_score ??
+    record.rating ??
+    record.review_score_avg ??
+    record.review?.score ??
+    null
+  const score = extractNumericScore(scoreCandidate)
+  const countCandidate =
+    record.review_nr ??
+    record.review_count ??
+    record.reviews_count ??
+    record.number_of_reviews ??
+    record.review_total ??
+    record.count ??
+    record.total ??
+    record.review?.count ??
+    record.review?.total ??
+    null
+  const count = extractInteger(countCandidate)
+  const summary =
+    record.review_score_word ??
+    record.score_word ??
+    record.review_summary ??
+    record.summary ??
+    record.review?.summary ??
+    null
+  if (!hotelId && score === null && count === null && !summary) {
+    return null
+  }
+  return {
+    hotelId: hotelId != null ? String(hotelId) : null,
+    score,
+    count,
+    summary: typeof summary === 'string' && summary.trim() ? summary.trim() : null,
+  }
+}
+
+function extractBookingRecordCandidates(raw) {
+  if (!raw) {
+    return []
+  }
+  if (Array.isArray(raw)) {
+    return raw
+  }
+  if (typeof raw === 'object') {
+    const nestedArrays = [raw.data, raw.result, raw.items, raw.list, raw.reviews, raw.review_scores].filter(Array.isArray)
+    if (nestedArrays.length) {
+      return nestedArrays[0]
+    }
+  }
+  return [raw]
+}
+
+function normaliseBookingPhotoList(payload) {
+  const container = payload?.data ?? payload?.result ?? payload?.photos ?? payload
+  const list = []
+  const pushUrl = (url) => {
+    if (typeof url === 'string') {
+      const trimmed = url.trim()
+      if (trimmed) {
+        list.push(trimmed)
+      }
+    }
+  }
+  const visitEntry = (entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return
+    }
+    const candidates = [
+      entry.url_original,
+      entry.url_max,
+      entry.url_max300,
+      entry.url_max3000,
+      entry.url_1440,
+      entry.url_1280,
+      entry.url_1024,
+      entry.url_square60,
+      entry.max_photo_url,
+      entry.photo_url,
+      entry.url,
+      entry.image_url,
+      entry.image?.url,
+    ]
+    candidates.forEach(pushUrl)
+    if (Array.isArray(entry.urls)) {
+      entry.urls.forEach(pushUrl)
+    }
+  }
+  if (Array.isArray(container)) {
+    container.forEach(visitEntry)
+  } else if (container && typeof container === 'object') {
+    if (Array.isArray(container.photos)) {
+      container.photos.forEach(visitEntry)
+    } else if (Array.isArray(container.data)) {
+      container.data.forEach(visitEntry)
+    } else if (Array.isArray(container.result)) {
+      container.result.forEach(visitEntry)
+    } else {
+      visitEntry(container)
+    }
+  }
+  return list
+}
+
+function extractNumericScore(value) {
+  if (value == null || value === '') {
+    return null
+  }
+  const number = Number(value)
+  if (Number.isFinite(number)) {
+    return Math.round(number * 10) / 10
+  }
+  if (typeof value === 'string') {
+    const cleaned = Number(value.replace(/[^0-9.]/g, ''))
+    if (Number.isFinite(cleaned)) {
+      return Math.round(cleaned * 10) / 10
+    }
+  }
+  return null
+}
+
+function extractInteger(value) {
+  if (value == null || value === '') {
+    return null
+  }
+  if (Number.isInteger(value)) {
+    return value
+  }
+  const number = Number(value)
+  if (Number.isFinite(number)) {
+    return Math.round(number)
+  }
+  if (typeof value === 'string') {
+    const cleaned = Number(value.replace(/[^0-9]/g, ''))
+    if (Number.isFinite(cleaned)) {
+      return Math.round(cleaned)
+    }
+  }
+  return null
+}
+
 export async function fetchSavedPlacePackages(travelerId) {
   if (!travelerId) {
     return { packages: [] }
