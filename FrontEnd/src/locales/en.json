@@ -69,9 +69,7 @@
     ],
     "socialLabel": "Connect with us:",
     "socialLinks": [
-      { "label": "Instagram", "href": "#" },
-      { "label": "Facebook", "href": "#" },
-      { "label": "YouTube", "href": "#" }
+      { "label": "mst@company.com", "href": "mailto:mst@company.com" }
     ],
     "copy": "© {year} {brand}. All rights reserved."
   },

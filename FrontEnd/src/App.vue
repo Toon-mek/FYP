@@ -40,19 +40,37 @@ const homeNavLinks = computed(() => [
   { label: t('nav.newsletter'), href: '#newsletter' },
 ])
 
-const travelerNavLinks = computed(() => [
-  { label: t('nav.destinations'), href: '#destinations' },
-  { label: t('nav.calendar'), href: '#calendar-panel' },
-  { label: t('nav.resorts'), href: '#resorts-panel' },
-  { label: t('nav.upcoming'), href: '#upcoming-panel' },
-])
+const travelerNavLinks = computed(() => [])
 
 const adminNavLinks = []
-const operatorNavLinks = computed(() => [
-  { label: t('nav.uploadInfo'), href: '#upload-info' },
-  { label: t('nav.mediaManager'), href: '#media-manager' },
-  { label: t('nav.manageListings'), href: '#listings-panel' },
+const operatorNavLinks = computed(() => [])
+const operatorHeaderShortcuts = computed(() => [
+  { key: 'upload-info', label: t('nav.uploadInfo') },
+  { key: 'media-manager', label: t('nav.mediaManager') },
+  { key: 'manage-listings', label: t('nav.manageListings') },
 ])
+const travelerHeaderShortcuts = computed(() => [
+  { key: 'weather', label: t('traveler.menu.weather', 'Weather outlook') },
+  { key: 'community', label: t('traveler.menu.community', 'Community feed') },
+  { key: 'saved-posts', label: t('traveler.menu.savedPosts', 'Saved posts') },
+  { key: 'marketplace', label: t('traveler.menu.marketplace', 'Marketplace') },
+  { key: 'trips', label: t('traveler.menu.trips', 'Trip planner') },
+  { key: 'saved', label: t('traveler.menu.savedPlaces', 'Saved places') },
+])
+const adminHeaderShortcuts = [
+  { key: 'users', label: 'User & Role' },
+  { key: 'verification', label: 'Listing Verification' },
+  { key: 'business', label: 'Business Listings' },
+  { key: 'community', label: 'Community Moderation' },
+  { key: 'notifications', label: 'Notifications' },
+  { key: 'analytics', label: 'System Reports' },
+]
+const headerModuleShortcuts = computed(() => {
+  if (currentView.value === 'admin') return adminHeaderShortcuts
+  if (currentView.value === 'operator') return operatorHeaderShortcuts.value
+  if (currentView.value === 'traveler') return travelerHeaderShortcuts.value
+  return []
+})
 const profileComponentMap = {
   admin: AdminEditProfile,
   operator: BusinessOperatorEditProfile,
@@ -113,6 +131,10 @@ const sessionLogKeys = {
 
 const sessionLogStorageAvailable =
   typeof window !== 'undefined' && typeof window.sessionStorage !== 'undefined'
+
+const operatorDashboardRef = ref(null)
+const travelerDashboardRef = ref(null)
+const adminDashboardRef = ref(null)
 
 function readStoredLoginLog(type) {
   if (!sessionLogStorageAvailable || !type) return null
@@ -540,10 +562,13 @@ async function handleHeaderCta() {
 
 function handleBrandClick() {
   if (currentView.value === 'traveler') {
+    travelerDashboardRef.value?.jumpToModule?.('dashboard')
     scrollToSection('#traveler-top')
   } else if (currentView.value === 'operator') {
+    operatorDashboardRef.value?.goToSection?.('overview')
     scrollToSection('#operator-top')
   } else if (currentView.value === 'admin') {
+    adminDashboardRef.value?.jumpToModule?.('overview')
     scrollToSection('#admin-top')
   } else {
     showHome('#hero')
@@ -562,6 +587,20 @@ function handleNavClick(href) {
     }
   } else {
     showHome(href)
+  }
+}
+
+function handleHeaderModuleShortcut(key) {
+  if (!key) return
+  if (currentView.value === 'operator') {
+    operatorDashboardRef.value?.goToSection?.(key)
+    scrollToSection('#operator-top')
+  } else if (currentView.value === 'admin') {
+    adminDashboardRef.value?.jumpToModule?.(key)
+    scrollToSection('#admin-top')
+  } else if (currentView.value === 'traveler') {
+    travelerDashboardRef.value?.jumpToModule?.(key)
+    scrollToSection('#traveler-top')
   }
 }
 
@@ -713,19 +752,34 @@ function handleLoginSuccess(payload) {
         :language-label="languageLabel"
         :current-locale="locale"
         :tone="headerTone"
+        :module-shortcuts="headerModuleShortcuts"
         @brand-click="handleBrandClick"
         @nav-click="handleNavClick"
         @cta-click="handleHeaderCta"
         @secondary-cta-click="handleEditProfileClick"
         @locale-change="handleLocaleChange"
+        @module-shortcut-click="handleHeaderModuleShortcut"
       />
 
       <div class="content">
         <HomePage v-if="currentView === 'home'" />
         <LoginPage v-else-if="currentView === 'login'" @login-success="handleLoginSuccess" />
-        <BusinessOperatorDashboard v-else-if="currentView === 'operator'" :operator="operatorUser" />
-        <TravelerDashboard v-else-if="currentView === 'traveler'" :traveler="travelerUser" />
-        <AdminDashboard v-else :current-admin-id="adminUser?.id ?? null" :admin="adminUser" />
+        <BusinessOperatorDashboard
+          v-else-if="currentView === 'operator'"
+          ref="operatorDashboardRef"
+          :operator="operatorUser"
+        />
+        <TravelerDashboard
+          v-else-if="currentView === 'traveler'"
+          ref="travelerDashboardRef"
+          :traveler="travelerUser"
+        />
+        <AdminDashboard
+          v-else
+          ref="adminDashboardRef"
+          :current-admin-id="adminUser?.id ?? null"
+          :admin="adminUser"
+        />
       </div>
 
       <component

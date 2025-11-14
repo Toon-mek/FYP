@@ -1,98 +1,85 @@
 <script setup>
+import { computed } from 'vue'
 const props = defineProps({
   brand: {
     type: Object,
     default: () => ({
+      name: 'Malaysia Sustainable Travel',
       initials: 'MS',
       title: 'Travel that uplifts Malaysia',
       description:
-        'Join a community of explorers committed to protecting ecosystems and honouring local wisdom.',
+        'Championing responsible journeys that protect ecosystems and honour local wisdom.',
       logo: null,
     }),
   },
   columns: {
     type: Array,
+    default: () => [],
+  },
+  manifestoLines: {
+    type: Array,
     default: () => [
-      {
-        title: 'Plan your trip',
-        links: [
-          { label: 'Eco-friendly itineraries', href: '#' },
-          { label: 'Responsible tour partners', href: '#' },
-          { label: 'Community homestays', href: '#' },
-        ],
-      },
-      {
-        title: 'Learn & inspire',
-        links: [
-          { label: 'Sustainable travel guides', href: '#' },
-          { label: 'Wildlife conservation stories', href: '#' },
-          { label: 'Climate action toolkit', href: '#' },
-        ],
-      },
-      {
-        title: 'Support',
-        links: [
-          { label: 'About the initiative', href: '#' },
-          { label: 'Volunteer programmes', href: '#' },
-          { label: 'Contact our team', href: '#' },
-        ],
-      },
+      'Travel kindly, restore the places that welcome you.',
+      'Uplift local keepers of culture and wild spaces.',
+      'Collect memories, leave only gratitude behind.'
     ],
   },
   socialLinks: {
     type: Array,
     default: () => [
-      { label: 'Instagram', href: '#' },
-      { label: 'Facebook', href: '#' },
-      { label: 'YouTube', href: '#' },
+      { label: 'mst@company.com', href: 'mailto:mst@company.com' },
     ],
   },
   socialLabel: {
     type: String,
-    default: () => 'Connect with us:',
+    default: () => 'Connect',
   },
   copyrightText: {
     type: String,
     default: () => '',
   },
 })
+
+const manifestoText = computed(() =>
+  Array.isArray(props.manifestoLines) && props.manifestoLines.length
+    ? props.manifestoLines.join(' • ')
+    : ''
+)
 </script>
 
 <template>
   <footer class="site-footer">
-    <div class="footer-top">
+    <div class="footer-grid">
       <div class="footer-brand">
         <img
           v-if="props.brand.logo"
           class="brand-logo"
           :src="props.brand.logo"
-          :alt="props.brand.title"
+          :alt="props.brand.name"
         />
         <span v-else class="brand-mark">{{ props.brand.initials }}</span>
-        <div>
-          <p class="footer-title">{{ props.brand.title }}</p>
-          <p class="footer-subtitle">{{ props.brand.description }}</p>
+
+        <div class="brand-text">
+          <p class="brand-name">{{ props.brand.name }}</p>
+          <p v-if="props.brand.title" class="brand-tagline">{{ props.brand.title }}</p>
         </div>
       </div>
 
-      <div v-if="props.columns.length" class="footer-links">
-        <div v-for="column in props.columns" :key="column.title" class="footer-column">
-          <h3>{{ column.title }}</h3>
-          <ul>
-            <li v-for="link in column.links" :key="link.label">
-              <a :href="link.href">{{ link.label }}</a>
-            </li>
-          </ul>
-        </div>
-      </div>
+      <p v-if="manifestoText" class="footer-manifesto single-line">
+        {{ manifestoText }}
+      </p>
     </div>
 
-    <div class="footer-bottom">
+    <div class="footer-divider" role="presentation"></div>
+
+    <div class="footer-meta">
       <div v-if="props.socialLinks.length" class="footer-social">
-        <span>{{ props.socialLabel }}</span>
-        <a v-for="link in props.socialLinks" :key="link.label" :href="link.href">
-          {{ link.label }}
-        </a>
+        <span class="social-label">{{ props.socialLabel }}</span>
+        <div class="social-links">
+          <a v-for="link in props.socialLinks" :key="link.label" :href="link.href">
+            {{ link.label }}
+          </a>
+        </div>
       </div>
       <p class="footer-copy">{{ props.copyrightText }}</p>
     </div>
@@ -102,135 +89,177 @@ const props = defineProps({
 <style scoped>
 .site-footer {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 2.5rem;
-  padding: 3rem 2.5rem;
-  border-radius: 32px;
-  background: linear-gradient(180deg, #0f3927, #1c6f4f);
-  color: #f5f9f7;
-  box-shadow: 0 20px 40px rgba(9, 54, 34, 0.2);
+  padding: 1.75rem 2rem;
+  border-radius: 18px;
+  background: linear-gradient(120deg, #0b2f21, #145c3e);
+  color: #f2f7f4;
 }
 
-.footer-top {
+.footer-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 2.5rem;
+  gap: 1.5rem;
   justify-content: space-between;
+  align-items: center;
 }
 
 .footer-brand {
   display: flex;
   gap: 1rem;
-  max-width: 320px;
+  align-items: center;
+  min-width: 220px;
 }
 
 .brand-logo {
   width: 48px;
   height: 48px;
-  border-radius: 16px;
+  border-radius: 14px;
   object-fit: cover;
-  box-shadow: 0 6px 14px rgba(15, 59, 39, 0.35);
 }
 
 .brand-mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 14px;
-  background: rgba(245, 249, 247, 0.12);
+  background: rgba(255, 255, 255, 0.12);
   font-weight: 700;
   letter-spacing: 0.08em;
   color: #fbd146;
 }
 
-.footer-title {
-  margin: 0 0 0.5rem;
-  font-size: 1.4rem;
-  font-weight: 600;
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
-.footer-subtitle {
+.brand-name {
   margin: 0;
-  color: rgba(245, 249, 247, 0.78);
-  line-height: 1.6;
-}
-
-.footer-links {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 2rem;
-  flex: 1;
-}
-
-.footer-column h3 {
-  margin: 0 0 1rem;
   font-size: 1.05rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 
-.footer-column ul {
-  list-style: none;
+.brand-tagline {
   margin: 0;
-  padding: 0;
+  font-size: 0.95rem;
+  color: rgba(242, 247, 244, 0.8);
+}
+
+.footer-manifesto {
+  flex: 1;
+  min-width: 260px;
   display: grid;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  padding-left: 0.25rem;
+  margin: 0;
+  margin-left: clamp(0.75rem, 4vw, 2.25rem);
+  max-width: 920px;
 }
 
-.footer-column a {
-  color: rgba(245, 249, 247, 0.85);
-  text-decoration: none;
-  transition: color 0.2s ease;
-}
-
-.footer-column a:hover {
+.footer-manifesto.single-line {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 0;
+  text-align: center;
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
   color: #fbd146;
 }
 
-.footer-bottom {
+@supports (-webkit-background-clip: text) {
+  .footer-manifesto.single-line {
+    background: linear-gradient(90deg, #ffe8a8, #ffd75a);
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+}
+
+.footer-divider {
+  margin: 1rem 0;
+  height: 1px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+
+.footer-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 1.5rem;
-  justify-content: space-between;
+  gap: 1rem;
   align-items: center;
-  border-top: 1px solid rgba(245, 249, 247, 0.15);
-  padding-top: 1.5rem;
+  justify-content: space-between;
 }
 
 .footer-social {
   display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
   align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-.footer-social span {
-  font-weight: 600;
+.social-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(242, 247, 244, 0.8);
 }
 
-.footer-social a {
-  color: rgba(245, 249, 247, 0.85);
+.social-links {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.social-links a {
+  color: rgba(242, 247, 244, 0.9);
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 0.95rem;
   transition: color 0.2s ease;
 }
 
-.footer-social a:hover {
+.social-links a:hover {
   color: #fbd146;
 }
 
 .footer-copy {
   margin: 0;
-  color: rgba(245, 249, 247, 0.7);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  color: rgba(242, 247, 244, 0.75);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .site-footer {
-    padding: 2.5rem 2rem;
+    padding: 1.25rem 1.5rem;
+    border-radius: 14px;
+  }
+
+  .footer-grid {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .footer-manifesto {
+    width: 100%;
+    margin-left: 0;
+    text-align: left;
+  }
+
+  .footer-manifesto.single-line {
+    text-align: left;
+    font-size: 1rem;
+  }
+
+  .footer-meta {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

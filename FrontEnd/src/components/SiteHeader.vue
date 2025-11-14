@@ -30,6 +30,10 @@ const props = defineProps({
     type: Object,
     default: () => null,
   },
+  moduleShortcuts: {
+    type: Array,
+    default: () => [],
+  },
   languageOptions: {
     type: Array,
     default: () => [],
@@ -48,7 +52,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'nav-click', 'locale-change'])
+const emit = defineEmits([
+  'cta-click',
+  'secondary-cta-click',
+  'brand-click',
+  'nav-click',
+  'locale-change',
+  'module-shortcut-click',
+])
 </script>
 
 <template>
@@ -76,6 +87,19 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
           </a>
         </nav>
 
+        <div v-if="props.moduleShortcuts.length" class="header-module-breadcrumb">
+          <button
+            v-for="(shortcut, index) in props.moduleShortcuts"
+            :key="shortcut.key || shortcut.label"
+            type="button"
+            class="header-module-breadcrumb__btn"
+            :class="{ 'is-last': index === props.moduleShortcuts.length - 1 }"
+            @click="emit('module-shortcut-click', shortcut.key ?? shortcut.label)"
+          >
+            {{ shortcut.label }}
+          </button>
+        </div>
+
         <div class="header-actions">
           <div v-if="props.languageOptions.length" class="language-selector">
             <label class="language-label" for="site-language-picker">{{ props.languageLabel }}</label>
@@ -91,8 +115,8 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
             </select>
           </div>
 
-          <component
-            :is="props.secondaryCta?.href ? 'a' : 'button'"
+        <component
+          :is="props.secondaryCta?.href ? 'a' : 'button'"
             v-if="props.secondaryCta?.label"
             :key="props.secondaryCta?.key || props.secondaryCta?.label"
             class="btn outline header-cta"
@@ -157,32 +181,29 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
   display: inline-flex;
   align-items: center;
   gap: 0.85rem;
-  padding: 0.55rem 1.45rem 0.55rem 0.6rem;
+  padding: 0.35rem 0.35rem 0.35rem 0;
   text-decoration: none;
   color: inherit;
-  background: rgba(255, 255, 255, 0.96);
   border-radius: 999px;
-  box-shadow: 0 16px 32px rgba(15, 59, 39, 0.12);
-  border: 1px solid rgba(15, 59, 39, 0.08);
+  box-shadow: none;
+  border: none;
+  background: transparent;
 }
 
-.site-header--traveler .brand {
-  border-color: rgba(30, 107, 152, 0.15);
-  box-shadow: 0 18px 34px rgba(24, 89, 126, 0.16);
-}
-
+.site-header--traveler .brand,
 .site-header--operator .brand {
-  border-color: rgba(31, 107, 78, 0.14);
-  box-shadow: 0 18px 34px rgba(24, 82, 62, 0.17);
+  box-shadow: none;
+  border: none;
 }
 
 .brand-logo {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 18px;
   object-fit: cover;
-  box-shadow: 0 6px 14px rgba(15, 59, 39, 0.2);
-  background: #fff;
+  box-shadow: 0 10px 18px rgba(15, 59, 39, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .brand-mark {
@@ -288,6 +309,22 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
 
 .header-cta {
   white-space: nowrap;
+  border-radius: 99px;
+  padding: 0.35rem 1.1rem;
+  font-weight: 550;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.13);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.header-cta.btn.outline {
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.9), rgba(230, 233, 235, 0.9));
+  border: none;
+  color: #111c24;
+}
+
+.header-cta.btn.outline:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
 }
 
 .language-selector {
@@ -324,6 +361,53 @@ const emit = defineEmits(['cta-click', 'secondary-cta-click', 'brand-click', 'na
   outline: none;
   border-color: #1c6f4f;
   box-shadow: 0 0 0 2px rgba(28, 111, 79, 0.18);
+}
+
+.header-module-breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 0.6rem;
+  font-size: 1rem;
+}
+
+.header-module-breadcrumb__btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #0f4c33;
+  cursor: pointer;
+  position: relative;
+}
+
+.header-module-breadcrumb__btn:not(:last-child)::after {
+  content: '|';
+  color: rgba(15, 59, 39, 0.4);
+  position: absolute;
+  right: -0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: 400;
+  pointer-events: none;
+}
+
+.header-module-breadcrumb__btn::before {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  background: #0c5235;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+
+.header-module-breadcrumb__btn:hover::before {
+  transform: scaleX(1);
 }
 
 .site-header--traveler .language-select:focus {

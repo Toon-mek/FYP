@@ -166,16 +166,16 @@ const avatarFallbackStyle = {
 }
 
 const sidebarOptions = [
-  { key: 'dashboard', label: 'Dashboard overview', icon: renderIcon('ri-compass-3-line') },
-  { key: 'weather', label: 'Weather outlook', icon: renderIcon('ri-sun-cloudy-line') },
-  { key: 'community', label: 'Community feed', icon: renderIcon('ri-hashtag') },
-  { key: 'saved-posts', label: 'Saved posts', icon: renderIcon('ri-bookmark-line') },
+  { key: 'dashboard', label: 'Dashboard Overview', icon: renderIcon('ri-compass-3-line') },
+  { key: 'weather', label: 'Weather Outlook', icon: renderIcon('ri-sun-cloudy-line') },
+  { key: 'community', label: 'Community Feed', icon: renderIcon('ri-hashtag') },
+  { key: 'saved-posts', label: 'Saved Posts', icon: renderIcon('ri-bookmark-line') },
   { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
   { key: 'marketplace', label: 'Marketplace', icon: renderIcon('ri-store-3-line') },
-  { key: 'trips', label: 'Trip planner', icon: renderIcon('ri-calendar-event-line') },
-  { key: 'saved', label: 'Saved places', icon: renderIcon('ri-heart-3-line') },
-  { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
+  { key: 'trips', label: 'Trip Planner', icon: renderIcon('ri-calendar-event-line') },
+  { key: 'saved', label: 'Saved Places', icon: renderIcon('ri-heart-3-line') },
+  { key: 'settings', label: 'Account Settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
 ]
 
 const route = useRoute()
@@ -649,12 +649,25 @@ const collapsedMenuContainerStyle = computed(() => ({
   alignItems: 'center',
   gap: '12px',
 }))
+const toggleSidebar = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+const handleSidebarClick = (event) => {
+  if (event.target.closest('.n-menu')) {
+    return
+  }
+  toggleSidebar()
+}
+
+defineExpose({
+  jumpToModule: handleMenuSelect,
+})
 </script>
 
 <template>
   <n-layout has-sider style="min-height: 100vh; background: var(--body-color);">
     <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="220" :collapsed="sidebarCollapsed"
-      show-trigger @collapse="sidebarCollapsed = true" @expand="sidebarCollapsed = false">
+      @collapse="sidebarCollapsed = true" @expand="sidebarCollapsed = false" @click="handleSidebarClick">
       <n-space vertical size="small" class="sidebar-brand"
         :style="sidebarCollapsed ? collapsedSidebarStyle : expandedSidebarStyle">
         <div class="sidebar-brand__logo">
@@ -664,11 +677,10 @@ const collapsedMenuContainerStyle = computed(() => ({
           </n-gradient-text>
         </div>
         <n-text v-if="!sidebarCollapsed" depth="3">Navigate modules</n-text>
-        <n-switch v-model:value="sidebarCollapsed" size="small" round />
       </n-space>
       <div :style="sidebarCollapsed ? collapsedMenuContainerStyle : expandedMenuContainerStyle">
         <n-menu :options="sidebarOptions" :value="selectedMenu" :indent="16" :collapsed="sidebarCollapsed"
-          :collapsed-icon-size="20" @update:value="handleMenuSelect" />
+          :collapsed-icon-size="20" @update:value="handleMenuSelect" @click.stop />
       </div>
     </n-layout-sider>
 

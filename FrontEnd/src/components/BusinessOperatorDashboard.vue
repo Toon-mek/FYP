@@ -276,13 +276,13 @@ provide(notificationFeedSymbol, operatorNotificationFeed)
 const renderIcon = (name) => () => h(NIcon, null, { default: () => h("i", { class: name }) })
 
 const sidebarOptions = computed(() => [
-  { key: "overview", label: "Dashboard overview", icon: renderIcon("ri-dashboard-line") },
-  { key: "upload-info", label: "Upload business info", icon: renderIcon("ri-file-add-line") },
-  { key: "media-manager", label: "Upload photos / media", icon: renderIcon("ri-image-add-line") },
-  { key: "manage-listings", label: "Manage listings", icon: renderIcon("ri-list-settings-line") },
+  { key: "overview", label: "Dashboard Overview", icon: renderIcon("ri-dashboard-line") },
+  { key: "upload-info", label: "Upload Business Info", icon: renderIcon("ri-file-add-line") },
+  { key: "media-manager", label: "Upload Photos / Media", icon: renderIcon("ri-image-add-line") },
+  { key: "manage-listings", label: "Manage Listings", icon: renderIcon("ri-list-settings-line") },
   { key: "messages", label: "Messages", icon: renderIcon("ri-chat-3-line") },
   { key: "notifications", label: "Notifications", icon: renderIcon("ri-notification-3-line") },
-  { key: "guidelines", label: "Operator guidelines", icon: renderIcon("ri-graduation-cap-line") },
+  { key: "guidelines", label: "Operator Guidelines", icon: renderIcon("ri-graduation-cap-line") },
 ])
 
 const partnerCategories = [
@@ -352,6 +352,17 @@ const collapsedMenuContainerStyle = computed(() => ({
   alignItems: "center",
   gap: "12px",
 }))
+
+const toggleSidebar = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+const handleSidebarClick = (event) => {
+  if (event.target.closest(".n-menu")) {
+    return
+  }
+  toggleSidebar()
+}
 
 const hashToSection = {
   overview: "overview",
@@ -1050,6 +1061,10 @@ function cryptoRandomId() {
   }
   return Math.random().toString(36).slice(2, 8)
 }
+
+defineExpose({
+  goToSection,
+})
 </script>
 
 <template>
@@ -1064,9 +1079,9 @@ function cryptoRandomId() {
       :collapsed-width="64"
       :width="220"
       :collapsed="sidebarCollapsed"
-      show-trigger
       @collapse="sidebarCollapsed = true"
       @expand="sidebarCollapsed = false"
+      @click="handleSidebarClick"
     >
       <n-space
         vertical
@@ -1086,7 +1101,6 @@ function cryptoRandomId() {
           </n-gradient-text>
         </div>
         <n-text v-if="!sidebarCollapsed" depth="3">Manage Malaysia Sustainable listings</n-text>
-        <n-switch v-model:value="sidebarCollapsed" size="small" round />
       </n-space>
       <div :style="sidebarCollapsed ? collapsedMenuContainerStyle : expandedMenuContainerStyle">
         <n-menu

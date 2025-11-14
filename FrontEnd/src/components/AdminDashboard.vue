@@ -1,6 +1,6 @@
 <script setup>
 import { computed, h, onBeforeUnmount, onMounted, provide, ref } from 'vue'
-import { NAlert, NAvatar, NButton, NEmpty, NForm, NFormItem, NInput, NModal, NSpin, NSpace, NTag, NText, useMessage } from 'naive-ui'
+import { NAlert, NAvatar, NButton, NEmpty, NForm, NFormItem, NInput, NModal, NIcon, NSpin, NSpace, NTag, NText, useMessage } from 'naive-ui'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
 import AdminCommunityModeration from './admin/AdminCommunityModeration.vue'
 import AdminListingVerification from './admin/AdminListingVerification.vue'
@@ -85,31 +85,49 @@ const adminNotificationFeed = useNotificationFeed({
 })
 provide(notificationFeedSymbol, adminNotificationFeed)
 
+const sidebarCollapsed = ref(false)
+const expandedSidebarStyle = computed(() => ({
+  padding: '18px 16px',
+  alignItems: 'flex-start',
+  gap: '10px',
+}))
+const collapsedSidebarStyle = computed(() => ({
+  padding: '12px 0',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '14px',
+}))
+const expandedMenuContainerStyle = computed(() => ({
+  padding: '0 8px 16px',
+}))
+const collapsedMenuContainerStyle = computed(() => ({
+  padding: '0 6px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: '12px',
+}))
+const ADMIN_COLLAPSED_LOGO_SRC = '/Malaysia Sustainable Travel.png'
+const collapsedAvatarSrc = computed(() => adminProfile.value.avatarUrl || ADMIN_COLLAPSED_LOGO_SRC)
+const toggleSidebar = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+const handleSidebarClick = (event) => {
+  if (event.target.closest('.n-menu')) {
+    return
+  }
+  toggleSidebar()
+}
+const renderIcon = (name) => () => h(NIcon, null, { default: () => h('i', { class: name }) })
+
 const menuOptions = [
-  { key: 'overview', label: 'Dashboard overview' },
-  {
-    type: 'group',
-    label: 'People & access',
-    children: [{ key: 'users', label: 'User & role management' }],
-  },
-  {
-    type: 'group',
-    label: 'Listings',
-    children: [
-      { key: 'verification', label: 'Listing verification' },
-      { key: 'business', label: 'Business listings' },
-    ],
-  },
-  {
-    type: 'group',
-    label: 'Community',
-    children: [
-      { key: 'community', label: 'Community moderation' },
-      { key: 'notifications', label: 'Notifications & outreach' },
-    ],
-  },
-  { key: 'analytics', label: 'System Monitoring & Reports' },
-  { key: 'settings', label: 'Platform settings' },
+  { key: 'overview', label: 'Dashboard Overview', icon: renderIcon('ri-dashboard-3-line') },
+  { key: 'users', label: 'User & Role', icon: renderIcon('ri-user-3-line') },
+  { key: 'verification', label: 'Listing Verification', icon: renderIcon('ri-file-list-3-line') },
+  { key: 'business', label: 'Business Listings', icon: renderIcon('ri-store-2-line') },
+  { key: 'community', label: 'Community Moderation', icon: renderIcon('ri-group-line') },
+  { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
+  { key: 'analytics', label: 'System Reports', icon: renderIcon('ri-bar-chart-line') },
 ]
 
 const moduleMeta = {
@@ -140,10 +158,6 @@ const moduleMeta = {
   analytics: {
     title: 'System Monitoring and Reports',
     subtitle: 'Generate usage reports and view real-time analytics',
-  },
-  settings: {
-    title: 'Platform settings',
-    subtitle: 'Configure policies, integrations, and audit preferences',
   },
 }
 
@@ -206,29 +220,29 @@ const MALAYSIA_TIMEZONE = 'Asia/Kuala_Lumpur'
 
 function safeDate(value) {
   if (!value) return null
-  
+
   // If it's already a Date object, return it
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value
   }
-  
+
   // If it's a number (timestamp), create Date from it
   if (typeof value === 'number') {
     const date = new Date(value)
     return Number.isNaN(date.getTime()) ? null : date
   }
-  
+
   // If it's a string, parse it assuming Malaysia timezone
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return null
-    
+
     // If it already has timezone info, parse directly
     if (trimmed.includes('Z') || trimmed.includes('+') || trimmed.includes('-') && /[+-]\d{2}:?\d{2}$/.test(trimmed)) {
       const date = new Date(trimmed)
       return Number.isNaN(date.getTime()) ? null : date
     }
-    
+
     // Otherwise, assume it's in Malaysia timezone and append timezone offset
     // Malaysia is UTC+8
     try {
@@ -246,11 +260,11 @@ function safeDate(value) {
     } catch (e) {
       // Fallback to direct parsing
     }
-    
+
     const date = new Date(trimmed)
     return Number.isNaN(date.getTime()) ? null : date
   }
-  
+
   return null
 }
 
@@ -392,7 +406,7 @@ async function loadActivityStream(options = {}) {
             })
           }
         } catch (e) {
-          displayTimestamp = item.timestamp instanceof Date 
+          displayTimestamp = item.timestamp instanceof Date
             ? item.timestamp.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
             : ''
         }
@@ -561,45 +575,57 @@ const headerButtons = computed(() => {
       return []
   }
 })
+
+defineExpose({
+  jumpToModule: handleMenuSelect,
+})
 </script>
 
 <template>
   <n-layout id="admin-top" has-sider style="min-height: 100vh;">
-    <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="240" show-trigger="bar">
-      <n-space vertical size="small" style="padding: 18px 16px;">
-        <n-space align="center" size="small">
-          <n-avatar round size="large" :src="adminProfile.avatarUrl || undefined"
-            :style="adminProfile.avatarUrl ? undefined : avatarFallbackStyle">
-            <template v-if="!adminProfile.avatarUrl">{{ adminProfile.initials }}</template>
-          </n-avatar>
-          <div>
-            <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">
-              {{ adminProfile.displayName }}
-            </n-gradient-text>
-            <n-text v-if="adminProfile.email" depth="3">{{ adminProfile.email }}</n-text>
-          </div>
-        </n-space>
-        <n-text depth="3">Manage modules</n-text>
+    <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="240" :collapsed="sidebarCollapsed"
+      @collapse="sidebarCollapsed = true" @expand="sidebarCollapsed = false" @click="handleSidebarClick"
+      class="admin-sidebar" :class="{ 'admin-sidebar--collapsed': sidebarCollapsed }">
+      <n-space vertical size="small" :style="sidebarCollapsed ? collapsedSidebarStyle : expandedSidebarStyle">
+        <div class="sidebar-brand__logo">
+          <img
+            v-if="sidebarCollapsed"
+            :src="collapsedAvatarSrc"
+            alt="Malaysia Sustainable Travel"
+            class="sidebar-brand__image"
+          />
+        </div>
+        <div v-if="!sidebarCollapsed" class="admin-sidebar__identity">
+          <n-gradient-text type="success" style="font-size: 1.15rem; font-weight: 600;">
+            {{ adminProfile.displayName }}
+          </n-gradient-text>
+          <n-text v-if="adminProfile.email" depth="3" class="admin-sidebar__email">
+            {{ adminProfile.email }}
+          </n-text>
+          <n-text depth="3" class="admin-sidebar__manage-label">Manage modules</n-text>
+        </div>
       </n-space>
-      <div style="padding: 0 8px;">
+      <div :style="sidebarCollapsed ? collapsedMenuContainerStyle : expandedMenuContainerStyle">
         <n-menu :options="menuOptions" :value="activeModule" :indent="18" :collapsed-icon-size="20"
-          @update:value="handleMenuSelect" />
+          :collapsed="sidebarCollapsed" @update:value="handleMenuSelect" />
       </div>
     </n-layout-sider>
 
     <n-layout>
       <n-layout-header bordered style="padding: 20px 28px;">
+        <n-space direction="vertical" size="small" style="width: 100%;">
         <n-page-header :title="activeModuleMeta.title" :subtitle="activeModuleMeta.subtitle">
           <template #extra>
-            <n-space>
+            <div class="admin-header__extra">
               <n-button v-for="action in headerButtons" :key="action.key" :type="action.type ?? 'default'"
                 :tertiary="action.tertiary" :loading="action.loading" :disabled="action.disabled"
                 @click="action.onClick ? action.onClick() : null">
                 {{ action.label }}
               </n-button>
-            </n-space>
+            </div>
           </template>
         </n-page-header>
+        </n-space>
       </n-layout-header>
 
       <n-layout-content embedded style="padding: 24px;">
@@ -718,3 +744,92 @@ const headerButtons = computed(() => {
     </template>
   </n-modal>
 </template>
+
+<style scoped>
+.admin-sidebar .n-menu-item-label,
+.admin-sidebar .n-menu-item-icon,
+.admin-sidebar .n-menu-item,
+.admin-sidebar .n-menu-group-title {
+  transition: opacity 0.2s ease, padding 0.2s ease;
+}
+
+.admin-sidebar--collapsed .n-menu-item-label,
+.admin-sidebar--collapsed .n-menu-group-title {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.admin-sidebar--collapsed .n-menu-item {
+  padding-left: 0.6rem;
+}
+
+.admin-sidebar--collapsed .n-menu-item-icon {
+  margin-right: 0;
+}
+
+.admin-sidebar--collapsed .n-menu-item {
+  justify-content: center;
+}
+
+.admin-sidebar .n-menu-item-icon {
+  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.admin-sidebar .n-menu-item--active .n-menu-item-icon,
+.admin-sidebar .n-menu-item.is-active .n-menu-item-icon {
+  background: rgba(52, 199, 89, 0.15);
+  color: #059669;
+}
+
+.sidebar-brand__logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar-brand__image {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 50%;
+  box-shadow: 0 6px 18px rgba(15, 59, 39, 0.15);
+}
+
+.admin-header__logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+}
+
+.admin-sidebar__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.admin-sidebar__email {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.admin-sidebar__manage-label {
+  letter-spacing: 0.02em;
+}
+
+.admin-header__extra {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-left: auto;
+  min-width: 220px;
+  width: 100%;
+}
+</style>
