@@ -387,6 +387,31 @@ function updateOperatorContact(PDO $pdo, int $operatorId, ?string $phone, ?strin
   $stmt->execute($params);
 }
 
+function ensureUniqueListingName(PDO $pdo, string $businessName, int $operatorId, ?int $listingIdToIgnore = null): void
+{
+  $stmt = $pdo->prepare(
+    'SELECT listingID, operatorID FROM BusinessListing WHERE LOWER(businessName) = LOWER(:businessName) LIMIT 1'
+  );
+  $stmt->execute([':businessName' => $businessName]);
+  $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+
+  if (!$existing) {
+    return;
+  }
+
+  $existingListingId = (int) ($existing['listingID'] ?? 0);
+  if ($listingIdToIgnore !== null && $existingListingId === $listingIdToIgnore) {
+    return;
+  }
+
+  $existingOperatorId = (int) ($existing['operatorID'] ?? 0);
+  if ($existingOperatorId === $operatorId) {
+    respond(409, ['error' => 'You already have a listing with this business name. Please enter a different name.']);
+  }
+
+  respond(409, ['error' => 'Another operator already uses this business name. Please enter a different name.']);
+}
+
 function handleCreate(PDO $pdo, array $payload): void
 {
   $operatorId = (int) ($payload['operatorId'] ?? 0);
@@ -406,6 +431,8 @@ function handleCreate(PDO $pdo, array $payload): void
   if (!$operatorProfile) {
     respond(404, ['error' => 'Operator not found.']);
   }
+
+  ensureUniqueListingName($pdo, $name, $operatorId);
 
   $pdo->beginTransaction();
 
@@ -484,7 +511,12 @@ function handleUpdate(PDO $pdo, array $payload): void
 
   if (isset($payload['name'])) {
     $fields[] = 'businessName = :businessName';
-    $params[':businessName'] = trim((string) $payload['name']);
+    $newName = trim((string) $payload['name']);
+    if ($newName === '') {
+      respond(400, ['error' => 'Business name cannot be blank.']);
+    }
+    ensureUniqueListingName($pdo, $newName, $operatorId, $listingId);
+    $params[':businessName'] = $newName;
   }
 
   if (isset($payload['description'])) {

@@ -377,11 +377,11 @@ const hashToSection = {
 const sectionMeta = {
   overview: {
     title: "Tourism Operator Control Center",
-    subtitle: "Track listing health, synchronise Agoda bookings, and uplift local partners.",
+    subtitle: "Track listing health and uplift local partners.",
   },
   "upload-info": {
     title: "Business Registration Module",
-    subtitle: "Capture business profiles for hotels and community-based operators.",
+    subtitle: "Capture business profiles and community-based operators.",
   },
   "media-manager": {
     title: "Media Manager",
@@ -391,9 +391,13 @@ const sectionMeta = {
     title: "Listing Management",
     subtitle: "Edit details, toggle visibility, and maintain up-to-date information.",
   },
+  messages: {
+    title: "Messaging Hub",
+    subtitle: "Coordinate with travelers directly from this inbox.",
+  },
   notifications: {
     title: "Notifications",
-    subtitle: "Track admin decisions and account updates shared with your team.",
+    subtitle: "Track admin decisions and account updates.",
   },
   guidelines: {
     title: "Operator Guidelines",
@@ -421,6 +425,7 @@ const listingMetrics = computed(() => {
     pending: 0,
     hidden: 0,
     rejected: 0,
+    removed: removalHistory.value.length ?? 0,
   }
 
   const pendingStatuses = ["pending review", "pending", "under review"]
@@ -489,6 +494,13 @@ const summaryCards = computed(() => [
     value: listingMetrics.value.hidden,
     type: "number",
     accent: "linear-gradient(135deg, #cfd9df, #e2ebf0)",
+  },
+  {
+    key: "removed",
+    label: "Removed",
+    value: listingMetrics.value.removed,
+    type: "number",
+    accent: "linear-gradient(135deg, #8e9eab, #eef2f3)",
   },
 ])
 

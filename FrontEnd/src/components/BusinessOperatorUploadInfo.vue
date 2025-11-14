@@ -330,26 +330,30 @@ async function submitListing() {
           </n-grid-item>
           <n-grid-item>
             <n-form-item label="Contact number" :feedback="formErrors.phone" :validation-status="formErrors.phone ? 'error' : undefined">
-              <n-input
-                v-model:value="formState.phone"
-                placeholder="Operator contact number"
-                :disabled="phoneLocked"
-              />
-              <n-text v-if="phoneLocked" depth="3" class="fixed-contact-hint">
-                Contact number is managed by your operator profile.
-              </n-text>
+              <div class="contact-field">
+                <n-input
+                  v-model:value="formState.phone"
+                  placeholder="Operator contact number"
+                  :disabled="phoneLocked"
+                />
+                <div v-if="phoneLocked" class="fixed-contact-hint">
+                  Contact number is managed by your operator profile.
+                </div>
+              </div>
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
             <n-form-item label="Contact email" :feedback="formErrors.email" :validation-status="formErrors.email ? 'error' : undefined">
-              <n-input
-                v-model:value="formState.email"
-                placeholder="Operator contact email"
-                :disabled="emailLocked"
-              />
-              <n-text v-if="emailLocked" depth="3" class="fixed-contact-hint">
-                Contact email is managed by your operator profile.
-              </n-text>
+              <div class="contact-field">
+                <n-input
+                  v-model:value="formState.email"
+                  placeholder="Operator contact email"
+                  :disabled="emailLocked"
+                />
+                <div v-if="emailLocked" class="fixed-contact-hint">
+                  Contact email is managed by your operator profile.
+                </div>
+              </div>
             </n-form-item>
           </n-grid-item>
           <n-grid-item>
@@ -476,6 +480,13 @@ async function submitListing() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.contact-field {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .fixed-contact-hint {
