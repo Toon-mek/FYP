@@ -68,6 +68,20 @@ function resolveForgotKey(type) {
   return normaliseAccountType(type)
 }
 
+function withRuleKey(field, rule) {
+  if (!rule || typeof rule !== 'object') {
+    return rule
+  }
+  if (rule.key === field) {
+    return rule
+  }
+  return { ...rule, key: field }
+}
+
+function mapRuleKeys(field, rules = []) {
+  return rules.map((rule) => withRuleKey(field, rule))
+}
+
 const selectedType = ref(accountTypes[0].id)
 const activeType = computed(
   () => accountTypes.find((type) => type.id === selectedType.value) ?? accountTypes[0],
@@ -122,13 +136,13 @@ const travelerRules = {
       trigger: ['blur'],
     },
   ],
-  profileImageData: [
+  profileImageData: mapRuleKeys('profileImageData', [
     {
       validator: () =>
         travelerForm.profileImageData ? true : new Error('Upload a profile photo'),
       trigger: ['change', 'blur'],
     },
-  ],
+  ]),
 }
 
 const showBusinessApply = ref(false)
@@ -161,13 +175,13 @@ const operatorRules = {
       trigger: ['blur'],
     },
   ],
-  profileImageData: [
+  profileImageData: mapRuleKeys('profileImageData', [
     {
       validator: () =>
         operatorForm.profileImageData ? true : new Error('Upload a profile photo'),
       trigger: ['change', 'blur'],
     },
-  ],
+  ]),
 }
 
 const imageAccept = 'image/png, image/jpeg, image/webp'
@@ -176,85 +190,126 @@ const forgotPasswordModal = reactive({
   visible: false,
   accountType: 'traveler',
   loading: false,
+  otpSending: false,
+  otpVerifying: false,
   error: '',
   success: '',
 })
 const forgotPasswordForms = reactive({
-  traveler: { email: '', passwordLastDigit: '', password: '', confirmPassword: '' },
-  operator: { email: '', passwordLastDigit: '', password: '', confirmPassword: '' },
-  admin: { email: '', passwordLastDigit: '', password: '', confirmPassword: '' },
+  traveler: {
+    email: '',
+    otp: '',
+    password: '',
+    confirmPassword: '',
+    requestToken: '',
+    resetToken: '',
+    otpExpiresAt: '',
+    resetTokenExpiresAt: '',
+    otpVerified: false,
+  },
+  operator: {
+    email: '',
+    otp: '',
+    password: '',
+    confirmPassword: '',
+    requestToken: '',
+    resetToken: '',
+    otpExpiresAt: '',
+    resetTokenExpiresAt: '',
+    otpVerified: false,
+  },
+  admin: {
+    email: '',
+    otp: '',
+    password: '',
+    confirmPassword: '',
+    requestToken: '',
+    resetToken: '',
+    otpExpiresAt: '',
+    resetTokenExpiresAt: '',
+    otpVerified: false,
+  },
 })
 const forgotPasswordRules = {
   traveler: {
-    email: loginRules.email,
-    passwordLastDigit: [
-      required('Provide the last digit of your previous password'),
+    email: mapRuleKeys('email', loginRules.email),
+    otp: mapRuleKeys('otp', [
+      required('Enter the 6-digit code we emailed you'),
       {
         validator: (_, value) =>
-          value && /^\d$/.test(value.trim())
+          value && /^\d{6}$/.test(value.trim())
             ? true
-            : new Error('Enter a single digit (0-9)'),
+            : new Error('Use a 6-digit numeric code'),
         trigger: ['blur'],
       },
-    ],
-    password: loginRules.password,
+    ]),
+    password: mapRuleKeys('password', loginRules.password),
     confirmPassword: [
-      required('Confirm your password'),
-      {
-        validator: (_, value) =>
-          value === forgotPasswordForms.traveler.password
-            ? true
-            : new Error('Passwords do not match'),
-        trigger: ['blur'],
-      },
+      withRuleKey('confirmPassword', required('Confirm your password')),
+      withRuleKey(
+        'confirmPassword',
+        {
+          validator: (_, value) =>
+            value === forgotPasswordForms.traveler.password
+              ? true
+              : new Error('Passwords do not match'),
+          trigger: ['blur'],
+        },
+      ),
     ],
   },
   operator: {
-    email: loginRules.email,
-    passwordLastDigit: [
-      required('Provide the last digit of your previous password'),
+    email: mapRuleKeys('email', loginRules.email),
+    otp: mapRuleKeys('otp', [
+      required('Enter the 6-digit code we emailed you'),
       {
         validator: (_, value) =>
-          value && /^\d$/.test(value.trim())
+          value && /^\d{6}$/.test(value.trim())
             ? true
-            : new Error('Enter a single digit (0-9)'),
+            : new Error('Use a 6-digit numeric code'),
         trigger: ['blur'],
       },
-    ],
-    password: loginRules.password,
+    ]),
+    password: mapRuleKeys('password', loginRules.password),
     confirmPassword: [
-      required('Confirm your password'),
-      {
-        validator: (_, value) =>
-          value === forgotPasswordForms.operator.password
-            ? true
-            : new Error('Passwords do not match'),
-        trigger: ['blur'],
-      },
+      withRuleKey('confirmPassword', required('Confirm your password')),
+      withRuleKey(
+        'confirmPassword',
+        {
+          validator: (_, value) =>
+            value === forgotPasswordForms.operator.password
+              ? true
+              : new Error('Passwords do not match'),
+          trigger: ['blur'],
+        },
+      ),
     ],
   },
   admin: {
-    email: loginRules.email,
-    passwordLastDigit: [
-      required('Provide the last digit of your previous password'),
+    email: mapRuleKeys('email', loginRules.email),
+    otp: mapRuleKeys('otp', [
+      required('Enter the 6-digit code we emailed you'),
       {
         validator: (_, value) =>
-          value && /^\d$/.test(value.trim())
+          value && /^\d{6}$/.test(value.trim())
             ? true
-            : new Error('Enter a single digit (0-9)'),
+            : new Error('Use a 6-digit numeric code'),
         trigger: ['blur'],
       },
-    ],
-    password: loginRules.password,
+    ]),
+    password: mapRuleKeys('password', loginRules.password),
     confirmPassword: [
-      required('Confirm your password'),
-      {
-        validator: (_, value) =>
-          value === forgotPasswordForms.admin.password
-            ? true
-            : new Error('Passwords do not match'),
-        trigger: ['blur'],
-      },
+      withRuleKey('confirmPassword', required('Confirm your password')),
+      withRuleKey(
+        'confirmPassword',
+        {
+          validator: (_, value) =>
+            value === forgotPasswordForms.admin.password
+              ? true
+              : new Error('Passwords do not match'),
+          trigger: ['blur'],
+        },
+      ),
     ],
   },
 }
@@ -275,6 +330,14 @@ const forgotPasswordTitle = computed(() => {
     default:
       return 'Reset traveler password'
   }
+})
+const canVerifyForgotOtp = computed(() => {
+  const form = currentForgotForm.value
+  return Boolean(form?.requestToken)
+})
+const canSubmitForgotPassword = computed(() => {
+  const form = currentForgotForm.value
+  return Boolean(form?.otpVerified && form?.resetToken)
 })
 function setCurrentForgotFormRef(instance) {
   forgotPasswordFormRefs[currentForgotKey.value].value = instance ?? null
@@ -308,6 +371,8 @@ watch(
       forgotPasswordModal.error = ''
       forgotPasswordModal.success = ''
       forgotPasswordModal.loading = false
+      forgotPasswordModal.otpSending = false
+      forgotPasswordModal.otpVerifying = false
     }
   },
 )
@@ -354,9 +419,12 @@ function resetForgotPasswordForm(key = currentForgotKey.value, options = {}) {
   if (!keepEmail) {
     form.email = ''
   }
-  if ('passwordLastDigit' in form) {
-    form.passwordLastDigit = ''
-  }
+  form.otp = ''
+  form.requestToken = ''
+  form.resetToken = ''
+  form.otpExpiresAt = ''
+  form.resetTokenExpiresAt = ''
+  form.otpVerified = false
   form.password = ''
   form.confirmPassword = ''
   forgotPasswordFormRefs[key].value?.restoreValidation?.()
@@ -377,7 +445,7 @@ async function handleTravelerUploadChange({ file }) {
     travelerForm.profileImageName = file.name || file.file.name || 'profile-image'
     file.status = 'finished'
     file.url = dataUrl
-    travelerFormRef.value?.validate?.(['profileImageData'])
+    await runPartialValidation(travelerFormRef.value, ['profileImageData'])
   } catch (error) {
     travelerError.value =
       error instanceof Error ? error.message : 'Unable to process the selected image.'
@@ -392,7 +460,7 @@ function handleTravelerUploadRemove() {
   travelerForm.profileImageData = ''
   travelerForm.profileImagePreview = ''
   travelerForm.profileImageName = ''
-  travelerFormRef.value?.validate?.(['profileImageData'])
+  void runPartialValidation(travelerFormRef.value, ['profileImageData'])
 }
 
 async function handleOperatorUploadChange({ file }) {
@@ -410,7 +478,7 @@ async function handleOperatorUploadChange({ file }) {
     operatorForm.profileImageName = file.name || file.file.name || 'profile-image'
     file.status = 'finished'
     file.url = dataUrl
-    operatorFormRef.value?.validate?.(['profileImageData'])
+    await runPartialValidation(operatorFormRef.value, ['profileImageData'])
   } catch (error) {
     operatorError.value =
       error instanceof Error ? error.message : 'Unable to process the selected image.'
@@ -425,7 +493,7 @@ function handleOperatorUploadRemove() {
   operatorForm.profileImageData = ''
   operatorForm.profileImagePreview = ''
   operatorForm.profileImageName = ''
-  operatorFormRef.value?.validate?.(['profileImageData'])
+  void runPartialValidation(operatorFormRef.value, ['profileImageData'])
 }
 
 function clearLoginFormAfterSuccess(accountType) {
@@ -604,27 +672,121 @@ function openForgotPasswordModal(accountType) {
   forgotPasswordModal.visible = true
 }
 
-async function handleForgotPasswordSubmit(event) {
+async function runPartialValidation(formRef, fields) {
+  if (!formRef?.validate) {
+    return true
+  }
+  const allowed = new Set(fields || [])
+  const shouldApply =
+    allowed.size === 0
+      ? undefined
+      : (rule) => {
+          const key = rule?.key
+          return key ? allowed.has(key) : false
+        }
+  try {
+    await formRef.validate(undefined, shouldApply)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function handleForgotPasswordSendOtp() {
+  forgotPasswordModal.error = ''
+  forgotPasswordModal.success = ''
+  const key = currentForgotKey.value
+  const formRef = forgotPasswordFormRefs[key].value
+  const valid = await runPartialValidation(formRef, ['email'])
+  if (!valid) return
+
+  const form = forgotPasswordForms[key]
+  forgotPasswordModal.otpSending = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/forgot_password_send_otp.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountType: key === 'operator' ? 'operator' : key,
+        email: form.email.trim(),
+      }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || 'Unable to send OTP')
+    }
+    form.requestToken = data.requestToken
+    form.otpExpiresAt = data.expiresAt || ''
+    form.resetToken = ''
+    form.resetTokenExpiresAt = ''
+    form.otpVerified = false
+    form.otp = ''
+    forgotPasswordModal.success = data.message || 'OTP sent to your email.'
+  } catch (error) {
+    forgotPasswordModal.error = error instanceof Error ? error.message : 'Unable to send OTP'
+  } finally {
+    forgotPasswordModal.otpSending = false
+  }
+}
+
+async function handleForgotPasswordVerifyOtp() {
+  forgotPasswordModal.error = ''
+  forgotPasswordModal.success = ''
+  const key = currentForgotKey.value
+  const form = forgotPasswordForms[key]
+  if (!form.requestToken) {
+    forgotPasswordModal.error = 'Send the OTP to your email first.'
+    return
+  }
+  const formRef = forgotPasswordFormRefs[key].value
+  const valid = await runPartialValidation(formRef, ['otp'])
+  if (!valid) return
+
+  forgotPasswordModal.otpVerifying = true
+  try {
+    const response = await fetch(`${API_BASE}/auth/forgot_password_verify_otp.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountType: key === 'operator' ? 'operator' : key,
+        email: form.email.trim(),
+        requestToken: form.requestToken,
+        otp: form.otp.trim(),
+      }),
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok || !data?.ok) {
+      throw new Error(data?.error || 'Unable to verify OTP')
+    }
+    form.resetToken = data.resetToken
+    form.resetTokenExpiresAt = data.resetTokenExpiresAt || ''
+    form.otpVerified = true
+    forgotPasswordModal.success =
+      data.message || 'OTP verified. You can now reset your password.'
+  } catch (error) {
+    form.resetToken = ''
+    form.otpVerified = false
+    forgotPasswordModal.error = error instanceof Error ? error.message : 'Unable to verify OTP'
+  } finally {
+    forgotPasswordModal.otpVerifying = false
+  }
+}
+
+async function handleForgotPasswordReset(event) {
   if (event) event.preventDefault()
   forgotPasswordModal.error = ''
   forgotPasswordModal.success = ''
 
   const key = currentForgotKey.value
-  const formRef = forgotPasswordFormRefs[key].value
-  const valid = await formRef
-    ?.validate()
-    .then(() => true)
-    .catch(() => false)
-
-  if (!valid) return
-
   const form = forgotPasswordForms[key]
-const payload = {
-  accountType: key === 'operator' ? 'operator' : key,
-  email: form.email.trim(),
-  newPassword: form.password,
-  passwordLastDigit: form.passwordLastDigit.trim(),
-}
+  if (!form.resetToken || !form.requestToken || !form.otpVerified) {
+    forgotPasswordModal.error = 'Verify the OTP before creating a new password.'
+    return
+  }
+
+  const formRef = forgotPasswordFormRefs[key].value
+  const valid = await runPartialValidation(formRef, ['password', 'confirmPassword'])
+  if (!valid) return
 
   forgotPasswordModal.loading = true
 
@@ -632,7 +794,13 @@ const payload = {
     const response = await fetch(`${API_BASE}/auth/forgot_password.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        accountType: key === 'operator' ? 'operator' : key,
+        email: form.email.trim(),
+        newPassword: form.password,
+        requestToken: form.requestToken,
+        resetToken: form.resetToken,
+      }),
     })
     const data = await response.json().catch(() => null)
     if (!response.ok || !data?.ok) {
@@ -931,28 +1099,67 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
       :ref="setCurrentForgotFormRef"
     >
       <n-form-item label="Email" path="email">
-        <n-input
-          v-model:value="currentForgotForm.email"
-          type="text"
-          placeholder="account@email.com"
-        />
+        <div class="forgot-email-row">
+          <n-input
+            v-model:value="currentForgotForm.email"
+            type="text"
+            placeholder="account@email.com"
+          />
+          <n-button
+            secondary
+            type="primary"
+            :loading="forgotPasswordModal.otpSending"
+            @click="handleForgotPasswordSendOtp"
+          >
+            {{ currentForgotForm.requestToken ? 'Resend code' : 'Send code' }}
+          </n-button>
+        </div>
       </n-form-item>
-      <n-form-item
-        label="Last digit of previous password"
-        path="passwordLastDigit"
-      >
-        <n-input
-          v-model:value="currentForgotForm.passwordLastDigit"
-          type="text"
-          maxlength="1"
-          placeholder="0-9"
-        />
+      <n-form-item label="Email verification code" path="otp">
+        <div class="otp-input-row">
+          <n-input
+            v-model:value="currentForgotForm.otp"
+            type="text"
+            maxlength="6"
+            placeholder="6-digit code"
+            :disabled="!canVerifyForgotOtp"
+          />
+          <n-button
+            tertiary
+            type="primary"
+            :disabled="!canVerifyForgotOtp"
+            :loading="forgotPasswordModal.otpVerifying"
+            @click="handleForgotPasswordVerifyOtp"
+          >
+            Verify code
+          </n-button>
+        </div>
+        <small
+          v-if="currentForgotForm.otpVerified"
+          class="otp-status success"
+        >
+          Code verified. You can now update your password.
+        </small>
+        <small
+          v-else-if="canVerifyForgotOtp"
+          class="otp-status hint"
+        >
+          Enter the code we emailed to {{ currentForgotForm.email }}.
+        </small>
       </n-form-item>
       <n-form-item label="New password" path="password">
-        <n-input v-model:value="currentForgotForm.password" type="password" />
+        <n-input
+          v-model:value="currentForgotForm.password"
+          type="password"
+          :disabled="!canSubmitForgotPassword"
+        />
       </n-form-item>
       <n-form-item label="Confirm password" path="confirmPassword">
-        <n-input v-model:value="currentForgotForm.confirmPassword" type="password" />
+        <n-input
+          v-model:value="currentForgotForm.confirmPassword"
+          type="password"
+          :disabled="!canSubmitForgotPassword"
+        />
       </n-form-item>
     </n-form>
     <n-space justify="end">
@@ -962,7 +1169,8 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
       <n-button
         type="primary"
         :loading="forgotPasswordModal.loading"
-        @click="handleForgotPasswordSubmit"
+        :disabled="!canSubmitForgotPassword"
+        @click="handleForgotPasswordReset"
       >
         Reset password
       </n-button>
@@ -1101,6 +1309,32 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
   width: 104px;
   height: 104px;
   border-radius: 18px;
+}
+
+.forgot-email-row,
+.otp-input-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.forgot-email-row :deep(.n-input),
+.otp-input-row :deep(.n-input) {
+  flex: 1;
+}
+
+.otp-status {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.otp-status.success {
+  color: #218154;
+}
+
+.otp-status.hint {
+  color: #5b6f63;
 }
 
 .qr-caption {

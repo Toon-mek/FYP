@@ -7,12 +7,12 @@ declare(strict_types=1);
  */
 $config = [
     'google' => [
-        'maps_js' => 'AIzaSyBS1ou94XjqyNVy_yaBkTc2WdMotfYRgF4',
-        'places' => 'AIzaSyBS1ou94XjqyNVy_yaBkTc2WdMotfYRgF4',
-        'distance_matrix' => 'AIzaSyBS1ou94XjqyNVy_yaBkTc2WdMotfYRgF4',
+        'maps_js' => 'AIzaSyBnst-d6KqRIP4IrTblFqGhsC44MqKl8K8',
+        'places' => 'AIzaSyBnst-d6KqRIP4IrTblFqGhsC44MqKl8K8',
+        'distance_matrix' => 'AIzaSyBnst-d6KqRIP4IrTblFqGhsC44MqKl8K8',
     ],
     'gemini' => [
-        'api_key' => 'AIzaSyBS1ou94XjqyNVy_yaBkTc2WdMotfYRgF4',
+        'api_key' => 'AIzaSyBnst-d6KqRIP4IrTblFqGhsC44MqKl8K8',
     ],
 ];
 

@@ -1,7 +1,6 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../helpers/password_hint.php';
 require_once __DIR__ . '/../helpers/password_reset_tokens.php';
 
 header('Content-Type: application/json');
@@ -29,9 +28,8 @@ if (!is_array($payload)) {
 
 $accountType = strtolower((string)($payload['accountType'] ?? ''));
 $email = strtolower(trim((string)($payload['email'] ?? '')));
-$newPassword = (string)($payload['newPassword'] ?? '');
 $requestToken = trim((string)($payload['requestToken'] ?? ''));
-$resetToken = trim((string)($payload['resetToken'] ?? ''));
+$otp = trim((string)($payload['otp'] ?? ''));
 
 if (!in_array($accountType, ['traveler', 'operator', 'admin'], true)) {
     http_response_code(400);
@@ -45,21 +43,15 @@ if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     exit;
 }
 
-if ($newPassword === '') {
+if ($requestToken === '') {
     http_response_code(400);
-    echo json_encode(['error' => 'New password is required']);
+    echo json_encode(['error' => 'Missing OTP reference. Request a new code.']);
     exit;
 }
 
-if (strlen($newPassword) < 6) {
+if ($otp === '' || !ctype_digit($otp) || strlen($otp) !== 6) {
     http_response_code(400);
-    echo json_encode(['error' => 'New password must be at least 6 characters']);
-    exit;
-}
-
-if ($requestToken === '' || $resetToken === '') {
-    http_response_code(400);
-    echo json_encode(['error' => 'OTP verification is required before resetting your password.']);
+    echo json_encode(['error' => 'Enter the 6-digit OTP sent to your email.']);
     exit;
 }
 
@@ -91,11 +83,11 @@ switch ($accountType) {
         exit;
 }
 
-$fetch = $pdo->prepare(
+$stmt = $pdo->prepare(
     sprintf('SELECT %s AS id FROM %s WHERE email = :email LIMIT 1', $idField, $table)
 );
-$fetch->execute([':email' => $email]);
-$account = $fetch->fetch(PDO::FETCH_ASSOC);
+$stmt->execute([':email' => $email]);
+$account = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$account) {
     http_response_code(404);
@@ -105,22 +97,17 @@ if (!$account) {
 
 $accountId = (int)$account['id'];
 
-$tokenRow = validatePasswordResetTokens($pdo, $accountType, $accountId, $requestToken, $resetToken);
-if (!$tokenRow) {
-    http_response_code(401);
-    echo json_encode(['error' => 'OTP session invalid or expired. Please verify again.']);
+try {
+    $verification = verifyPasswordResetOtp($pdo, $accountType, $accountId, $requestToken, $otp);
+} catch (RuntimeException $e) {
+    http_response_code(400);
+    echo json_encode(['error' => $e->getMessage()]);
     exit;
 }
 
-$update = $pdo->prepare(
-    sprintf('UPDATE %s SET password = :password WHERE %s = :id LIMIT 1', $table, $idField)
-);
-$update->execute([
-    ':password' => password_hash($newPassword, PASSWORD_DEFAULT),
-    ':id' => $accountId,
+echo json_encode([
+    'ok' => true,
+    'resetToken' => $verification['resetToken'],
+    'resetTokenExpiresAt' => $verification['expiresAt'],
+    'message' => 'OTP verified. You can now create a new password.',
 ]);
-
-storePasswordLastDigit($pdo, $accountType, $accountId, $newPassword);
-markPasswordResetCompleted($pdo, (int)$tokenRow['id']);
-
-echo json_encode(['ok' => true, 'message' => 'Password updated successfully.']);
