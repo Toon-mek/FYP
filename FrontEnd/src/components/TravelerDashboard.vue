@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, reactive, ref, watch, nextTick, provide } from 'vue'
+import { computed, h, reactive, ref, watch, nextTick, provide, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NIcon, useMessage } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
@@ -11,8 +11,12 @@ import TravelerMarketplace from './TravelerMarketplace.vue'
 import NotificationCenter from './NotificationCenter.vue'
 import TripPlannerModule from './TripPlannerModule.vue'
 import TravelerSavedPlaces from './TravelerSavedPlaces.vue'
+import TravelerBookingDashboard from './TravelerBookingDashboard.vue'
+import TravelerPaymentDashboard from './TravelerPaymentDashboard.vue'
+import TravelerPaymentHistory from './TravelerPaymentHistory.vue'
 import { notificationFeedSymbol, useNotificationFeed } from '../composables/useNotificationFeed.js'
 import { extractProfileImage } from '../utils/profileImage.js'
+import { fetchConfirmedBookings } from '../services/paymentSimulationService.js'
 
 const props = defineProps({
   traveler: {
@@ -118,7 +122,18 @@ const metrics = computed(() => ({
 const renderIcon = (name) => () =>
   h(NIcon, null, { default: () => h('i', { class: name }) })
 
-const upcomingTrips = computed(() => props.upcomingTrips ?? [])
+const baseUpcomingTrips = ref(Array.isArray(props.upcomingTrips) ? [...props.upcomingTrips] : [])
+const confirmedUpcomingTrips = ref([])
+
+watch(
+  () => props.upcomingTrips,
+  (next) => {
+    baseUpcomingTrips.value = Array.isArray(next) ? [...next] : []
+  },
+  { immediate: true },
+)
+
+const upcomingTrips = computed(() => mergeTrips(baseUpcomingTrips.value, confirmedUpcomingTrips.value))
 const communityFeedPosts = computed(() => props.communityPosts ?? [])
 const communityFeedCategories = computed(() => props.communityCategories ?? [])
 const currentTravelerId = computed(() => {
@@ -175,14 +190,25 @@ const sidebarOptions = [
   { key: 'marketplace', label: 'Marketplace', icon: renderIcon('ri-store-3-line') },
   { key: 'trips', label: 'Trip planner', icon: renderIcon('ri-calendar-event-line') },
   { key: 'saved', label: 'Saved places', icon: renderIcon('ri-heart-3-line') },
+  { key: 'booking-dashboard', label: 'Booking dashboard', icon: renderIcon('ri-cash-line') },
+  { key: 'payment-dashboard', label: 'Payment simulations', icon: renderIcon('ri-bank-card-line') },
+  { key: 'payment-history', label: 'Booking history', icon: renderIcon('ri-archive-2-line') },
   { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
 ]
 
 const route = useRoute()
 const router = useRouter()
+const message = useMessage()
 const selectableModules = sidebarOptions.filter((item) => !item.disabled).map((item) => item.key)
 const selectedMenu = ref('dashboard')
 const marketplaceRef = ref(null)
+const bookingDashboardPackage = ref(null)
+const paymentDashboardPackage = ref(null)
+const moduleRefreshKeys = reactive({})
+sidebarOptions.forEach(({ key }) => {
+  moduleRefreshKeys[key] = 0
+})
+const manualNavigationModules = new Set(['booking-dashboard', 'payment-dashboard'])
 
 const normaliseModuleKey = (value) => {
   if (Array.isArray(value)) {
@@ -195,9 +221,14 @@ watch(
   () => normaliseModuleKey(route.query.module),
   (moduleKey) => {
     if (moduleKey && selectableModules.includes(moduleKey)) {
-      selectedMenu.value = moduleKey
+      if (selectedMenu.value !== moduleKey) {
+        navigateToModule(moduleKey, {
+          resetContext: manualNavigationModules.has(moduleKey),
+          refreshIfSame: false,
+        })
+      }
     } else if (!moduleKey) {
-      selectedMenu.value = 'dashboard'
+      navigateToModule('dashboard', { refreshIfSame: false })
     }
   },
   { immediate: true },
@@ -219,15 +250,63 @@ watch(selectedMenu, (next) => {
   router.replace({ query: nextQuery }).catch(() => { })
 })
 
+watch(selectedMenu, (value) => {
+  refreshModule(value)
+})
+
+function handleBookingDashboardView(payload) {
+  bookingDashboardPackage.value = payload?.package ?? null
+  navigateToModule('booking-dashboard', { refreshIfSame: false })
+}
+
+function handleBookingDashboardBack() {
+  navigateToModule('saved', { refreshIfSame: false })
+}
+
+function handlePaymentDashboardView(payload) {
+  paymentDashboardPackage.value = payload?.package ?? bookingDashboardPackage.value ?? null
+  navigateToModule('payment-dashboard', { refreshIfSame: false })
+}
+
+function handlePaymentDashboardBack() {
+  navigateToModule('booking-dashboard', { refreshIfSame: false })
+}
+
+function handlePaymentAuthorized(payload) {
+  const pkg = payload?.package ?? paymentDashboardPackage.value ?? bookingDashboardPackage.value
+  const entry = createTripEntryFromPackage(pkg, payload)
+  if (!entry) {
+    return
+  }
+  confirmedUpcomingTrips.value = [
+    entry,
+    ...confirmedUpcomingTrips.value.filter((trip) => getTripKey(trip) !== getTripKey(entry)),
+  ]
+}
+
+async function loadConfirmedBookings() {
+  const travelerIdValue = currentTravelerId.value
+  if (!travelerIdValue) {
+    confirmedUpcomingTrips.value = []
+    return
+  }
+  try {
+    const { bookings } = await fetchConfirmedBookings(travelerIdValue)
+    confirmedUpcomingTrips.value = (bookings ?? [])
+      .map((booking) => createTripEntryFromBookingRecord(booking))
+      .filter(Boolean)
+  } catch (error) {
+    message.warning(error?.message || 'Unable to load confirmed bookings.')
+  }
+}
+
 watch(
   () => route.query.listingId,
   (listingId) => {
     if (!listingId) {
       return
     }
-    if (selectedMenu.value !== 'marketplace') {
-      selectedMenu.value = 'marketplace'
-    }
+    navigateToModule('marketplace', { refreshIfSame: false })
     const numeric = Number(listingId)
     if (Number.isFinite(numeric)) {
       nextTick(() => {
@@ -240,7 +319,18 @@ watch(
   },
   { immediate: true }
 )
-const message = useMessage()
+
+watch(
+  currentTravelerId,
+  (travelerId) => {
+    if (travelerId) {
+      loadConfirmedBookings()
+    } else {
+      confirmedUpcomingTrips.value = []
+    }
+  },
+  { immediate: true }
+)
 
 watch(
   () => contactDialog.visible,
@@ -266,11 +356,47 @@ watch(
 )
 
 function handleMenuSelect(val) {
-  selectedMenu.value = val
+  navigateToModule(val, { resetContext: manualNavigationModules.has(val) })
+}
+
+function refreshModule(key) {
+  if (!key) {
+    return
+  }
+  if (!Object.prototype.hasOwnProperty.call(moduleRefreshKeys, key)) {
+    moduleRefreshKeys[key] = 0
+  }
+  moduleRefreshKeys[key] += 1
+}
+
+function resetModuleContext(key) {
+  if (key === 'booking-dashboard') {
+    bookingDashboardPackage.value = null
+  }
+  if (key === 'payment-dashboard') {
+    paymentDashboardPackage.value = null
+    bookingDashboardPackage.value = null
+  }
+}
+
+function navigateToModule(key, { resetContext = false, refreshIfSame = true } = {}) {
+  if (!key) {
+    return
+  }
+  if (resetContext) {
+    resetModuleContext(key)
+  }
+  if (selectedMenu.value === key) {
+    if (refreshIfSame) {
+      refreshModule(key)
+    }
+    return
+  }
+  selectedMenu.value = key
 }
 
 function openTripPlanner() {
-  selectedMenu.value = 'trips'
+  navigateToModule('trips')
 }
 
 function handleCommunityContact(post) {
@@ -625,6 +751,81 @@ function computeInitialsFromName(label) {
   return initials ? initials.toUpperCase() : 'TR'
 }
 
+function createTripEntryFromPackage(pkg, context = {}) {
+  if (!pkg) {
+    return null
+  }
+  const summary = pkg.summary ?? context.summary ?? {}
+  return {
+    id:
+      context?.receipt?.receiptNo ||
+      context?.session?.bookingRef ||
+      pkg.packageId ||
+      pkg.packageID ||
+      `trip-${Date.now()}`,
+    title: pkg.title || summary.title || 'Upcoming journey',
+    location: summary.destination || pkg.destination || 'To be announced',
+    duration: summary.dateRange || summary.durationLabel || 'Flexible dates',
+    focus:
+      summary.curationNote ||
+      summary.description ||
+      'Payment confirmed. Your itinerary is now locked in.',
+    paidAt: context?.receipt?.paidAt || context?.session?.updatedAt || new Date().toISOString(),
+  }
+}
+
+function createTripEntryFromBookingRecord(record) {
+  if (!record) {
+    return null
+  }
+  const summary = record.packageSummary ?? {}
+  return {
+    id: record.receiptNo || record.bookingRef || `booking-${record.sessionId}`,
+    title: record.packageTitle || summary.title || 'Upcoming journey',
+    location: summary.destination || record.packageDestination || 'To be announced',
+    duration: summary.dateRange || summary.durationLabel || 'Flexible dates',
+    focus:
+      summary.curationNote ||
+      summary.description ||
+      (record.paidAt ? `Payment recorded ${formatTimelineDate(record.paidAt)}` : 'Payment recorded.'),
+    paidAt: record.paidAt || record.updatedAt || record.createdAt,
+  }
+}
+
+function mergeTrips(baseList, confirmedList) {
+  const list = Array.isArray(baseList) ? [...baseList] : []
+  ;(Array.isArray(confirmedList) ? confirmedList : []).forEach((trip) => {
+    if (!trip) {
+      return
+    }
+    const key = getTripKey(trip)
+    const existingIndex = list.findIndex((item) => getTripKey(item) === key)
+    if (existingIndex !== -1) {
+      list.splice(existingIndex, 1)
+    }
+    list.unshift(trip)
+  })
+  return list
+}
+
+function getTripKey(trip) {
+  if (!trip) {
+    return ''
+  }
+  return trip.id || `${trip.title || 'trip'}-${trip.location || 'anywhere'}`
+}
+
+function formatTimelineDate(value) {
+  if (!value) {
+    return ''
+  }
+  try {
+    return messageTimestampFormatter.format(new Date(value))
+  } catch (error) {
+    return value
+  }
+}
+
 const hasTrips = computed(() => upcomingTrips.value.length > 0)
 
 const sidebarCollapsed = ref(false)
@@ -704,35 +905,82 @@ const collapsedMenuContainerStyle = computed(() => ({
 
       <n-layout-content embedded style="padding: 24px 32px;">
         <div v-if="selectedMenu === 'weather'" class="weather-panel">
-          <TravelerWeatherWidget />
+          <TravelerWeatherWidget :key="`weather-${moduleRefreshKeys.weather}`" />
         </div>
         <div v-else-if="selectedMenu === 'community'" class="community-panel">
-          <TravelerSocialFeed :posts="communityFeedPosts" :categories="communityFeedCategories" :current-user="traveler"
+          <TravelerSocialFeed
+            :key="`community-${moduleRefreshKeys.community}`"
+            :posts="communityFeedPosts"
+            :categories="communityFeedCategories"
+            :current-user="traveler"
             @contact="handleCommunityContact" />
         </div>
         <div v-else-if="selectedMenu === 'saved-posts'" class="community-panel">
-          <TravelerSavedPosts :categories="communityFeedCategories" :current-user="traveler" />
+          <TravelerSavedPosts
+            :key="`saved-posts-${moduleRefreshKeys['saved-posts']}`"
+            :categories="communityFeedCategories"
+            :current-user="traveler"
+          />
         </div>
         <div v-else-if="selectedMenu === 'messages'" class="messages-panel">
-          <TravelerMessages :current-user="traveler" />
+          <TravelerMessages
+            :key="`messages-${moduleRefreshKeys.messages}`"
+            :current-user="traveler"
+          />
         </div>
         <div v-else-if="selectedMenu === 'notifications'">
-          <NotificationCenter recipient-type="Traveler" :recipient-id="currentTravelerId" title="Traveler notifications"
+          <NotificationCenter
+            :key="`notifications-${moduleRefreshKeys.notifications}`"
+            recipient-type="Traveler"
+            :recipient-id="currentTravelerId"
+            title="Traveler notifications"
             description="Admins and operators share updates with you here." />
         </div>
         <div v-else-if="selectedMenu === 'marketplace'" class="marketplace-panel">
-          <TravelerMarketplace ref="marketplaceRef" :current-user="traveler" @contact="handleMarketplaceContact" />
+          <TravelerMarketplace
+            :key="`marketplace-${moduleRefreshKeys.marketplace}`"
+            ref="marketplaceRef"
+            :current-user="traveler"
+            @contact="handleMarketplaceContact"
+          />
         </div>
         <div v-else-if="selectedMenu === 'trips'" class="trip-planner-panel">
           <TripPlannerModule
+            :key="`trips-${moduleRefreshKeys.trips}`"
             :traveler-id="currentTravelerId"
             :traveler-name="traveler.displayName"
           />
         </div>
         <div v-else-if="selectedMenu === 'saved'" class="saved-places-panel">
-          <TravelerSavedPlaces :traveler-id="currentTravelerId" />
+          <TravelerSavedPlaces
+            :key="`saved-${moduleRefreshKeys.saved}`"
+            :traveler-id="currentTravelerId"
+            @view-booking-dashboard="handleBookingDashboardView"
+          />
         </div>
-        <div v-else class="dashboard-main">
+        <div v-else-if="selectedMenu === 'booking-dashboard'" class="booking-dashboard-panel">
+          <TravelerBookingDashboard
+            :key="`booking-${moduleRefreshKeys['booking-dashboard']}`"
+            :package-data="bookingDashboardPackage"
+            @back-to-saved="handleBookingDashboardBack"
+            @view-payment-dashboard="handlePaymentDashboardView"
+          />
+        </div>
+        <div v-else-if="selectedMenu === 'payment-dashboard'" class="booking-dashboard-panel">
+          <TravelerPaymentDashboard
+            :key="`payment-${moduleRefreshKeys['payment-dashboard']}`"
+            :package-data="paymentDashboardPackage || bookingDashboardPackage"
+            @back-to-booking="handlePaymentDashboardBack"
+            @payment-authorized="handlePaymentAuthorized"
+          />
+        </div>
+        <div v-else-if="selectedMenu === 'payment-history'" class="booking-dashboard-panel">
+          <TravelerPaymentHistory
+            :key="`history-${moduleRefreshKeys['payment-history']}`"
+            :traveler-id="currentTravelerId"
+          />
+        </div>
+        <div v-else class="dashboard-main" :key="`dashboard-${moduleRefreshKeys.dashboard}`">
           <n-space vertical size="large">
             <n-card :segmented="{ content: true }" :style="{
               background: 'linear-gradient(135deg, rgba(66, 184, 131, 0.12), rgba(108, 99, 255, 0.12))',

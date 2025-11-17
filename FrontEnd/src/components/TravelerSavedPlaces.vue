@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { fetchSavedPlacePackages, deleteSavedPlacePackage } from '../services/tripPlannerService.js'
 
@@ -10,6 +11,7 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['view-booking-dashboard'])
 const packages = ref([])
 const loading = ref(false)
 const message = useMessage()
@@ -17,6 +19,77 @@ const detailsVisible = ref(false)
 const activePackage = ref(null)
 const heroPhoto = computed(() => (activePackage.value ? computeCoverPhoto(activePackage.value) : ''))
 const stayCarouselRef = ref(null)
+const router = useRouter()
+const route = useRoute()
+const savedPackagesCount = computed(() => packages.value.length)
+const totalSelectionsSaved = computed(() =>
+  packages.value.reduce((sum, pkg) => sum + packageSelectionCount(pkg), 0),
+)
+const curatedDestinationList = computed(() => {
+  const seen = new Set()
+  const formatted = []
+  packages.value.forEach((pkg) => {
+    const label = toTitleCase(pkg.destination || '')
+    if (label && !seen.has(label)) {
+      seen.add(label)
+      formatted.push(label)
+    }
+  })
+  return formatted
+})
+const heroDescription = computed(() => {
+  if (!savedPackagesCount.value) {
+    return 'Pin your favourite eco stays and sensory excursions for quick booking later.'
+  }
+  if (curatedDestinationList.value.length) {
+    return `Boutique escapes across ${curatedDestinationList.value.join(', ')} await your next chapter.`
+  }
+  return 'Handpicked stays and immersive experiences ready for your next itinerary.'
+})
+const heroMood = computed(() =>
+  savedPackagesCount.value ? curatedDestinationList.value.join(' | ') || 'Curated Calm' : 'Awaiting Discovery',
+)
+const heroTags = computed(() => {
+  const tags = [...curatedDestinationList.value.slice(0, 2)]
+  if (totalSelectionsSaved.value) {
+    tags.push(`${totalSelectionsSaved.value} Selections`)
+  }
+  if (savedPackagesCount.value) {
+    tags.push(`${savedPackagesCount.value} Packages`)
+  }
+  return [...new Set(tags)].slice(0, 4)
+})
+
+function startPlanNewEscape() {
+  const nextQuery = { ...route.query, module: 'trips' }
+  router.push({ name: 'traveler', query: nextQuery })
+}
+
+function openBookingDashboard(pkg = activePackage.value) {
+  if (!pkg) {
+    return
+  }
+  emit('view-booking-dashboard', { package: pkg })
+  closePackageDetails()
+}
+
+function packageDateSummary(pkg) {
+  const segments = []
+  if (pkg?.summary?.dateRange) {
+    segments.push(pkg.summary.dateRange)
+  }
+  if (pkg?.summary?.durationLabel) {
+    segments.push(pkg.summary.durationLabel)
+  }
+  return segments.join(' • ') || 'Awaiting travel dates'
+}
+
+function packageTagline(pkg) {
+  if (pkg?.summary?.themeSummary) {
+    return toTitleCase(pkg.summary.themeSummary)
+  }
+  return 'Sensory-rich moments curated for your next escape.'
+}
 
 async function loadPackages() {
   if (!props.travelerId) {
@@ -204,26 +277,78 @@ function stayReviewLabel(entry) {
   const summary = typeof summaryRaw === 'string' ? summaryRaw.trim() : ''
   return [countLabel, summary].filter(Boolean).join(' | ')
 }
-</script>
+function toTitleCase(value) {
+  if (!value || typeof value !== 'string') {
+    return ''
+  }
+  return value
+    .split(' ')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1).toLowerCase())
+    .join(' ')
+}</script>
 
 <template>
-  <div class="saved-places-feed">
-    <n-card
-      title="Saved places"
-      :segmented="{ content: true, footer: false }"
-      class="saved-places-card"
-    >
+  <div class="saved-places-dashboard">
+    <div class="saved-places-dashboard__glow saved-places-dashboard__glow--teal" />
+    <div class="saved-places-dashboard__glow saved-places-dashboard__glow--sunset" />
+
+    <section class="saved-places-dashboard__hero">
+      <div class="saved-places-dashboard__hero-left">
+        <div class="saved-places-dashboard__hero-badge">
+          <i class="ri-compass-3-line" />
+          Saved Places
+        </div>
+        <div class="saved-places-dashboard__hero-title">
+          <h1>{{ savedPackagesCount ? 'Curated Escape Gallery' : 'Create Your Escape Library' }}</h1>
+          <span class="saved-places-dashboard__hero-caption">Journey palette · {{ heroMood || 'Awaiting Discovery' }}</span>
+        </div>
+        <p class="saved-places-dashboard__description">
+          {{ heroDescription }}
+        </p>
+        <div v-if="heroTags.length" class="saved-places-dashboard__hero-tags">
+          <span v-for="tag in heroTags" :key="tag" class="saved-places-dashboard__tag">{{ tag }}</span>
+        </div>
+        <div class="saved-places-dashboard__hero-actions">
+          <n-button type="primary" size="large" round class="saved-places-dashboard__cta" @click="startPlanNewEscape">
+            Plan New Escape
+          </n-button>
+          <n-button quaternary size="large" round class="saved-places-dashboard__cta--ghost" :loading="loading" @click="loadPackages">
+            Refresh Gallery
+          </n-button>
+        </div>
+      </div>
+      <div class="saved-places-dashboard__hero-panels">
+        <article class="saved-places-dashboard__stat-card">
+          <p>Saved Journeys</p>
+          <strong>{{ savedPackagesCount }}</strong>
+          <span>{{ curatedDestinationList.slice(0, 3).join(' | ') || 'No destinations yet' }}</span>
+        </article>
+        <article class="saved-places-dashboard__stat-card">
+          <p>Total Selections</p>
+          <strong>{{ totalSelectionsSaved }}</strong>
+          <span>Experiences & Stays</span>
+        </article>
+        <article class="saved-places-dashboard__stat-card">
+          <p>Destinations Tracked</p>
+          <strong>{{ curatedDestinationList.length }}</strong>
+          <span>{{ curatedDestinationList.join(' | ') || 'Awaiting Discovery' }}</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="saved-places-dashboard__collection">
       <n-spin :show="loading">
         <n-empty
           v-if="!packages.length && !loading"
-          description="You haven't saved any experience packages yet."
+          description="No escapes pinned yet."
         >
-          <template #extra>
-            Plan a trip and pick experiences to save them here.
+          <template #default>
+            <p>Plan a new trip and tap "Save This Package" to build your gallery.</p>
           </template>
         </n-empty>
 
-        <div v-else class="saved-place-grid">
+        <div v-else class="saved-places-dashboard__grid">
           <article
             v-for="pkg in packages"
             :key="pkg.packageId"
@@ -239,53 +364,54 @@ function stayReviewLabel(entry) {
               @keyup.space.prevent="openPackageDetails(pkg)"
             >
               <div
-                class="saved-package-cover"
-                :class="{ 'saved-package-cover--empty': !computeCoverPhoto(pkg) }"
+                class="saved-package-card__media"
+                :class="{ 'saved-package-card__media--empty': !computeCoverPhoto(pkg) }"
                 :style="computeCoverPhoto(pkg) ? { backgroundImage: `url(${computeCoverPhoto(pkg)})` } : undefined"
               >
-                <div v-if="!computeCoverPhoto(pkg)" class="saved-package-cover__placeholder">
+                <div v-if="!computeCoverPhoto(pkg)" class="saved-package-card__placeholder">
                   <i class="ri-image-2-line" aria-hidden="true" />
-                  <span>Photo coming soon</span>
+                  <span>Awaiting Imagery</span>
                 </div>
-                <div class="saved-package-cover__overlay">
-                  <div class="saved-package-cover__meta">
-                    <n-tag v-if="pkg.destination" round size="small" type="success">
-                      {{ pkg.destination }}
-                    </n-tag>
-                    <span>{{ formatTimestamp(pkg.createdAt) }}</span>
-                  </div>
-                  <div class="saved-package-cover__title">
-                    {{ pkg.title || 'Saved package' }}
-                  </div>
-                  <div class="saved-package-cover__summary" v-if="pkg.summary?.dateRange">
-                    {{ pkg.summary.dateRange }}
-                    <span v-if="pkg.summary?.durationLabel">
-                      - {{ pkg.summary.durationLabel }}
+                <div class="saved-package-card__veil">
+                  <div class="saved-package-card__meta">
+                    <span class="saved-package-card__location-pill">
+                      {{ toTitleCase(pkg.destination) || 'Curated Escape' }}
                     </span>
+                    <span class="saved-package-card__timestamp">{{ formatTimestamp(pkg.createdAt) }}</span>
                   </div>
-                  <div v-if="packageCostLabel(pkg)" class="saved-package-cover__cost">
-                    {{ packageCostLabel(pkg) }}
+                  <div class="saved-package-card__headline">
+                    <p class="saved-package-card__title">{{ toTitleCase(pkg.title || 'Saved Package') }}</p>
+                    <p class="saved-package-card__dates">{{ packageDateSummary(pkg) }}</p>
                   </div>
-                  <div class="saved-package-cover__stats">
-                    <n-tag round size="tiny" type="info">
-                      {{ packageSelectionCount(pkg) }} selections
-                    </n-tag>
-                    <span>Click to view details</span>
+                  <div class="saved-package-card__stats-row">
+                    <p class="saved-package-card__tagline">{{ packageTagline(pkg) }}</p>
+                    <div class="saved-package-card__stats">
+                      <span class="saved-package-card__stat">{{ packageSelectionCount(pkg) }} Picks</span>
+                      <span
+                        v-if="packageCostLabel(pkg)"
+                        class="saved-package-card__stat saved-package-card__stat--ghost"
+                      >
+                        {{ packageCostLabel(pkg) }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div class="saved-package-card__caption">
-              <div class="saved-package-card__caption-title">
-                {{ pkg.destination || pkg.title || 'Traveler package' }}
+              <div class="saved-package-card__body">
+                <div>
+                  <p class="saved-package-card__label">Destination</p>
+                  <strong>{{ toTitleCase(pkg.destination) || 'Unspecified Destination' }}</strong>
+                </div>
+                <p class="saved-package-card__theme">
+                  {{ pkg.summary?.themeSummary || 'Handpicked from your dreamboard itinerary.' }}
+                </p>
+                <div class="saved-package-card__footer">
+                  <span>Open journey capsule</span>
+                  <n-icon>
+                    <i class="ri-arrow-right-line" />
+                  </n-icon>
+                </div>
               </div>
-              <n-text depth="3">
-                {{ pkg.summary?.themeSummary || 'Saved picks from your planner' }}
-              </n-text>
-              <n-text v-if="packageCostLabel(pkg)" depth="2" class="saved-package-card__caption-cost">
-                Total tickets: <strong>{{ packageCostLabel(pkg) }}</strong>
-              </n-text>
             </div>
 
             <n-popconfirm
@@ -298,7 +424,7 @@ function stayReviewLabel(entry) {
                   quaternary
                   circle
                   size="small"
-                  class="saved-package-delete"
+                  class="saved-package-card__delete"
                   @click.stop
                 >
                   <n-icon>
@@ -311,9 +437,8 @@ function stayReviewLabel(entry) {
           </article>
         </div>
       </n-spin>
-    </n-card>
+    </section>
   </div>
-
   <n-modal
     v-model:show="detailsVisible"
     :style="{ width: '940px', maxWidth: '96vw', maxHeight: '92vh' }"
@@ -356,8 +481,10 @@ function stayReviewLabel(entry) {
                   {{ activePackage.summary.durationLabel }}
                 </p>
                 <div class="package-modal__hero-stats">
-                  <span>{{ packageSelectionCount(activePackage) }} total selections</span>
-                  <span v-if="activePackage.summary?.themeSummary">{{ activePackage.summary.themeSummary }}</span>
+                  <span>{{ packageSelectionCount(activePackage) }} curated moments</span>
+                  <span v-if="activePackage.summary?.themeSummary">{{
+                    toTitleCase(activePackage.summary.themeSummary)
+                  }}</span>
                 </div>
               </div>
             </div>
@@ -421,7 +548,7 @@ function stayReviewLabel(entry) {
               :key="entry.theme"
               class="package-cost-breakdown__row"
             >
-              <span>{{ entry.label }}</span>
+              <span>{{ toTitleCase(entry.label) }}</span>
               <strong>{{ entry.formatted }}</strong>
             </div>
           </div>
@@ -434,19 +561,21 @@ function stayReviewLabel(entry) {
             :key="`modal-${section.theme}`"
             class="package-modal__section"
           >
-            <div class="package-modal__section-card">
-              <div class="package-modal__section-header">
-                <div>
-                  <p class="package-modal__section-eyebrow">{{ section.theme || section.label }}</p>
-                  <h4>{{ section.label }}</h4>
+              <div class="package-modal__section-card">
+                <div class="package-modal__section-header">
+                  <div>
+                    <p class="package-modal__section-eyebrow">
+                      {{ toTitleCase(section.theme || section.label || 'Experience Theme') }}
+                    </p>
+                    <h4>{{ toTitleCase(section.label || section.theme || 'Curated Highlights') }}</h4>
+                  </div>
+                  <div class="package-modal__section-chip">
+                    {{ section.picks?.length ?? 0 }} picks curated
+                  </div>
                 </div>
-                <div class="package-modal__section-chip">
-                  {{ section.picks?.length ?? 0 }} picked
-                </div>
-              </div>
-              <div class="package-modal__list">
-                <article
-                  v-for="pick in section.picks ?? []"
+                <div class="package-modal__list">
+                  <article
+                    v-for="pick in section.picks ?? []"
                   :key="pick.id"
                   class="package-modal__card"
                 >
@@ -458,8 +587,12 @@ function stayReviewLabel(entry) {
                     <i v-if="!pick.photoUrl" class="ri-image-line" aria-hidden="true" />
                   </div>
                   <div class="package-modal__card-body">
-                    <div class="package-modal__card-title">{{ pick.title }}</div>
-                    <div class="package-modal__card-subtitle">{{ pick.subtitle }}</div>
+                    <div class="package-modal__card-title">
+                      {{ toTitleCase(pick.title || 'Experience Moment') }}
+                    </div>
+                    <div class="package-modal__card-subtitle">
+                      {{ toTitleCase(pick.subtitle || pick.location || 'Awaiting description') }}
+                    </div>
                     <div v-if="pick.tags?.length" class="package-modal__card-tags">
                       {{ listTags(pick.tags) }}
                     </div>
@@ -506,10 +639,12 @@ function stayReviewLabel(entry) {
                       <div class="stay-card__price" v-if="stay.priceText">{{ stay.priceText }}</div>
                       <i v-if="!stay.photoUrl" class="ri-hotel-line" aria-hidden="true" />
                     </div>
-                    <div class="stay-card__body">
-                      <div class="stay-card__title">{{ stay.title }}</div>
-                      <div class="stay-card__subtitle">{{ stay.subtitle }}</div>
-                      <div class="stay-card__details">
+                  <div class="stay-card__body">
+                    <div class="stay-card__title">{{ toTitleCase(stay.title || 'Boutique Stay') }}</div>
+                    <div class="stay-card__subtitle">
+                      {{ toTitleCase(stay.subtitle || stay.address || stay.location || 'Awaiting details') }}
+                    </div>
+                    <div class="stay-card__details">
                         <span>
                           <template v-if="stayRatingValue(stay) || stayReviewLabel(stay)">
                             <i class="ri-star-smile-line" />
@@ -543,183 +678,410 @@ function stayReviewLabel(entry) {
 
     <template #action>
       <n-space justify="end">
-        <n-button @click="closePackageDetails">Close</n-button>
+        <n-button type="primary" size="large" @click="openBookingDashboard()">Open Booking Dashboard</n-button>
+        <n-button size="large" @click="closePackageDetails">Close</n-button>
       </n-space>
     </template>
   </n-modal>
 </template>
 
 <style scoped>
-.saved-places-feed {
+.saved-places-dashboard {
+  position: relative;
   width: 100%;
-  padding-bottom: 32px;
+  min-height: 100%;
+  padding: 32px;
+  color: #0f172a;
+  background: radial-gradient(circle at top, rgba(45, 212, 191, 0.12), rgba(99, 102, 241, 0.08)) #f8fafc;
+  overflow: hidden;
 }
 
-.saved-places-card {
-  width: 100%;
-  display: block;
-  border-radius: 20px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+.saved-places-dashboard__glow {
+  position: absolute;
+  width: 420px;
+  height: 420px;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.55;
+  z-index: 0;
 }
 
-.saved-place-grid {
+.saved-places-dashboard__glow--teal {
+  top: -140px;
+  left: -120px;
+  background: rgba(16, 185, 129, 0.7);
+}
+
+.saved-places-dashboard__glow--sunset {
+  bottom: -160px;
+  right: -100px;
+  background: rgba(253, 186, 116, 0.7);
+}
+
+.saved-places-dashboard__hero {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 20px;
-  align-items: stretch;
+  grid-template-columns: minmax(320px, 1.5fr) minmax(260px, 1fr);
+  gap: 32px;
+  padding: 36px;
+  border-radius: 40px;
+  background: linear-gradient(130deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 35px 80px rgba(15, 23, 42, 0.12);
 }
 
-@media (min-width: 1360px) {
-  .saved-place-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+.saved-places-dashboard__hero-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.saved-places-dashboard__hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.saved-places-dashboard__hero-badge i {
+  font-size: 1rem;
+}
+
+.saved-places-dashboard__hero-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.saved-places-dashboard__hero-title h1 {
+  margin: 0;
+  font-size: 2.8rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.saved-places-dashboard__hero-caption {
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.saved-places-dashboard__description {
+  margin: 0;
+  color: rgba(15, 23, 42, 0.7);
+  max-width: 620px;
+}
+
+.saved-places-dashboard__hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.saved-places-dashboard__tag {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.12);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.saved-places-dashboard__hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.saved-places-dashboard__cta {
+  box-shadow: 0 20px 40px rgba(16, 185, 129, 0.25);
+}
+
+.saved-places-dashboard__cta--ghost {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  color: #0f172a;
+}
+
+.saved-places-dashboard__hero-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.saved-places-dashboard__stat-card {
+  padding: 20px;
+  border-radius: 28px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-places-dashboard__stat-card p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(15, 23, 42, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.saved-places-dashboard__stat-card strong {
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.saved-places-dashboard__stat-card span {
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.65);
+}
+
+.saved-places-dashboard__collection {
+  position: relative;
+  z-index: 1;
+  margin-top: 32px;
+}
+
+.saved-places-dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  padding-top: 12px;
 }
 
 .saved-package-card {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 25px 60px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
 }
 
 .saved-package-card__interactive {
-  border: none;
-  background: none;
-  padding: 0;
-  width: 100%;
-  border-radius: 18px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   cursor: pointer;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  display: block;
-}
-
-.saved-package-card__interactive:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.18);
+  height: 100%;
 }
 
 .saved-package-card__interactive:focus-visible {
   outline: 3px solid #22d3ee;
-  outline-offset: 3px;
+  outline-offset: 4px;
 }
 
-.saved-package-cover {
+.saved-package-card__media {
   position: relative;
   width: 100%;
-  padding-top: 72%;
-  background: linear-gradient(135deg, #1d3557, #457b9d);
+  height: 240px;
   background-size: cover;
   background-position: center;
 }
 
-.saved-package-cover--empty {
-  background: linear-gradient(135deg, #cfd9df, #e2ebf0);
+.saved-package-card__media--empty {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.15), rgba(148, 163, 184, 0.25));
 }
 
-.saved-package-cover__placeholder {
+.saved-package-card__placeholder {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  gap: 6px;
-  color: rgba(15, 23, 42, 0.65);
-  background: rgba(255, 255, 255, 0.45);
-  font-weight: 600;
-}
-
-.saved-package-cover__placeholder i {
-  font-size: 1.8rem;
-}
-
-.saved-package-cover__overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.8));
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 16px;
+  justify-content: center;
   gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(15, 23, 42, 0.7);
 }
 
-.saved-package-cover__meta {
+ .saved-package-card__veil {
+   position: absolute;
+   inset: 0;
+   display: flex;
+   flex-direction: column;
+   justify-content: flex-end;
+   gap: 14px;
+   padding: 24px;
+   color: #fff;
+   background: linear-gradient(180deg, rgba(6, 12, 35, 0.08), rgba(6, 12, 35, 0.92));
+ }
+
+.saved-package-card__meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.82rem;
-  opacity: 0.9;
+  font-size: 0.85rem;
+  opacity: 0.95;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.saved-package-cover__title {
-  font-size: 1.05rem;
-  font-weight: 700;
+.saved-package-card__location-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.78rem;
 }
 
-.saved-package-cover__summary {
-  font-size: 0.82rem;
+.saved-package-card__timestamp {
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
   opacity: 0.85;
 }
 
-.saved-package-cover__cost {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #fef3c7;
-}
-
-.saved-package-cover__stats {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.95;
-}
-
-.saved-package-card__caption {
+.saved-package-card__headline {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 0 4px;
 }
 
-.saved-package-card__caption-title {
+.saved-package-card__title {
+  margin: 0;
+  font-size: 1.3rem;
+  text-transform: capitalize;
+  letter-spacing: -0.01em;
+}
+
+.saved-package-card__dates {
+  margin: 0;
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+}
+
+.saved-package-card__stats-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.saved-package-card__tagline {
+  margin: 0;
+  font-size: 0.88rem;
+  opacity: 0.85;
+  max-width: 60%;
+}
+
+.saved-package-card__stats {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.saved-package-card__stat {
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 0.78rem;
   font-weight: 600;
-  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.saved-package-card__stat--ghost {
+  background: rgba(15, 23, 42, 0.25);
+}
+
+.saved-package-card__body {
+  padding: 20px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.saved-package-card__body strong {
+  font-size: 1.1rem;
   color: #0f172a;
 }
 
-.saved-package-card__caption :deep(.n-text) {
-  font-size: 0.82rem;
-  color: rgba(15, 23, 42, 0.65);
+.saved-package-card__label {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(15, 23, 42, 0.55);
 }
 
-.saved-package-card__caption-cost {
-  margin-top: 4px;
+.saved-package-card__theme {
+  margin: 0;
+  font-size: 0.95rem;
+  color: rgba(15, 23, 42, 0.7);
+  line-height: 1.35;
 }
 
-.saved-package-delete {
+.saved-package-card__footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  color: rgba(15, 23, 42, 0.7);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.saved-package-card__delete {
   position: absolute;
-  top: 12px;
+  top: 16px;
   right: 16px;
-  z-index: 5;
-  background: rgba(15, 23, 42, 0.45);
+  z-index: 2;
+  background: rgba(15, 23, 42, 0.6);
   color: #fff;
   backdrop-filter: blur(4px);
 }
 
-.saved-package-delete:hover {
-  color: #fff;
-  background: rgba(15, 23, 42, 0.6);
+@media (max-width: 1024px) {
+  .saved-places-dashboard {
+    padding: 24px;
+  }
+  .saved-places-dashboard__hero {
+    grid-template-columns: 1fr;
+    padding: 28px;
+  }
+  .saved-places-dashboard__hero-panels {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .saved-places-dashboard__stat-card {
+    flex: 1 1 200px;
+  }
+  .saved-places-dashboard__grid {
+    grid-template-columns: 1fr;
+  }
 }
 
+@media (max-width: 640px) {
+  .saved-places-dashboard {
+    padding: 20px 16px;
+  }
+  .saved-places-dashboard__hero-title h1 {
+    font-size: 2rem;
+  }
+  .saved-package-card__media {
+    height: 200px;
+  }
+  .saved-package-card__footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
 .package-modal__header {
   display: flex;
   justify-content: space-between;

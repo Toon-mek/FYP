@@ -343,19 +343,61 @@ function handleReverseGeocode(): void
     }
 
     $url = 'https://maps.googleapis.com/maps/api/geocode/json';
+    $language = normaliseLanguageCode($_GET['language'] ?? 'en');
     $params = [
         'latlng' => sprintf('%s,%s', $lat, $lng),
-        'language' => $_GET['language'] ?? 'en',
-        'region' => 'MY',
-        'result_type' => 'locality|political',
+        'language' => $language,
         'key' => resolveApiKey('google', 'geocode', 'GOOGLE_MAPS_GEOCODE_KEY') ?: resolveApiKey('google', 'places', 'GOOGLE_PLACES_API_KEY'),
     ];
+    $region = normaliseRegionCode($_GET['region'] ?? null);
+    if ($region !== null) {
+        $params['region'] = $region;
+    }
+    $resultType = normaliseResultType($_GET['result_type'] ?? null);
+    if ($resultType !== null) {
+        $params['result_type'] = $resultType;
+    }
 
     $response = proxyGet($url, $params);
     http_response_code($response['status']);
     echo json_encode([
         'data' => $response['body'],
     ]);
+}
+
+function normaliseLanguageCode($language): string
+{
+    if (!is_string($language)) {
+        return 'en';
+    }
+    $clean = strtolower(preg_replace('/[^a-z-]/i', '', $language));
+    return $clean !== '' ? $clean : 'en';
+}
+
+function normaliseRegionCode($region): ?string
+{
+    if (!is_string($region)) {
+        return null;
+    }
+    $trimmed = strtolower(trim($region));
+    if ($trimmed === '' || in_array($trimmed, ['global', 'auto', 'none'], true)) {
+        return null;
+    }
+    $clean = strtoupper(preg_replace('/[^a-z]/i', '', $trimmed));
+    return strlen($clean) === 2 ? $clean : null;
+}
+
+function normaliseResultType($value): ?string
+{
+    if (!is_string($value)) {
+        return null;
+    }
+    $trimmed = trim($value);
+    if ($trimmed === '') {
+        return null;
+    }
+    $clean = preg_replace('/[^a-zA-Z_|]/', '', $trimmed);
+    return $clean !== '' ? $clean : null;
 }
 
 function callPlacesJson(
