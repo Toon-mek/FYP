@@ -636,7 +636,8 @@ function normaliseDateTime(?string $value): ?string
     }
 
     try {
-        $dt = new DateTimeImmutable($value);
+        $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+        $dt = new DateTimeImmutable($value, $tz);
         return $dt->format(DateTimeInterface::ATOM);
     } catch (Throwable) {
         return $value;
@@ -650,7 +651,8 @@ function parseDateTimeValue(?string $value): ?DateTimeImmutable
     }
 
     try {
-        return new DateTimeImmutable($value);
+        $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+        return new DateTimeImmutable($value, $tz);
     } catch (Throwable) {
         return null;
     }

@@ -60,7 +60,7 @@ const fieldHints = {
   operatorEmail: 'Operator/Admin: use a company or institutional domain (not gmail/yahoo/hotmail).',
   companyName: 'Your business or organization name.',
   phone: 'Use Malaysian format, e.g. +60 12-345 6789 or 03-1234 5678.',
-  password: 'Minimum 6 characters with at least one letter and one number.',
+  password: '6-20 characters with at least one letter and one number.',
   confirmPassword: 'Must match the password exactly.',
   role: 'Assign an admin role template that defines permissions.',
   status: 'Set account status for existing users.',
@@ -557,6 +557,7 @@ const {
   validateBeforeSubmit,
 } = useAccountFormValidation(userForm, editingUserId, {
   includeCompanyName: true,
+  includePassword: true,
 })
 
 function resetUserForm() {
@@ -842,11 +843,8 @@ defineExpose({
             <n-select v-model:value="userForm.type" :options="createUserTypeOptions" />
           </template>
         </n-form-item>
-        <n-form-item
-          v-if="userForm.type === 'Operator'"
-          :validation-status="companyNameValidation.status || undefined"
-          :feedback="companyNameValidation.message"
-        >
+        <n-form-item v-if="userForm.type === 'Operator'" :validation-status="companyNameValidation.status || undefined"
+          :feedback="companyNameValidation.message">
           <template #label>
             Business name
             <n-tooltip :show-arrow="false">
@@ -858,12 +856,8 @@ defineExpose({
               {{ fieldHints.companyName }}
             </n-tooltip>
           </template>
-          <n-input
-            v-model:value="userForm.companyName"
-            placeholder="Company or organisation"
-            :status="companyNameValidation.status || undefined"
-            @blur="markFieldTouched('companyName')"
-          />
+          <n-input v-model:value="userForm.companyName" placeholder="Company or organisation"
+            :status="companyNameValidation.status || undefined" @blur="markFieldTouched('companyName')" />
         </n-form-item>
         <n-form-item :validation-status="nameValidation.status || undefined" :feedback="nameValidation.message">
           <template #label>
@@ -928,7 +922,7 @@ defineExpose({
             </n-tooltip>
           </template>
           <n-input v-model:value="userForm.password" type="password" placeholder="At least 6 characters"
-            :status="passwordValidation.status || undefined" @blur="markFieldTouched('password')" />
+            :status="passwordValidation.status || undefined" @blur="markFieldTouched('password')" maxlength="20" />
         </n-form-item>
         <n-form-item v-if="!editingUserId || userForm.password"
           :validation-status="confirmValidation.status || undefined" :feedback="confirmValidation.message">
@@ -944,7 +938,7 @@ defineExpose({
             </n-tooltip>
           </template>
           <n-input v-model:value="userForm.confirmPassword" type="password" placeholder="Re-enter password"
-            :status="confirmValidation.status || undefined" @blur="markFieldTouched('confirmPassword')" />
+            :status="confirmValidation.status || undefined" @blur="markFieldTouched('confirmPassword')" maxlength="20" />
         </n-form-item>
         <n-form-item v-if="userForm.type === 'Admin'">
           <template #label>

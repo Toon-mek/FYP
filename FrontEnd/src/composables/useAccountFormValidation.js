@@ -171,7 +171,7 @@ export function useAccountFormValidation(form, editingUserIdRef = ref(null), opt
     
     if (!isValidPassword(value)) {
       return show
-        ? { status: 'error', message: 'Use at least 6 characters with letters and numbers.' }
+        ? { status: 'error', message: 'Use 6-20 characters with letters and numbers.' }
         : { status: null, message: '' }
     }
     if (!show) {

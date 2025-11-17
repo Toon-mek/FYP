@@ -164,6 +164,20 @@ function handlePost(PDO $pdo): void
 
         $pdo->commit();
 
+        // Send notification to traveler
+        try {
+            require_once __DIR__ . '/../helpers/notifications.php';
+            recordNotification(
+                $pdo,
+                'Traveler',
+                $travelerId,
+                'Itinerary Created',
+                "Your itinerary '{$title}' has been successfully created!"
+            );
+        } catch (Throwable $notifError) {
+            // Silent fail
+        }
+
         $itinerary = fetchItinerary($pdo, $travelerId, $itineraryId);
         respond(201, ['itinerary' => $itinerary, 'message' => 'Itinerary created']);
     } catch (Throwable $e) {

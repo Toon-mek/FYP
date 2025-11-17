@@ -140,6 +140,7 @@ const {
     accountTypeResolver: () => 'Traveler',
     includeName: false,
     includePhone: false,
+    includePassword: true,
     isLoginMode: true,
   }
 )
@@ -156,6 +157,7 @@ const {
     accountTypeResolver: () => 'Operator',
     includeName: false,
     includePhone: false,
+    includePassword: true,
     isLoginMode: true,
   }
 )
@@ -172,6 +174,7 @@ const {
     accountTypeResolver: () => 'Admin',
     includeName: false,
     includePhone: false,
+    includePassword: true,
     isLoginMode: true,
   }
 )
@@ -229,6 +232,7 @@ const {
     accountTypeResolver: () => travelerFormType.value,
     includeName: true,
     includePhone: false,
+    includePassword: true,
   }
 )
 
@@ -292,6 +296,7 @@ const {
     includeName: true,
     includeCompanyName: true,
     includePhone: true,
+    includePassword: true,
   }
 )
 
@@ -1142,7 +1147,7 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
             </n-tooltip>
           </template>
           <n-input v-model:value="travelerForm.password" type="password" placeholder="Create password"
-            :status="travelerPasswordValidation.status || undefined" @blur="travelerMarkFieldTouched('password')" />
+            :status="travelerPasswordValidation.status || undefined" @blur="travelerMarkFieldTouched('password')" maxlength="20" />
         </n-form-item>
         <n-form-item :validation-status="travelerConfirmValidation.status || undefined"
           :feedback="travelerConfirmValidation.message">
@@ -1159,7 +1164,7 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
           </template>
           <n-input v-model:value="travelerForm.confirmPassword" type="password" placeholder="Re-enter password"
             :status="travelerConfirmValidation.status || undefined"
-            @blur="travelerMarkFieldTouched('confirmPassword')" />
+            @blur="travelerMarkFieldTouched('confirmPassword')" maxlength="20" />
         </n-form-item>
         <n-form-item class="signup-upload">
           <template #label>
@@ -1275,7 +1280,7 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
             </n-tooltip>
           </template>
           <n-input v-model:value="operatorForm.password" type="password" placeholder="Create password"
-            :status="operatorPasswordValidation.status || undefined" @blur="operatorMarkFieldTouched('password')" />
+            :status="operatorPasswordValidation.status || undefined" @blur="operatorMarkFieldTouched('password')" maxlength="20" />
         </n-form-item>
         <n-form-item :validation-status="operatorConfirmValidation.status || undefined"
           :feedback="operatorConfirmValidation.message">
@@ -1292,7 +1297,7 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
           </template>
           <n-input v-model:value="operatorForm.confirmPassword" type="password" placeholder="Re-enter password"
             :status="operatorConfirmValidation.status || undefined"
-            @blur="operatorMarkFieldTouched('confirmPassword')" />
+            @blur="operatorMarkFieldTouched('confirmPassword')" maxlength="20" />
         </n-form-item>
         <n-form-item class="signup-upload">
           <template #label>
@@ -1363,11 +1368,11 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
         </small>
       </n-form-item>
       <n-form-item label="New password" path="password">
-        <n-input v-model:value="currentForgotForm.password" type="password" :disabled="!canSubmitForgotPassword" />
+        <n-input v-model:value="currentForgotForm.password" type="password" :disabled="!canSubmitForgotPassword" maxlength="20" />
       </n-form-item>
       <n-form-item label="Confirm password" path="confirmPassword">
         <n-input v-model:value="currentForgotForm.confirmPassword" type="password"
-          :disabled="!canSubmitForgotPassword" />
+          :disabled="!canSubmitForgotPassword" maxlength="20" />
       </n-form-item>
     </n-form>
     <n-space justify="end">

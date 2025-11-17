@@ -45,8 +45,12 @@ function safeQueryAll($pdo, $sql, $default = []) {
 $days = isset($_GET['days']) ? (int)$_GET['days'] : 30;
 $days = max(1, min(365, $days));
 
-$endDate = date('Y-m-d');
-$startDate = date('Y-m-d', strtotime("-{$days} days"));
+// Use Malaysia timezone for date calculations
+$malaysiaTimezone = new DateTimeZone('Asia/Kuala_Lumpur');
+$now = new DateTimeImmutable('now', $malaysiaTimezone);
+$endDate = $now->format('Y-m-d');
+$startDateTime = $now->modify("-{$days} days");
+$startDate = $startDateTime->format('Y-m-d');
 
 try {
     // ==================== USAGE REPORTS ====================

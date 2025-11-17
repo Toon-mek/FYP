@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { NTag, NButton } from 'naive-ui'
 import { useMessage } from 'naive-ui'
 import { fetchConfirmedBookings, fetchPaymentHistory } from '../services/paymentSimulationService.js'
+import SimplePagination from './shared/SimplePagination.vue'
 
 const props = defineProps({
   travelerId: {
@@ -15,6 +16,8 @@ const message = useMessage()
 const bookings = ref([])
 const loading = ref(false)
 const expandedCards = reactive(new Set())
+const currentPage = ref(1)
+const pageSize = 3
 const HISTORY_EVENT = 'traveler-booking-history-refresh'
 
 const normalizedTravelerId = computed(() => {
@@ -34,6 +37,14 @@ const lastPaidDate = computed(() => {
     (a, b) => new Date(b.paidAt || b.updatedAt) - new Date(a.paidAt || a.updatedAt),
   )
   return formatHistoryDate(sorted[0].paidAt || sorted[0].updatedAt)
+})
+
+// Pagination
+const pageCount = computed(() => Math.ceil(bookings.value.length / pageSize))
+const paginatedBookings = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  const end = start + pageSize
+  return bookings.value.slice(start, end)
 })
 
 watch(
@@ -75,6 +86,7 @@ async function loadBookings() {
         : []
     bookings.value = mergeBookingEntries([...archivedBookings, ...sessionFallback])
     expandedCards.clear()
+    currentPage.value = 1 // Reset to first page when reloading
   } catch (error) {
     message.warning(error?.message || 'Unable to load booking history.')
   } finally {
@@ -425,7 +437,7 @@ function preferObject(primary, secondary, fallback = {}) {
     </div>
     <div v-else class="booking-history__grid">
       <article
-        v-for="booking in bookings"
+        v-for="booking in paginatedBookings"
         :key="booking.receiptNo || booking.bookingRef || booking.sessionId"
         class="booking-card"
       >
@@ -510,6 +522,15 @@ function preferObject(primary, secondary, fallback = {}) {
           </div>
         </div>
       </article>
+    </div>
+
+    <!-- Pagination -->
+    <div v-if="!loading && bookings.length > pageSize" style="margin-top: 24px; display: flex; justify-content: center;">
+      <SimplePagination 
+        v-model:page="currentPage" 
+        :page-count="pageCount"
+        :page-size="pageSize"
+      />
     </div>
   </section>
 </template>

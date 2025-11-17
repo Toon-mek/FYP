@@ -2,6 +2,15 @@
 import { computed, reactive, ref, watch, nextTick } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
+  PHONE_REGEX,
+  EXPIRY_DATE_REGEX,
+  isValidPIN,
+  isValidEmail,
+  isValidCardholderName,
+  isValidCardNumber,
+  isValidExpiryDate
+} from '../utils/validators.js'
+import {
   authorizePaymentSession,
   fetchPaymentMethods,
   retryPaymentSession,
@@ -218,6 +227,7 @@ const paymentMethodsLoaded = ref(false)
 const paymentMethodError = ref('')
 const selectedPaymentMethodCode = ref(null)
 const paymentForm = reactive({})
+const paymentFormValidation = reactive({})
 const paymentSession = ref(null)
 const paymentEvents = ref([])
 const paymentReceipt = ref(null)
@@ -270,18 +280,204 @@ const visiblePaymentMethods = computed(() => {
   const current = paymentCategoryList.value.find((category) => category.key === selectedPaymentCategory.value)
   return current?.methods ?? []
 })
+
+function validatePaymentField(fieldKey, fieldConfig, value) {
+  const trimmed = String(value || '').trim()
+
+  // Check required
+  if (fieldConfig.required && !trimmed) {
+    return { status: 'error', message: 'This field is required' }
+  }
+
+  // If empty and not required, it's valid
+  if (!trimmed) {
+    return { status: 'success', message: '' }
+  }
+
+  // FPX Account holder name validation
+  if (fieldKey === 'accountName') {
+    if (!isValidCardholderName(trimmed)) {
+      if (trimmed.length < 3) {
+        return { status: 'error', message: 'Name must be at least 3 characters' }
+      }
+      return { status: 'error', message: 'Only letters, spaces, and common punctuation allowed' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // FPX Bank User ID validation
+  if (fieldKey === 'bankUserId') {
+    if (trimmed.length < 3) {
+      return { status: 'error', message: 'User ID must be at least 3 characters' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // Cardholder name validation
+  if (fieldKey === 'cardHolder') {
+    if (!isValidCardholderName(trimmed)) {
+      if (trimmed.length < 3) {
+        return { status: 'error', message: 'Name must be at least 3 characters' }
+      }
+      return { status: 'error', message: 'Only letters, spaces, and common punctuation allowed' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // Card number validation (Visa 16-digit or AmEx 15-digit)
+  if (fieldKey === 'cardNumber') {
+    if (!isValidCardNumber(trimmed)) {
+      return { status: 'error', message: 'Enter a valid Visa, Mastercard, or American Express card number' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // Expiry date validation (MM/YY)
+  if (fieldKey === 'expiry') {
+    if (!EXPIRY_DATE_REGEX.test(trimmed)) {
+      return { status: 'error', message: 'Enter expiry as MM/YY (e.g., 12/28)' }
+    }
+
+    if (!isValidExpiryDate(trimmed)) {
+      return { status: 'error', message: 'Card has expired' }
+    }
+
+    return { status: 'success', message: '' }
+  }
+
+  // E-wallet walletId validation (phone number OR email format)
+  if (fieldKey === 'walletId') {
+    const isPhone = PHONE_REGEX.test(trimmed)
+    const isEmail = isValidEmail(trimmed)
+
+    if (!isPhone && !isEmail) {
+      return { status: 'error', message: 'Enter a valid phone number or email address' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // PIN validation (6 digits)
+  if (fieldKey === 'pin') {
+    if (!isValidPIN(trimmed)) {
+      return { status: 'error', message: 'PIN must be exactly 6 digits' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // OTP validation (6 digits)
+  if (fieldKey === 'otp' || fieldConfig.type === 'otp') {
+    if (!isValidPIN(trimmed)) {
+      return { status: 'error', message: 'OTP must be exactly 6 digits' }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // CVV/CID validation
+  if (fieldKey === 'cvv') {
+    const expectedLength = fieldConfig.length || 3
+    if (!/^\d+$/.test(trimmed) || trimmed.length !== expectedLength) {
+      return { status: 'error', message: `CVV must be ${expectedLength} digits` }
+    }
+    return { status: 'success', message: '' }
+  }
+
+  // General length validation
+  if (fieldConfig.length && trimmed.length !== fieldConfig.length) {
+    return { status: 'error', message: `Must be exactly ${fieldConfig.length} characters` }
+  }
+
+  // Default valid for other fields
+  return { status: 'success', message: '' }
+}
+
+function validatePaymentForm() {
+  const method = selectedPaymentMethod.value
+  if (!method) return
+
+  const fields = Array.isArray(method.fields) ? method.fields : []
+  fields.forEach((field) => {
+    const value = paymentForm[field.key]
+    paymentFormValidation[field.key] = validatePaymentField(field.key, field, value)
+  })
+}
+
+function handlePaymentFieldBlur(fieldKey, fieldConfig) {
+  const value = paymentForm[fieldKey]
+  paymentFormValidation[fieldKey] = validatePaymentField(fieldKey, fieldConfig, value)
+}
+
+function handlePaymentFieldInput(fieldKey, fieldConfig) {
+  const value = paymentForm[fieldKey]
+
+  // FPX Account holder name auto-uppercase
+  if (fieldKey === 'accountName') {
+    paymentForm[fieldKey] = String(value).toUpperCase()
+  }
+
+  // Cardholder name auto-uppercase
+  if (fieldKey === 'cardHolder') {
+    paymentForm[fieldKey] = String(value).toUpperCase()
+  }
+
+  // Real-time validation for certain fields
+  if (fieldKey === 'pin' || fieldKey === 'otp' || fieldKey === 'cvv') {
+    // Only allow digits
+    paymentForm[fieldKey] = String(value).replace(/\D/g, '')
+
+    // Limit length
+    if (fieldConfig.length && paymentForm[fieldKey].length > fieldConfig.length) {
+      paymentForm[fieldKey] = paymentForm[fieldKey].slice(0, fieldConfig.length)
+    }
+  }
+
+  // Card number formatting (allow digits, spaces, and dashes)
+  if (fieldKey === 'cardNumber') {
+    paymentForm[fieldKey] = String(value).replace(/[^0-9\s-]/g, '')
+  }
+
+  // Expiry formatting (auto-add slash)
+  if (fieldKey === 'expiry') {
+    let cleaned = String(value).replace(/\D/g, '')
+    if (cleaned.length >= 2) {
+      cleaned = cleaned.slice(0, 2) + '/' + cleaned.slice(2, 4)
+    }
+    paymentForm[fieldKey] = cleaned.slice(0, 5) // MM/YY = 5 chars max
+  }
+
+  // Clear error on input if previously had error
+  if (paymentFormValidation[fieldKey]?.status === 'error') {
+    paymentFormValidation[fieldKey] = { status: undefined, message: '' }
+  }
+}
+
 const methodFieldValidity = computed(() => {
   const method = selectedPaymentMethod.value
   if (!method) {
     return false
   }
   const fields = Array.isArray(method.fields) ? method.fields : []
-  return fields.every((field) => {
+
+  // Check all required fields are filled
+  const allFilled = fields.every((field) => {
     if (!field.required) {
       return true
     }
     const value = paymentForm[field.key]
     return value !== undefined && value !== null && String(value).trim() !== ''
+  })
+
+  if (!allFilled) return false
+
+  // Check all fields pass validation
+  return fields.every((field) => {
+    const validation = paymentFormValidation[field.key]
+    if (!validation) {
+      // Validate on-demand if not yet validated
+      const value = paymentForm[field.key]
+      const result = validatePaymentField(field.key, field, value)
+      return result.status === 'success'
+    }
+    return validation.status === 'success' || !validation.status
   })
 })
 const canStartPaymentSession = computed(
@@ -361,6 +557,14 @@ watch(
     }
   },
   { immediate: true },
+)
+
+watch(
+  selectedPaymentMethodCode,
+  () => {
+    // Clear validation when payment method changes
+    Object.keys(paymentFormValidation).forEach((key) => delete paymentFormValidation[key])
+  },
 )
 
 async function initialisePaymentSimulator() {
@@ -464,7 +668,14 @@ function collectFieldPayload() {
 
 async function startPaymentSimulation() {
   if (!canStartPaymentSession.value) {
-    message.warning('Fill in the required billing details to continue.')
+    // Validate and show specific errors
+    validatePaymentForm()
+    const hasErrors = Object.values(paymentFormValidation).some(v => v.status === 'error')
+    if (hasErrors) {
+      message.error('Please fix the validation errors before proceeding.')
+    } else {
+      message.warning('Fill in all required billing details to continue.')
+    }
     return
   }
   if (!travelerId.value || !packageId.value) {
@@ -977,10 +1188,10 @@ function allocateStayEntries({ stays = [], totalNights = 1, startDate = null, cu
     const stayCurrency = priceInfo.currency || currency
     const desired = Number(
       stay.metadata?.nights ??
-        stay.metadata?.duration ??
-        stay.nights ??
-        stay.duration ??
-        stay.metadata?.nightsBooked,
+      stay.metadata?.duration ??
+      stay.nights ??
+      stay.duration ??
+      stay.metadata?.nightsBooked,
     )
     const desiredNights = Number.isFinite(desired) && desired > 0 ? Math.floor(desired) : 1
     return {
@@ -1139,23 +1350,13 @@ function formatShortDate(date) {
           </div>
         </div>
         <div class="payment-dashboard__hero-actions">
-          <n-button
-            size="large"
-            round
-            type="primary"
+          <n-button size="large" round type="primary"
             class="payment-dashboard__hero-button payment-dashboard__hero-button--primary"
-            :disabled="!hasPackage || payableAmount <= 0"
-            @click="openPaymentSimulator"
-          >
+            :disabled="!hasPackage || payableAmount <= 0" @click="openPaymentSimulator">
             Go To Checkout
           </n-button>
-          <n-button
-            size="large"
-            round
-            quaternary
-            class="payment-dashboard__hero-button payment-dashboard__hero-button--ghost"
-            @click="goBackToBooking"
-          >
+          <n-button size="large" round quaternary
+            class="payment-dashboard__hero-button payment-dashboard__hero-button--ghost" @click="goBackToBooking">
             Back To Booking Dashboard
           </n-button>
         </div>
@@ -1181,14 +1382,8 @@ function formatShortDate(date) {
               </p>
               <p v-else class="booking-payment__note">Instant confirmation once payment clears.</p>
             </div>
-            <n-button
-              type="primary"
-              size="large"
-              round
-              block
-              :disabled="payableAmount <= 0"
-              @click="openPaymentSimulator"
-            >
+            <n-button type="primary" size="large" round block :disabled="payableAmount <= 0"
+              @click="openPaymentSimulator">
               Proceed To Payment
             </n-button>
           </div>
@@ -1278,14 +1473,9 @@ function formatShortDate(date) {
             <div v-if="paymentMethodsLoading" class="payment-modal__skeleton">Loading methods...</div>
             <template v-else>
               <div v-if="paymentCategoryList.length" class="payment-methods__categories">
-                <button
-                  v-for="category in paymentCategoryList"
-                  :key="category.key"
-                  type="button"
-                  class="payment-category-chip"
-                  :class="{ 'is-active': category.key === selectedPaymentCategory }"
-                  @click="selectPaymentCategory(category.key)"
-                >
+                <button v-for="category in paymentCategoryList" :key="category.key" type="button"
+                  class="payment-category-chip" :class="{ 'is-active': category.key === selectedPaymentCategory }"
+                  @click="selectPaymentCategory(category.key)">
                   <strong>{{ category.label }}</strong>
                   <span>{{ category.methods.length }} options</span>
                 </button>
@@ -1294,17 +1484,11 @@ function formatShortDate(date) {
                 <p>Please choose your payment method.</p>
               </div>
               <div v-else-if="visiblePaymentMethods.length" class="payment-methods__grid">
-                <button
-                  v-for="method in visiblePaymentMethods"
-                  :key="method.methodId"
-                  class="payment-method-card"
+                <button v-for="method in visiblePaymentMethods" :key="method.methodId" class="payment-method-card"
                   :class="{
                     'payment-method-card--active': method.code === selectedPaymentMethodCode,
                     'payment-method-card--disabled': paymentStep !== 'method',
-                  }"
-                  type="button"
-                  @click="selectPaymentMethod(method.code)"
-                >
+                  }" type="button" @click="selectPaymentMethod(method.code)">
                   <span class="payment-method-card__category">
                     {{ paymentCategoryLabel(method.category) }}
                   </span>
@@ -1324,23 +1508,23 @@ function formatShortDate(date) {
                   {{ field.label }}
                   <span v-if="field.required">*</span>
                 </label>
-                <input
-                  :id="`payment-field-${field.key}`"
-                  :type="field.type === 'password' ? 'password' : 'text'"
-                  v-model="paymentForm[field.key]"
-                  :placeholder="field.placeholder"
-                  :maxlength="field.length || null"
-                />
+                <input :id="`payment-field-${field.key}`" :type="field.type === 'password' ? 'password' : 'text'"
+                  v-model="paymentForm[field.key]" :placeholder="field.placeholder" :maxlength="field.length || null"
+                  :class="{
+                    'input-error': paymentFormValidation[field.key]?.status === 'error',
+                    'input-success': paymentFormValidation[field.key]?.status === 'success'
+                  }" @blur="handlePaymentFieldBlur(field.key, field)"
+                  @input="handlePaymentFieldInput(field.key, field)" />
+                <div v-if="paymentFormValidation[field.key]?.message" class="payment-form__feedback" :class="{
+                  'payment-form__feedback--error': paymentFormValidation[field.key]?.status === 'error',
+                  'payment-form__feedback--success': paymentFormValidation[field.key]?.status === 'success'
+                }">
+                  {{ paymentFormValidation[field.key]?.message }}
+                </div>
               </div>
               <div class="payment-modal__actions">
-                <n-button
-                  type="primary"
-                  size="large"
-                  round
-                  :disabled="!canStartPaymentSession"
-                  :loading="paymentSubmitting"
-                  @click="startPaymentSimulation"
-                >
+                <n-button type="primary" size="large" round :disabled="!canStartPaymentSession"
+                  :loading="paymentSubmitting" @click="startPaymentSimulation">
                   Initiate Payment Session
                 </n-button>
               </div>
@@ -1356,22 +1540,12 @@ function formatShortDate(date) {
               Complete FPX / card authorization or decline the attempt.
             </p>
             <div class="payment-modal__actions payment-modal__actions--split">
-              <n-button
-                type="primary"
-                size="large"
-                round
-                :loading="paymentSubmitting"
-                @click="completeAuthorization('success')"
-              >
+              <n-button type="primary" size="large" round :loading="paymentSubmitting"
+                @click="completeAuthorization('success')">
                 Approve Payment
               </n-button>
-              <n-button
-                tertiary
-                size="large"
-                round
-                :loading="paymentSubmitting"
-                @click="completeAuthorization('failed')"
-              >
+              <n-button tertiary size="large" round :loading="paymentSubmitting"
+                @click="completeAuthorization('failed')">
                 Cancel Payment
               </n-button>
             </div>
@@ -1405,13 +1579,8 @@ function formatShortDate(date) {
               </div>
             </div>
             <div class="payment-modal__actions payment-modal__actions--split">
-              <n-button
-                v-if="paymentSession?.status === 'failed'"
-                tertiary
-                round
-                size="large"
-                @click="retryAuthorization"
-              >
+              <n-button v-if="paymentSession?.status === 'failed'" tertiary round size="large"
+                @click="retryAuthorization">
                 Retry Authorization
               </n-button>
             </div>
@@ -1982,12 +2151,44 @@ function formatShortDate(date) {
   border: 1px solid rgba(15, 23, 42, 0.15);
   padding: 10px 12px;
   font-size: 0.95rem;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .payment-form__field input:focus {
   outline: none;
   border-color: rgba(16, 185, 129, 0.6);
+}
+
+.payment-form__field input.input-error {
+  border-color: #d32f2f;
+}
+
+.payment-form__field input.input-error:focus {
+  border-color: #d32f2f;
+  box-shadow: 0 0 0 3px rgba(211, 47, 47, 0.1);
+}
+
+.payment-form__field input.input-success {
+  border-color: #52c41a;
+}
+
+.payment-form__field input.input-success:focus {
+  border-color: #52c41a;
+  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.1);
+}
+
+.payment-form__feedback {
+  font-size: 0.8rem;
+  margin-top: -2px;
+  min-height: 18px;
+}
+
+.payment-form__feedback--error {
+  color: #d32f2f;
+}
+
+.payment-form__feedback--success {
+  color: #52c41a;
 }
 
 .payment-modal__actions {
@@ -2095,15 +2296,19 @@ function formatShortDate(date) {
   .payment-dashboard {
     padding: 24px;
   }
+
   .payment-dashboard__hero-card {
     padding: 24px;
   }
+
   .payment-dashboard__grid {
     grid-template-columns: 1fr;
   }
+
   .payment-methods__grid {
     grid-template-columns: 1fr;
   }
+
   .booking-payment__history li {
     flex-direction: column;
     align-items: flex-start;
@@ -2114,18 +2319,23 @@ function formatShortDate(date) {
   .payment-dashboard {
     padding: 20px 16px;
   }
+
   .payment-dashboard__hero-text h1 {
     font-size: 2rem;
   }
+
   .payment-dashboard__hero-actions {
     grid-template-columns: 1fr;
   }
+
   .payment-modal__layout {
     flex-direction: column;
   }
+
   .payment-modal__summary {
     flex: 1 1 auto;
   }
+
   .payment-modal__actions {
     flex-direction: column;
   }

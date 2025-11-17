@@ -358,6 +358,56 @@ async function fetchBusinessActivity() {
     .slice(0, ACTIVITY_FETCH_LIMIT)
 }
 
+async function fetchItineraryActivity() {
+  const response = await fetch(`${API_BASE}/admin/itinerary_activities.php?limit=${ACTIVITY_FETCH_LIMIT}`)
+  if (!response.ok) {
+    throw new Error('Unable to load itinerary activities')
+  }
+  const body = await response.json().catch(() => null)
+  
+  const activities = []
+  
+  // Process itineraries
+  const itineraries = Array.isArray(body?.itineraries) ? body.itineraries : []
+  itineraries.forEach((itinerary) => {
+    const travelerName = itinerary.travelerName || `Traveler #${itinerary.travelerID || 'N/A'}`
+    const actor = `Traveler - ${travelerName}`
+    const destination = itinerary.destination ? ` to ${itinerary.destination}` : ''
+    const description = `Created a new itinerary${destination}.`
+    const timestamp = safeDate(itinerary.createdAt) || new Date()
+    
+    activities.push({
+      id: `itinerary-${itinerary.itineraryID ?? Math.random()}`,
+      actor,
+      description,
+      timestamp,
+      category: 'Itinerary',
+      rawTimestamp: timestamp,
+    })
+  })
+  
+  // Process payments
+  const payments = Array.isArray(body?.payments) ? body.payments : []
+  payments.forEach((payment) => {
+    const travelerName = payment.travelerName || `Traveler #${payment.travelerID || 'N/A'}`
+    const actor = `Traveler - ${travelerName}`
+    const amount = `${payment.currency} ${parseFloat(payment.amount).toFixed(2)}`
+    const description = `Completed payment of ${amount} (${payment.bookingRef}).`
+    const timestamp = safeDate(payment.createdAt) || new Date()
+    
+    activities.push({
+      id: `payment-${payment.sessionID ?? Math.random()}`,
+      actor,
+      description,
+      timestamp,
+      category: 'Payment',
+      rawTimestamp: timestamp,
+    })
+  })
+  
+  return activities
+}
+
 async function loadActivityStream(options = {}) {
   const silent = Boolean(options?.silent)
   if (activityLoading.value && silent) {
@@ -368,7 +418,7 @@ async function loadActivityStream(options = {}) {
     activityError.value = ''
   }
   try {
-    const results = await Promise.allSettled([fetchCommunityActivity(), fetchBusinessActivity()])
+    const results = await Promise.allSettled([fetchCommunityActivity(), fetchBusinessActivity(), fetchItineraryActivity()])
     const aggregated = []
     const errors = []
     results.forEach((result) => {
@@ -398,12 +448,19 @@ async function loadActivityStream(options = {}) {
         try {
           const date = item.timestamp instanceof Date ? item.timestamp : new Date(item.timestamp)
           if (!Number.isNaN(date.getTime())) {
-            displayTimestamp = date.toLocaleDateString('en-MY', {
+            const dateStr = date.toLocaleDateString('en-MY', {
               timeZone: MALAYSIA_TIMEZONE,
               year: 'numeric',
               month: 'short',
               day: 'numeric',
             })
+            const timeStr = date.toLocaleTimeString('en-MY', {
+              timeZone: MALAYSIA_TIMEZONE,
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            })
+            displayTimestamp = `${dateStr}, ${timeStr}`
           }
         } catch (e) {
           displayTimestamp = item.timestamp instanceof Date

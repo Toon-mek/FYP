@@ -367,6 +367,21 @@ function handleAuthorizeSession(PDO $pdo): void
 
             try {
                 recordBookingHistory($pdo, $session, $receipt, $packageSnapshot);
+                
+                // Send notification to traveler
+                try {
+                    require_once __DIR__ . '/../helpers/notifications.php';
+                    $amount = number_format((float)$session['amount'], 2);
+                    recordNotification(
+                        $pdo,
+                        'Traveler',
+                        (int)$session['travelerID'],
+                        'Payment Successful',
+                        "Your payment of RM {$amount} has been successfully processed. Booking confirmed!"
+                    );
+                } catch (Throwable $notifError) {
+                    // Silent fail - don't block payment flow
+                }
             } catch (Throwable $historyError) {
                 recordSessionEvent($pdo, $sessionId, 'booking_history_failed', [
                     'reason' => $historyError->getMessage(),
@@ -1022,7 +1037,7 @@ function getMethodPresentation(string $code): array
             'feeLabel' => 'RM 0.00 reload fee',
             'accentColor' => '#0ea5e9',
             'fields' => [
-                ['key' => 'walletId', 'label' => 'Wallet ID / Mobile', 'placeholder' => 'e.g. +6012 345 6789', 'required' => true],
+                ['key' => 'walletId', 'label' => 'Mobile', 'placeholder' => 'e.g. +6012 345 6789', 'required' => true],
                 ['key' => 'pin', 'label' => '6-digit PIN', 'placeholder' => 'Simulation PIN', 'length' => 6, 'type' => 'password', 'required' => true],
             ],
         ],
@@ -1032,7 +1047,7 @@ function getMethodPresentation(string $code): array
             'feeLabel' => 'RM 0.00',
             'accentColor' => '#ef4444',
             'fields' => [
-                ['key' => 'walletId', 'label' => 'Boost ID / Mobile', 'placeholder' => 'e.g. +6017 888 1111', 'required' => true],
+                ['key' => 'walletId', 'label' => 'Mobile', 'placeholder' => 'e.g. +6017 888 1111', 'required' => true],
                 ['key' => 'pin', 'label' => 'Boost PIN', 'placeholder' => '6 digits', 'length' => 6, 'type' => 'password', 'required' => true],
             ],
         ],
@@ -1042,7 +1057,7 @@ function getMethodPresentation(string $code): array
             'feeLabel' => 'RM 0.00 reload fee',
             'accentColor' => '#22c55e',
             'fields' => [
-                ['key' => 'walletId', 'label' => 'Grab account (mobile/email)', 'placeholder' => 'e.g. +6013 888 9999', 'required' => true],
+                ['key' => 'walletId', 'label' => 'Grab account (mobile)', 'placeholder' => 'e.g. +6013 888 9999', 'required' => true],
                 ['key' => 'otp', 'label' => 'GrabPay OTP', 'placeholder' => '6 digits', 'length' => 6, 'type' => 'otp', 'required' => true],
             ],
         ],

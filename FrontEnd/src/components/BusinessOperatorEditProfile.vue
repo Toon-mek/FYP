@@ -692,6 +692,7 @@ function handleSubmit() {
             :disabled="!canEditPassword"
             :status="passwordValidation.status || undefined"
             @blur="markFieldTouched('newPassword')"
+            maxlength="20"
           />
         </n-form-item>
 
@@ -707,6 +708,7 @@ function handleSubmit() {
             :disabled="!canEditPassword"
             :status="confirmPasswordValidation.status || undefined"
             @blur="markFieldTouched('confirmPassword')"
+            maxlength="20"
           />
         </n-form-item>
       </n-form>

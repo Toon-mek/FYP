@@ -64,15 +64,16 @@ function handleGet(PDO $pdo): void
     if (isRemovedFilter($statusFilter)) {
         $listings = loadRemovedListings($pdo, $categoryFilter, $searchTerm);
         $summary = buildSummary($listings);
+        
+        // Fetch all available categories from the database
+        $allCategoriesStmt = $pdo->query("SELECT DISTINCT categoryName FROM ListingCategory ORDER BY categoryName");
+        $allCategories = $allCategoriesStmt->fetchAll(PDO::FETCH_COLUMN);
 
         echo json_encode([
             'listings' => $listings,
             'summary' => $summary,
             'filters' => [
-                'categories' => array_values(array_unique(array_filter(array_map(
-                    static fn(array $item): ?string => $item['category'] ?? null,
-                    $listings
-                )))),
+                'categories' => $allCategories,
             ],
         ]);
         return;
@@ -179,14 +180,16 @@ SQL;
     }
 
     $summary = buildSummary($listings);
+    
+    // Fetch all available categories from the database (not just filtered results)
+    $allCategoriesStmt = $pdo->query("SELECT DISTINCT categoryName FROM ListingCategory ORDER BY categoryName");
+    $allCategories = $allCategoriesStmt->fetchAll(PDO::FETCH_COLUMN);
+    
     echo json_encode([
         'listings' => $listings,
         'summary' => $summary,
         'filters' => [
-            'categories' => array_values(array_unique(array_filter(array_map(
-                static fn(array $item): ?string => $item['category'] ?? null,
-                $listings
-            )))),
+            'categories' => $allCategories,
         ],
     ]);
 }
@@ -463,7 +466,8 @@ function formatDateString(?string $value): ?string
     }
 
     try {
-        $dt = new DateTimeImmutable($value);
+        $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+        $dt = new DateTimeImmutable($value, $tz);
         return $dt->format('Y-m-d H:i');
     } catch (Throwable) {
         return null;
@@ -477,7 +481,8 @@ function formatDateTime(?string $value): ?string
     }
 
     try {
-        $dt = new DateTimeImmutable($value);
+        $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+        $dt = new DateTimeImmutable($value, $tz);
         return $dt->format(DateTimeInterface::ATOM);
     } catch (Throwable) {
         return null;
@@ -489,7 +494,8 @@ function formatListingRow(array $row): array
     $submittedTimestamp = null;
     if (!empty($row['submittedDate'])) {
         try {
-            $submittedTimestamp = (new DateTimeImmutable($row['submittedDate']))->getTimestamp();
+            $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+            $submittedTimestamp = (new DateTimeImmutable($row['submittedDate'], $tz))->getTimestamp();
         } catch (Throwable) {
             $submittedTimestamp = null;
         }
@@ -498,7 +504,8 @@ function formatListingRow(array $row): array
     $verifiedTimestamp = null;
     if (!empty($row['verifiedDate'])) {
         try {
-            $verifiedTimestamp = (new DateTimeImmutable($row['verifiedDate']))->getTimestamp();
+            $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+            $verifiedTimestamp = (new DateTimeImmutable($row['verifiedDate'], $tz))->getTimestamp();
         } catch (Throwable) {
             $verifiedTimestamp = null;
         }
@@ -585,7 +592,8 @@ function formatDateTimeLabel(?string $value): ?string
     }
 
     try {
-        $dt = new DateTimeImmutable($value);
+        $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+        $dt = new DateTimeImmutable($value, $tz);
         return $dt->format('Y-m-d H:i');
     } catch (Throwable) {
         return null;
@@ -656,7 +664,8 @@ function loadListing(PDO $pdo, int $listingId): ?array
     $submittedTimestamp = null;
     if (!empty($row['submittedDate'])) {
         try {
-            $submittedTimestamp = (new DateTimeImmutable($row['submittedDate']))->getTimestamp();
+            $tz = new DateTimeZone('Asia/Kuala_Lumpur');
+            $submittedTimestamp = (new DateTimeImmutable($row['submittedDate'], $tz))->getTimestamp();
         } catch (Throwable) {
             $submittedTimestamp = null;
         }

@@ -622,6 +622,7 @@ function handleSubmit() {
               type="password"
               placeholder="Enter your current password"
               :disabled="passwordState.method === 'last-digit'"
+              maxlength="20"
             />
             <n-space justify="space-between" class="password-actions" style="width: 100%;">
               <n-button
@@ -689,6 +690,7 @@ function handleSubmit() {
             :disabled="!canEditPassword"
             :status="passwordValidation.status || undefined"
             @blur="markFieldTouched('newPassword')"
+            maxlength="20"
           />
         </n-form-item>
 
@@ -704,6 +706,7 @@ function handleSubmit() {
             :disabled="!canEditPassword"
             :status="confirmPasswordValidation.status || undefined"
             @blur="markFieldTouched('confirmPassword')"
+            maxlength="20"
           />
         </n-form-item>
       </n-form>
