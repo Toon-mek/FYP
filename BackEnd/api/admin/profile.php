@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/password_hint.php';
 require_once __DIR__ . '/../helpers/profile_image.php';
+require_once __DIR__ . '/../helpers/password_reset_tokens.php';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -105,6 +106,7 @@ $newImageCreated = false;
 
 $fields = [];
 $params = [':id' => $adminId];
+$passwordResetRowId = null;
 
 if (array_key_exists('fullName', $payload)) {
     $fullName = trim((string)$payload['fullName']);
@@ -197,6 +199,21 @@ if (array_key_exists('password', $payload)) {
             echo json_encode(['error' => 'Last digit did not match our records']);
             exit;
         }
+    } elseif ($verificationMethod === 'otp') {
+        $requestToken = trim((string)($payload['passwordRequestToken'] ?? ''));
+        $resetToken = trim((string)($payload['passwordResetToken'] ?? ''));
+        if ($requestToken === '' || $resetToken === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Verify the security code sent to your email before changing the password']);
+            exit;
+        }
+        $validation = validatePasswordResetTokens($pdo, 'admin', $adminId, $requestToken, $resetToken);
+        if (!$validation) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Security code is invalid or has expired. Request a new code.']);
+            exit;
+        }
+        $passwordResetRowId = (int)$validation['id'];
     } else {
         http_response_code(400);
         echo json_encode(['error' => 'Password verification method is required']);
@@ -257,6 +274,10 @@ if ($newImageCreated && $currentProfileImage && $currentProfileImage !== $newPro
     deleteProfileImage($currentProfileImage);
 } elseif ($removeProfileImage && $currentProfileImage) {
     deleteProfileImage($currentProfileImage);
+}
+
+if ($passwordResetRowId) {
+    markPasswordResetCompleted($pdo, $passwordResetRowId);
 }
 
 $fetch = $pdo->prepare(

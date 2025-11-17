@@ -62,6 +62,7 @@ import {
   NTabs,
   NUpload,
   NTooltip,
+  NScrollbar,
 } from "naive-ui"
 
 export default create({
@@ -128,6 +129,7 @@ export default create({
     NTabs,
     NUpload,
     NTooltip,
+    NScrollbar,
   ],
 })
 

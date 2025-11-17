@@ -30,6 +30,16 @@
   "profile": {
     "edit": "Sunting profil"
   },
+  "traveler": {
+    "menu": {
+      "weather": "Ramalan cuaca",
+      "community": "Suapan komuniti",
+      "savedPosts": "Catatan disimpan",
+      "marketplace": "Pasaran",
+      "trips": "Perancang perjalanan",
+      "savedPlaces": "Tempat disimpan"
+    }
+  },
   "theme": {
     "label": "Tema",
     "light": "Mod cerah",

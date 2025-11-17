@@ -57,13 +57,19 @@ const travelerHeaderShortcuts = computed(() => [
   { key: 'trips', label: t('traveler.menu.trips', 'Trip planner') },
   { key: 'saved', label: t('traveler.menu.savedPlaces', 'Saved places') },
 ])
+function adminModulePath(key) {
+  if (!key || key === 'overview') {
+    return '/admin'
+  }
+  return `/admin?module=${encodeURIComponent(String(key))}`
+}
 const adminHeaderShortcuts = [
-  { key: 'users', label: 'User & Role' },
-  { key: 'verification', label: 'Listing Verification' },
-  { key: 'business', label: 'Business Listings' },
-  { key: 'community', label: 'Community Moderation' },
-  { key: 'notifications', label: 'Notifications' },
-  { key: 'analytics', label: 'System Reports' },
+  { key: 'users', label: 'User & Role', href: adminModulePath('users') },
+  { key: 'verification', label: 'Listing Verification', href: adminModulePath('verification') },
+  { key: 'business', label: 'Business Listings', href: adminModulePath('business') },
+  { key: 'community', label: 'Community Moderation', href: adminModulePath('community') },
+  { key: 'notifications', label: 'Notifications', href: adminModulePath('notifications') },
+  { key: 'analytics', label: 'System Reports', href: adminModulePath('analytics') },
 ]
 const headerModuleShortcuts = computed(() => {
   if (currentView.value === 'admin') return adminHeaderShortcuts
@@ -545,6 +551,8 @@ async function logout(targetType = activeAccountType.value) {
   if (currentView.value === targetType) {
     editProfileVisible.value = false
     editProfileLoading.value = false
+    await router.push('/')
+    scrollToSection('#hero')
   }
 }
 
@@ -596,7 +604,12 @@ function handleHeaderModuleShortcut(key) {
     operatorDashboardRef.value?.goToSection?.(key)
     scrollToSection('#operator-top')
   } else if (currentView.value === 'admin') {
-    adminDashboardRef.value?.jumpToModule?.(key)
+    const jumpHandler = adminDashboardRef.value?.jumpToModule
+    if (typeof jumpHandler === 'function') {
+      jumpHandler(key)
+    } else {
+      router.push(adminModulePath(key))
+    }
     scrollToSection('#admin-top')
   } else if (currentView.value === 'traveler') {
     travelerDashboardRef.value?.jumpToModule?.(key)

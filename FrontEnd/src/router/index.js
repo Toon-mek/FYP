@@ -32,7 +32,7 @@ const routes = [
     meta: { view: 'operator' }, 
   },
   {
-    path: '/admin',
+    path: '/admin/:module?',
     name: 'admin',
     component: AdminDashboard,
     meta: { view: 'admin' },

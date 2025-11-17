@@ -33,7 +33,8 @@
       {{ postsError }}
     </n-alert>
 
-    <n-spin :show="postsLoading">
+    <div class="feed-scroll-panel">
+      <n-spin :show="postsLoading">
       <div v-if="filteredPosts.length" class="feed-grid">
         <article v-for="post in filteredPosts" :key="post.id" class="post-card">
           <n-card size="small" :segmented="{ content: true, footer: 'soft' }">
@@ -44,9 +45,12 @@
                 </n-avatar>
                 <div class="post-author">
                   <strong>{{ post.authorName }}</strong>
-                  <n-text depth="3">
-                    {{ post.authorUsername ? '@' + post.authorUsername : 'Community traveler' }}
-                    <span v-if="post.location"> - {{ post.location }}</span>
+                  <n-text depth="3" class="post-author-meta">
+                    <span v-if="post.location" class="post-author-location">
+                      <i class="ri-map-pin-line" aria-hidden="true"></i>
+                      {{ post.location }}
+                    </span>
+                    <span v-else>Community traveler</span>
                   </n-text>
                 </div>
               </div>
@@ -161,7 +165,8 @@
         </article>
       </div>
       <n-empty v-else description="No posts yet. Encourage travelers to share their journeys." />
-    </n-spin>
+      </n-spin>
+    </div>
 
     <n-modal v-model:show="postModalVisible" class="post-detail-modal" preset="card" :segmented="false"
       :style="{ maxWidth: '960px' }" @after-leave="closePostDetail">
@@ -172,9 +177,12 @@
           </n-avatar>
           <div class="detail-meta">
             <strong>{{ expandedPost.authorName }}</strong>
-            <n-text depth="3">
-              {{ expandedPost.authorUsername ? '@' + expandedPost.authorUsername : 'Community traveler' }}
-              <span v-if="expandedPost.location"> - {{ expandedPost.location }}</span>
+            <n-text depth="3" class="post-author-meta">
+              <span v-if="expandedPost.location" class="post-author-location">
+                <i class="ri-map-pin-line" aria-hidden="true"></i>
+                {{ expandedPost.location }}
+              </span>
+              <span v-else>Community traveler</span>
             </n-text>
           </div>
           <div class="detail-header-actions">
@@ -2133,6 +2141,35 @@ onBeforeUnmount(() => {
   gap: 24px;
 }
 
+.feed-scroll-panel {
+  max-height: clamp(420px, 70vh, 860px);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.feed-scroll-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.feed-scroll-panel::-webkit-scrollbar-thumb {
+  background: rgba(15, 59, 39, 0.25);
+  border-radius: 999px;
+}
+
+.feed-scroll-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 768px) {
+  .feed-scroll-panel {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
 .category-bar {
   padding: 0 4px;
   width: 100%;
@@ -2200,6 +2237,14 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
+}
+
+.post-author-location {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #0f172a;
+  font-weight: 600;
 }
 
 .post-media {

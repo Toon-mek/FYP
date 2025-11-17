@@ -12,6 +12,7 @@ import {
 } from 'naive-ui'
 import { extractProfileImage } from '../utils/profileImage.js'
 import { useAccountFormValidation } from '../composables/useAccountFormValidation.js'
+import { usePasswordOtpVerification } from '../composables/usePasswordOtpVerification.js'
 
 const props = defineProps({
   modelValue: {
@@ -47,8 +48,6 @@ const form = reactive({
   contactPerson: '',
   email: '',
   phone: '',
-  currentPassword: '',
-  passwordLastDigit: '',
   newPassword: '',
   confirmPassword: '',
   profileImagePreview: '',
@@ -82,65 +81,49 @@ const {
   }
 )
 
-const passwordState = reactive({
-  verified: false,
-  verifying: false,
-  attempts: 0,
-  method: 'current-password',
-  error: '',
+const {
+  otpState,
+  targetEmail: otpTargetEmail,
+  canSendOtp,
+  canVerifyOtp,
+  secondsUntilResend,
+  sendOtp: sendPasswordOtp,
+  verifyOtp: verifyPasswordOtp,
+  resetOtpState,
+} = usePasswordOtpVerification({
+  accountType: 'operator',
+  resolveEmail: () => base.email,
 })
 
-const showFallbackPrompt = computed(
-  () => !passwordState.verified && passwordState.attempts >= 3,
-)
+const canEditPassword = computed(() => otpState.verified)
 
-const canEditPassword = computed(() => passwordState.verified)
-
-const currentPasswordFeedback = computed(() => {
-  if (formErrors.currentPassword) {
-    return formErrors.currentPassword
+const passwordOtpFeedback = computed(() => {
+  if (formErrors.passwordOtp) {
+    return formErrors.passwordOtp
   }
-  if (passwordState.error) {
-    return passwordState.error
+  if (otpState.error) {
+    return otpState.error
   }
-  if (passwordState.verified && passwordState.method === 'current-password') {
-    return 'Current password verified.'
+  if (otpState.success) {
+    return otpState.success
+  }
+  if (otpState.verified) {
+    return 'Security code verified.'
   }
   return ''
 })
 
-const currentPasswordStatus = computed(() => {
-  if (formErrors.currentPassword || passwordState.error) {
+const passwordOtpStatus = computed(() => {
+  if (formErrors.passwordOtp || otpState.error) {
     return 'error'
   }
-  if (passwordState.verified && passwordState.method === 'current-password') {
+  if (otpState.verified) {
     return 'success'
   }
   return undefined
 })
 
-const fallbackFeedback = computed(() => {
-  if (formErrors.passwordLastDigit) {
-    return formErrors.passwordLastDigit
-  }
-  if (passwordState.method === 'last-digit' && passwordState.verified) {
-    return 'Last digit accepted.'
-  }
-  if (showFallbackPrompt.value) {
-    return 'Unable to verify your current password? Enter the last digit you remember.'
-  }
-  return ''
-})
-
-const fallbackStatus = computed(() => {
-  if (formErrors.passwordLastDigit) {
-    return 'error'
-  }
-  if (passwordState.method === 'last-digit' && passwordState.verified) {
-    return 'success'
-  }
-  return undefined
-})
+const otpDestinationLabel = computed(() => otpTargetEmail.value || 'your account email')
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp'
@@ -163,7 +146,8 @@ const submissionError = reactive({ message: '' })
 function resetErrors() {
   Object.keys(formErrors).forEach((key) => delete formErrors[key])
   submissionError.message = ''
-  passwordState.error = ''
+  otpState.error = ''
+  otpState.success = ''
 }
 
 function fileToDataUrl(file) {
@@ -176,13 +160,9 @@ function fileToDataUrl(file) {
 }
 
 function resetPasswordFlow() {
-  passwordState.verified = false
-  passwordState.verifying = false
-  passwordState.attempts = 0
-  passwordState.method = 'current-password'
-  passwordState.error = ''
-  form.currentPassword = ''
-  form.passwordLastDigit = ''
+  resetOtpState()
+  form.newPassword = ''
+  form.confirmPassword = ''
 }
 
 function syncForm(profile) {
@@ -283,118 +263,18 @@ function undoRemoveProfileImage() {
   form.removeProfileImage = false
 }
 
-async function verifyCurrentPassword() {
-  if (passwordState.verifying || passwordState.method === 'last-digit') {
-    return
-  }
-  passwordState.error = ''
-  delete formErrors.currentPassword
-
-  if (!form.currentPassword || !form.currentPassword.trim()) {
-    const message = 'Enter your current password.'
-    passwordState.error = message
-    formErrors.currentPassword = message
-    return
-  }
-
-  const id = accountId.value
-  if (!id) {
-    passwordState.error = 'Unable to verify without an account identifier.'
-    return
-  }
-
-  passwordState.verifying = true
-  try {
-    const response = await fetch(`${API_BASE}/auth/verify_password.php`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accountType: 'operator',
-        accountId: id,
-        password: form.currentPassword,
-      }),
-    })
-    const result = await response.json().catch(() => null)
-    if (!response.ok || !result?.ok) {
-      throw new Error(result?.error || 'Current password did not match.')
-    }
-    passwordState.verified = true
-    passwordState.method = 'current-password'
-    passwordState.error = ''
-    passwordState.attempts = 0
-    form.passwordLastDigit = ''
-  } catch (error) {
-    passwordState.attempts += 1
-    passwordState.error =
-      error instanceof Error
-        ? error.message || 'Current password did not match.'
-        : 'Current password did not match.'
-  } finally {
-    passwordState.verifying = false
-  }
+async function handleSendPasswordOtp() {
+  delete formErrors.passwordOtp
+  await sendPasswordOtp()
 }
 
-async function verifyLastDigit() {
-  if (passwordState.verifying) {
-    return
-  }
-  passwordState.error = ''
-  delete formErrors.passwordLastDigit
-
-  const value = (form.passwordLastDigit || '').trim()
-  if (!/^\d$/.test(value)) {
-    const message = 'Enter a single digit (0-9) to continue.'
-    formErrors.passwordLastDigit = message
-    passwordState.error = message
-    return
-  }
-
-  const id = accountId.value
-  if (!id) {
-    const message = 'Unable to verify without an account identifier.'
-    formErrors.passwordLastDigit = message
-    passwordState.error = message
-    return
-  }
-
-  passwordState.verifying = true
-  try {
-    const response = await fetch(`${API_BASE}/auth/verify_password_digit.php`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accountType: 'operator',
-        accountId: id,
-        digit: value,
-      }),
-    })
-    const result = await response.json().catch(() => null)
-    if (!response.ok || !result?.ok) {
-      throw new Error(result?.error || 'Last digit did not match our records.')
-    }
-    passwordState.verified = true
-    passwordState.method = 'last-digit'
-    passwordState.error = ''
-    passwordState.attempts = 0
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message || 'Last digit did not match our records.'
-        : 'Last digit did not match our records.'
-    formErrors.passwordLastDigit = message
-    passwordState.error = message
-  } finally {
-    passwordState.verifying = false
-  }
+async function handleVerifyPasswordOtp() {
+  delete formErrors.passwordOtp
+  await verifyPasswordOtp()
 }
 
-function switchToCurrentPassword() {
-  passwordState.verified = false
-  passwordState.method = 'current-password'
-  form.passwordLastDigit = ''
-  passwordState.error = ''
-  delete formErrors.passwordLastDigit
-  delete formErrors.currentPassword
+function handleOtpInput(value) {
+  otpState.code = (value || '').replace(/\D/g, '').slice(0, 6)
 }
 
 function validate() {
@@ -418,25 +298,13 @@ function validate() {
   }
   
   if (form.newPassword || form.confirmPassword) {
-    if (!passwordState.verified) {
-      errors.currentPassword =
-        'Verify your current password before setting a new one.'
-    } else if (passwordState.method === 'current-password') {
-      if (!form.currentPassword || !form.currentPassword.trim()) {
-        errors.currentPassword = 'Current password is required.'
-      }
-    } else if (passwordState.method === 'last-digit') {
-      if (!form.passwordLastDigit || !form.passwordLastDigit.trim()) {
-        errors.passwordLastDigit =
-          'Enter the last digit of your password to continue.'
-      }
+    if (!otpState.verified) {
+      errors.passwordOtp = 'Verify the security code sent to your email before setting a new password.'
     }
-    
-    // Mark password fields as touched to show validation
+
     markFieldTouched('newPassword')
     markFieldTouched('confirmPassword')
-    
-    // Check password validation from composable
+
     if (passwordValidation.value.status === 'error') {
       errors.newPassword = passwordValidation.value.message
     }
@@ -462,12 +330,9 @@ function collectPayload() {
   }
   if (form.newPassword) {
     payload.password = form.newPassword
-    payload.passwordVerificationMethod = passwordState.method
-    if (passwordState.method === 'current-password') {
-      payload.currentPassword = form.currentPassword
-    } else if (passwordState.method === 'last-digit') {
-      payload.passwordLastDigit = form.passwordLastDigit.trim()
-    }
+    payload.passwordVerificationMethod = 'otp'
+    payload.passwordRequestToken = otpState.requestToken
+    payload.passwordResetToken = otpState.resetToken
   }
   if (form.profileImageData) {
     payload.profileImageData = form.profileImageData
@@ -613,70 +478,55 @@ function handleSubmit() {
           </div>
         </n-form-item>
 
-        <n-form-item
-          label="Current password"
-          :feedback="currentPasswordFeedback"
-          :validation-status="currentPasswordStatus"
+        <n-form-item 
+          label="Security verification" 
+          :feedback="passwordOtpFeedback" 
+          :validation-status="passwordOtpStatus"
         >
           <n-space vertical size="small" class="password-field" style="width: 100%;">
-            <n-input
-              v-model:value="form.currentPassword"
-              type="password"
-              placeholder="Enter your current password"
-              :disabled="passwordState.method === 'last-digit'"
-            />
-            <n-space justify="space-between" class="password-actions" style="width: 100%;">
+            <n-space
+              class="password-actions"
+              align="center"
+              justify="space-between"
+              style="width: 100%; flex-wrap: wrap; gap: 8px;"
+            >
+              <n-input 
+                :value="otpState.code" 
+                type="text" 
+                placeholder="Enter 6-digit code" 
+                maxlength="6"
+                :disabled="otpState.verified"
+                @update:value="handleOtpInput"
+              />
               <n-button
                 size="small"
-                type="primary"
                 tertiary
-                :loading="passwordState.verifying"
-                :disabled="passwordState.verified && passwordState.method === 'current-password'"
-                @click="verifyCurrentPassword"
+                type="primary"
+                :loading="otpState.verifying"
+                :disabled="otpState.verified || !canVerifyOtp"
+                @click="handleVerifyPasswordOtp"
               >
-                Verify current password
+                {{ otpState.verified ? 'Code verified' : 'Verify code' }}
               </n-button>
               <n-button
-                v-if="passwordState.method === 'last-digit'"
                 size="small"
                 quaternary
                 type="primary"
-                @click="switchToCurrentPassword"
+                :loading="otpState.sending"
+                :disabled="!canSendOtp"
+                @click="handleSendPasswordOtp"
               >
-                Use current password instead
+                <template v-if="secondsUntilResend > 0">
+                  Resend in {{ secondsUntilResend }}s
+                </template>
+                <template v-else>
+                  Send code
+                </template>
               </n-button>
             </n-space>
-          </n-space>
-        </n-form-item>
-
-        <n-form-item
-          v-if="showFallbackPrompt || passwordState.method === 'last-digit'"
-          label="Password recovery"
-          :feedback="fallbackFeedback"
-          :validation-status="fallbackStatus"
-        >
-          <n-space vertical size="small" class="password-field" style="width: 100%;">
-            <n-input
-              v-model:value="form.passwordLastDigit"
-              type="text"
-              placeholder="Enter the last digit of your password"
-              :maxlength="1"
-              :disabled="passwordState.method === 'last-digit' && passwordState.verified"
-            />
-            <n-space justify="space-between" class="password-actions" style="width: 100%;">
-              <n-button
-                size="small"
-                tertiary
-                type="warning"
-                :disabled="passwordState.method === 'last-digit' && passwordState.verified"
-                @click="verifyLastDigit"
-              >
-                Verify last digit
-              </n-button>
-              <span>
-                {{ passwordState.method === 'last-digit' && passwordState.verified ? 'Last digit accepted.' : 'Available after three incorrect attempts.' }}
-              </span>
-            </n-space>
+            <span class="password-otp-hint">
+              We'll send the verification code to {{ otpDestinationLabel }}.
+            </span>
           </n-space>
         </n-form-item>
 
@@ -812,6 +662,11 @@ function handleSubmit() {
 .edit-profile-form :deep(.password-actions > span) {
   flex: 1;
   text-align: right;
+}
+
+.password-otp-hint {
+  font-size: 0.85rem;
+  color: #64748b;
 }
 
 .edit-profile-form :deep(.n-form-item-feedback-wrapper .n-form-item-feedback--success) {

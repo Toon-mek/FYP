@@ -1,5 +1,5 @@
 <script setup>
-import { computed, h, reactive, ref, watch, nextTick, provide, onMounted } from 'vue'
+import { computed, h, reactive, ref, watch, nextTick, provide, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NIcon, useMessage } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
@@ -78,6 +78,20 @@ const defaultTraveler = {
   username: 'traveler01',
 }
 
+const travelModeIcons = {
+  airTakeoff: 'ri-flight-takeoff-line',
+  airLand: 'ri-flight-land-line',
+  ferryShip: 'ri-ship-line',
+  ferryAnchor: 'ri-anchor-line',
+  roadBus: 'ri-bus-2-line',
+  roadCar: 'ri-car-line',
+}
+const travelModeLabels = {
+  air: 'Wheels up',
+  ferry: 'Casting off',
+  road: 'Road trip',
+}
+
 const traveler = computed(() => {
   const incoming = props.traveler ?? {}
   const displayName = incoming.fullName || incoming.username || defaultTraveler.fullName
@@ -124,6 +138,8 @@ const renderIcon = (name) => () =>
 
 const baseUpcomingTrips = ref(Array.isArray(props.upcomingTrips) ? [...props.upcomingTrips] : [])
 const confirmedUpcomingTrips = ref([])
+const countdownTicker = ref(Date.now())
+let countdownInterval = null
 
 watch(
   () => props.upcomingTrips,
@@ -133,7 +149,34 @@ watch(
   { immediate: true },
 )
 
-const upcomingTrips = computed(() => mergeTrips(baseUpcomingTrips.value, confirmedUpcomingTrips.value))
+const upcomingTrips = computed(() =>
+  mergeTrips(baseUpcomingTrips.value, confirmedUpcomingTrips.value)
+    .map((trip) => enhanceTripWithCountdown(trip, new Date(countdownTicker.value)))
+    .sort(sortTripsChronologically),
+)
+const nextTrip = computed(() => upcomingTrips.value[0] ?? null)
+const malaysiaClockDisplay = computed(() =>
+  malaysiaClockFormatter.format(new Date(countdownTicker.value)),
+)
+
+onMounted(() => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  countdownInterval = window.setInterval(() => {
+    countdownTicker.value = Date.now()
+  }, 1000)
+})
+
+onBeforeUnmount(() => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  if (countdownInterval) {
+    window.clearInterval(countdownInterval)
+    countdownInterval = null
+  }
+})
 const communityFeedPosts = computed(() => props.communityPosts ?? [])
 const communityFeedCategories = computed(() => props.communityCategories ?? [])
 const currentTravelerId = computed(() => {
@@ -161,6 +204,25 @@ const messageTimestampFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
   timeStyle: 'short',
 })
+const malaysiaClockFormatter = new Intl.DateTimeFormat(undefined, {
+  timeZone: 'Asia/Kuala_Lumpur',
+  dateStyle: 'medium',
+  timeStyle: 'medium',
+})
+const tripShortDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+})
+const tripLongDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
+const tripWeekdayFormatter = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+})
 
 const contactDialog = reactive({
   visible: false,
@@ -173,6 +235,11 @@ const contactDialog = reactive({
 })
 
 const contactThreadRef = ref(null)
+
+const pausedTravelIconStyle = Object.freeze({
+  left: 'calc(100% - 20px)',
+  animation: 'none',
+})
 
 const avatarFallbackStyle = {
   background: 'linear-gradient(135deg, rgba(36, 198, 220, 0.18), rgba(81, 74, 157, 0.18))',
@@ -193,7 +260,6 @@ const sidebarOptions = [
   { key: 'booking-dashboard', label: 'Booking dashboard', icon: renderIcon('ri-cash-line') },
   { key: 'payment-dashboard', label: 'Payment simulations', icon: renderIcon('ri-bank-card-line') },
   { key: 'payment-history', label: 'Booking history', icon: renderIcon('ri-archive-2-line') },
-  { key: 'settings', label: 'Account settings', disabled: true, icon: renderIcon('ri-settings-4-line') },
 ]
 
 const route = useRoute()
@@ -756,6 +822,7 @@ function createTripEntryFromPackage(pkg, context = {}) {
     return null
   }
   const summary = pkg.summary ?? context.summary ?? {}
+  const summaryDates = deriveDatesFromSummary(summary)
   return {
     id:
       context?.receipt?.receiptNo ||
@@ -766,6 +833,19 @@ function createTripEntryFromPackage(pkg, context = {}) {
     title: pkg.title || summary.title || 'Upcoming journey',
     location: summary.destination || pkg.destination || 'To be announced',
     duration: summary.dateRange || summary.durationLabel || 'Flexible dates',
+    startDate:
+      summary.startDate ||
+      summaryDates.start ||
+      pkg.startDate ||
+      context?.session?.startDate ||
+      null,
+    endDate:
+      summary.endDate ||
+      summaryDates.end ||
+      pkg.endDate ||
+      context?.session?.endDate ||
+      null,
+    status: pkg.status || context.status || 'confirmed',
     focus:
       summary.curationNote ||
       summary.description ||
@@ -779,11 +859,25 @@ function createTripEntryFromBookingRecord(record) {
     return null
   }
   const summary = record.packageSummary ?? {}
+  const summaryDates = deriveDatesFromSummary(summary)
   return {
     id: record.receiptNo || record.bookingRef || `booking-${record.sessionId}`,
     title: record.packageTitle || summary.title || 'Upcoming journey',
     location: summary.destination || record.packageDestination || 'To be announced',
     duration: summary.dateRange || summary.durationLabel || 'Flexible dates',
+    startDate:
+      summary.startDate ||
+      summaryDates.start ||
+      record.packageSummary?.startDate ||
+      record.startDate ||
+      null,
+    endDate:
+      summary.endDate ||
+      summaryDates.end ||
+      record.packageSummary?.endDate ||
+      record.endDate ||
+      null,
+    status: record.status || 'confirmed',
     focus:
       summary.curationNote ||
       summary.description ||
@@ -808,11 +902,288 @@ function mergeTrips(baseList, confirmedList) {
   return list
 }
 
+function sortTripsChronologically(a, b) {
+  if (!a && !b) {
+    return 0
+  }
+  if (!a) {
+    return 1
+  }
+  if (!b) {
+    return -1
+  }
+  const statusOrder = {
+    'in-progress': -1,
+    upcoming: 0,
+    unscheduled: 1,
+  }
+  const aWeight = statusOrder[a.status] ?? 2
+  const bWeight = statusOrder[b.status] ?? 2
+  if (aWeight !== bWeight) {
+    return aWeight - bWeight
+  }
+  const aStart = getTripStartTimestamp(a)
+  const bStart = getTripStartTimestamp(b)
+  if (aStart !== bStart) {
+    return aStart - bStart
+  }
+  return (a.title || '').localeCompare(b.title || '')
+}
+
+function getTripStartTimestamp(trip) {
+  if (!trip?.startDate) {
+    return Number.POSITIVE_INFINITY
+  }
+  const timestamp = Date.parse(trip.startDate)
+  return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp
+}
+
 function getTripKey(trip) {
   if (!trip) {
     return ''
   }
   return trip.id || `${trip.title || 'trip'}-${trip.location || 'anywhere'}`
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function normaliseTripStatus(value) {
+  if (!value) {
+    return ''
+  }
+  return String(value).trim().toLowerCase()
+}
+
+function enhanceTripWithCountdown(trip, referenceDate = new Date()) {
+  if (!trip) return trip
+  const bounds = resolveTripBounds(trip)
+  const sourceStatus = normaliseTripStatus(trip.status)
+  const countdown = buildTripCountdownInfo(bounds, referenceDate, sourceStatus)
+  const status = determineTripStatus(bounds, referenceDate, sourceStatus)
+  const travelMode = determineTripTravelMode(trip)
+  return {
+    ...trip,
+    startDate: bounds.start ? bounds.start.toISOString() : trip.startDate ?? null,
+    endDate: bounds.end ? bounds.end.toISOString() : trip.endDate ?? null,
+    countdownLabel: countdown.label,
+    countdownValue: countdown.value,
+    countdownUnit: countdown.unit,
+    countdownTone: countdown.tone,
+    countdownState: countdown.state,
+    status: status.value,
+    statusLabel: status.label,
+    statusTone: status.tone,
+    displayDateRange: formatTripDateRange(bounds),
+    dayRangeLabel: formatTripDayRange(bounds),
+    sourceStatus: sourceStatus || null,
+    travelMode,
+  }
+}
+
+function resolveTripBounds(trip) {
+  const parsedRange = parseDateRangeLabel(trip.duration || '')
+  const start = normaliseDateInput(trip.startDate) || parsedRange.start
+  const end = normaliseDateInput(trip.endDate) || parsedRange.end
+  return { start, end }
+}
+
+function determineTripStatus(bounds, now = new Date(), providedStatus = '') {
+  const { start, end } = bounds
+  const normalized = normaliseTripStatus(providedStatus)
+  if (normalized === 'cancelled') {
+    return { value: 'cancelled', label: 'Cancelled', tone: 'error' }
+  }
+  if (normalized === 'refunded') {
+    return { value: 'refunded', label: 'Refunded', tone: 'warning' }
+  }
+  if (normalized === 'pending' || normalized === 'awaiting_authorization') {
+    return { value: 'pending', label: 'Pending payment', tone: 'warning' }
+  }
+  if (normalized === 'failed') {
+    return { value: 'failed', label: 'Payment failed', tone: 'error' }
+  }
+  if (normalized === 'processing' || normalized === 'authorizing') {
+    return { value: 'processing', label: 'Processing', tone: 'info' }
+  }
+  if (normalized === 'authorized' || normalized === 'authorised') {
+    return { value: 'authorized', label: 'Authorized', tone: 'success' }
+  }
+  if (normalized === 'confirmed') {
+    return { value: 'confirmed', label: 'Confirmed', tone: 'info' }
+  }
+  if (normalized === 'completed') {
+    return { value: 'completed', label: 'Completed', tone: 'default' }
+  }
+  // Treat confirmed / authorized bookings using timeline position
+  if (end && now > end) {
+    return { value: 'completed', label: 'Completed', tone: 'default' }
+  }
+  if (start && now >= start && (!end || now <= end)) {
+    return { value: 'in-progress', label: 'In progress', tone: 'success' }
+  }
+  if (!start && end) {
+    return now <= end
+      ? { value: 'in-progress', label: 'In progress', tone: 'success' }
+      : { value: 'completed', label: 'Completed', tone: 'default' }
+  }
+  if (start && now < start) {
+    return { value: 'upcoming', label: 'Upcoming', tone: 'info' }
+  }
+  return { value: 'unscheduled', label: 'Awaiting dates', tone: 'warning' }
+}
+
+function buildTripCountdownInfo(bounds, now = new Date(), providedStatus = '') {
+  const { start, end } = bounds
+  const normalized = normaliseTripStatus(providedStatus)
+  if (normalized === 'cancelled') {
+    return {
+      label: 'Booking cancelled',
+      value: null,
+      unit: '',
+      tone: 'error',
+      state: 'cancelled',
+    }
+  }
+  if (normalized === 'refunded') {
+    return {
+      label: 'Payment refunded',
+      value: null,
+      unit: '',
+      tone: 'warning',
+      state: 'refunded',
+    }
+  }
+  if (normalized === 'pending' || normalized === 'awaiting_authorization') {
+    return {
+      label: 'Awaiting payment authorization',
+      value: null,
+      unit: '',
+      tone: 'warning',
+      state: 'open',
+    }
+  }
+  if (normalized === 'failed') {
+    return {
+      label: 'Payment failed',
+      value: null,
+      unit: '',
+      tone: 'error',
+      state: 'urgent',
+    }
+  }
+
+  if (!start) {
+    if (end && now > end) {
+      return {
+        label: 'Trip completed',
+        value: null,
+        unit: '',
+        tone: 'default',
+        state: 'done',
+      }
+    }
+    return {
+      label: 'Awaiting schedule',
+      value: null,
+      unit: '',
+      tone: 'warning',
+      state: 'open',
+    }
+  }
+  if (now < start) {
+    const diffMs = start - now
+    const diffDays = Math.floor(diffMs / DAY_MS)
+    if (diffDays > 1) {
+      return {
+        label: `Starts in ${diffDays} days`,
+        value: diffDays,
+        unit: diffDays === 1 ? 'day' : 'days',
+        tone: diffDays <= 7 ? 'warning' : 'info',
+        state: diffDays <= 3 ? 'soon' : 'calm',
+      }
+    }
+    if (diffDays === 1) {
+      return {
+        label: 'Starts tomorrow',
+        value: 1,
+        unit: 'day',
+        tone: 'warning',
+        state: 'soon',
+      }
+    }
+    const diffHours = Math.max(1, Math.round(diffMs / (60 * 60 * 1000)))
+    return {
+      label: diffHours <= 1 ? 'Starts within the hour' : `Starts in ${diffHours} hours`,
+      value: diffHours,
+      unit: diffHours === 1 ? 'hour' : 'hours',
+      tone: 'error',
+      state: 'urgent',
+    }
+  }
+  if (end && now <= end) {
+    return {
+      label: 'Trip in progress',
+      value: null,
+      unit: '',
+      tone: 'success',
+      state: 'live',
+    }
+  }
+  if (!end) {
+    return {
+      label: 'Trip in progress',
+      value: null,
+      unit: '',
+      tone: 'success',
+      state: 'live',
+    }
+  }
+  return {
+    label: 'Trip completed',
+    value: null,
+    unit: '',
+    tone: 'default',
+    state: 'done',
+  }
+}
+
+function normaliseDateInput(value) {
+  if (!value) return null
+  if (value instanceof Date) {
+    const copy = new Date(value.getTime())
+    copy.setHours(0, 0, 0, 0)
+    return copy
+  }
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+    date.setHours(0, 0, 0, 0)
+    return date
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const parsed = new Date(trimmed)
+    if (Number.isNaN(parsed.getTime())) return null
+    parsed.setHours(0, 0, 0, 0)
+    return parsed
+  }
+  return null
+}
+
+function parseDateRangeLabel(value) {
+  if (!value || typeof value !== 'string') {
+    return { start: null, end: null }
+  }
+  const normalised = value.replace('–', '-')
+  if (!normalised.includes('-')) {
+    return { start: null, end: null }
+  }
+  const [startPart, endPart] = normalised.split('-').map((part) => part.trim())
+  return {
+    start: normaliseDateInput(startPart),
+    end: normaliseDateInput(endPart),
+  }
 }
 
 function formatTimelineDate(value) {
@@ -824,6 +1195,147 @@ function formatTimelineDate(value) {
   } catch (error) {
     return value
   }
+}
+
+function deriveDatesFromSummary(summary) {
+  if (!summary || typeof summary !== 'object') {
+    return { start: null, end: null }
+  }
+  const durationLabel = typeof summary.durationLabel === 'string' ? summary.durationLabel : ''
+  const dateRangeLabel = typeof summary.dateRange === 'string' ? summary.dateRange : ''
+  const isoMatches =
+    durationLabel.match(/\d{4}-\d{2}-\d{2}/g) || dateRangeLabel.match(/\d{4}-\d{2}-\d{2}/g) || []
+  if (isoMatches.length) {
+    return {
+      start: isoMatches[0] || null,
+      end: isoMatches[1] || isoMatches[0] || null,
+    }
+  }
+  return {
+    start: summary.startDate || summary.start || null,
+    end: summary.endDate || summary.end || null,
+  }
+}
+
+function determineTripTravelMode(trip) {
+  const label = String(trip?.location || trip?.title || '').toLowerCase()
+  if (!label) {
+    return 'road'
+  }
+  const ferryDestinations = [
+    'tioman',
+    'redang',
+    'perhentian',
+    'pangkor',
+    'kapas',
+    'tenggol',
+    'lang tengah',
+    'sibu island',
+    'raut',
+    'pulau',
+  ]
+  const airDestinations = [
+    'langkawi',
+    'sabah',
+    'sarawak',
+    'borneo',
+    'penang',
+    'kota kinabalu',
+    'sandakan',
+    'tawau',
+    'miri',
+    'kuching',
+    'labuan',
+  ]
+  if (ferryDestinations.some((keyword) => label.includes(keyword))) {
+    return 'ferry'
+  }
+  if (airDestinations.some((keyword) => label.includes(keyword))) {
+    return 'air'
+  }
+  return 'road'
+}
+
+const travelIconVariantRandomiser = (() => {
+  const registry = {
+    road: { toggle: false, cache: new Map(), variants: ['roadCar', 'roadBus'] },
+    ferry: { toggle: false, cache: new Map(), variants: ['ferryShip', 'ferryAnchor'] },
+  }
+  return (mode, tripKey) => {
+    const entry = registry[mode]
+    if (!entry) {
+      return null
+    }
+    const key = tripKey || ''
+    if (entry.cache.has(key)) {
+      return entry.cache.get(key)
+    }
+    entry.toggle = !entry.toggle
+    const variant = entry.variants[entry.toggle ? 0 : 1]
+    entry.cache.set(key, variant)
+    return variant
+  }
+})()
+
+const travelVariantClassMap = {
+  roadCar: 'journey-travel-icon--roadcar',
+  roadBus: 'journey-travel-icon--road',
+  airTakeoff: 'journey-travel-icon--air',
+  airLand: 'journey-travel-icon--airland',
+  ferryShip: 'journey-travel-icon--ferry',
+  ferryAnchor: 'journey-travel-icon--ferryalt',
+}
+
+function getTravelModeIconData(mode, tripKey) {
+  const variant = travelIconVariantRandomiser(mode, tripKey)
+  if (variant) {
+    return {
+      icon: travelModeIcons[variant] ?? travelModeIcons.roadBus,
+      class: travelVariantClassMap[variant] ?? 'journey-travel-icon--road',
+    }
+  }
+  const fallbackKey =
+    mode === 'air' ? 'airTakeoff' : mode === 'ferry' ? 'ferryShip' : mode === 'road' ? 'roadBus' : 'roadBus'
+  return {
+    icon: travelModeIcons[fallbackKey],
+    class: travelVariantClassMap[fallbackKey] ?? 'journey-travel-icon--road',
+  }
+}
+
+function getTravelModeLabel(mode) {
+  return travelModeLabels[mode] ?? travelModeLabels.road
+}
+
+function formatTripDateRange(bounds) {
+  const { start, end } = bounds
+  if (start && end) {
+    const sameYear = start.getFullYear() === end.getFullYear()
+    const formatter = sameYear ? tripShortDateFormatter : tripLongDateFormatter
+    const startLabel = formatter.format(start)
+    const endLabel = tripLongDateFormatter.format(end)
+    return `${startLabel} → ${endLabel}`
+  }
+  if (start) {
+    return `From ${tripLongDateFormatter.format(start)}`
+  }
+  if (end) {
+    return `Until ${tripLongDateFormatter.format(end)}`
+  }
+  return ''
+}
+
+function formatTripDayRange(bounds) {
+  const { start, end } = bounds
+  if (start && end) {
+    return `${tripWeekdayFormatter.format(start)} → ${tripWeekdayFormatter.format(end)}`
+  }
+  if (start) {
+    return tripWeekdayFormatter.format(start)
+  }
+  if (end) {
+    return tripWeekdayFormatter.format(end)
+  }
+  return ''
 }
 
 const hasTrips = computed(() => upcomingTrips.value.length > 0)
@@ -887,31 +1399,20 @@ defineExpose({
 
     <n-layout>
       <n-layout-header bordered style="padding: 20px 32px; background: transparent;">
-        <n-space justify="space-between" align="center" wrap>
-          <n-space align="center" size="large">
-            <n-avatar round size="large" :src="traveler.avatarUrl || undefined"
-              :style="traveler.avatarUrl ? undefined : avatarFallbackStyle">
-              <template v-if="!traveler.avatarUrl">{{ traveler.initials }}</template>
-            </n-avatar>
+          <n-space justify="space-between" align="center" wrap>
+            <n-space align="center" size="large">
+              <n-avatar round size="large" :src="traveler.avatarUrl || undefined"
+                :style="traveler.avatarUrl ? undefined : avatarFallbackStyle">
+                <template v-if="!traveler.avatarUrl">{{ traveler.initials }}</template>
+              </n-avatar>
             <div>
               <n-text depth="3">Hello, traveler</n-text>
               <div style="font-size: 1.35rem; font-weight: 600;">
                 {{ traveler.displayName }}
               </div>
-            </div>
-          </n-space>
-          <n-space>
-            <n-input round clearable placeholder="Search eco stays, guides, or itineraries" style="min-width: 280px;">
-              <template #suffix>
-                <n-icon size="18">
-                  <i class="ri-search-2-line" />
-                </n-icon>
-              </template>
-            </n-input>
-            <n-button type="primary" round @click="openTripPlanner">
-              Start new plan
-            </n-button>
-          </n-space>
+              </div>
+            </n-space>
+          <div class="header-clock" aria-live="polite">{{ malaysiaClockDisplay }}</div>
         </n-space>
       </n-layout-header>
 
@@ -927,7 +1428,7 @@ defineExpose({
             :current-user="traveler"
             @contact="handleCommunityContact" />
         </div>
-        <div v-else-if="selectedMenu === 'saved-posts'" class="community-panel">
+        <div v-else-if="selectedMenu === 'saved-posts'" class="community-panel scroll-panel">
           <TravelerSavedPosts
             :key="`saved-posts-${moduleRefreshKeys['saved-posts']}`"
             :categories="communityFeedCategories"
@@ -948,7 +1449,7 @@ defineExpose({
             title="Traveler notifications"
             description="Admins and operators share updates with you here." />
         </div>
-        <div v-else-if="selectedMenu === 'marketplace'" class="marketplace-panel">
+        <div v-else-if="selectedMenu === 'marketplace'" class="marketplace-panel scroll-panel">
           <TravelerMarketplace
             :key="`marketplace-${moduleRefreshKeys.marketplace}`"
             ref="marketplaceRef"
@@ -992,51 +1493,85 @@ defineExpose({
             :traveler-id="currentTravelerId"
           />
         </div>
-        <div v-else class="dashboard-main" :key="`dashboard-${moduleRefreshKeys.dashboard}`">
+        <div v-else class="dashboard-main scroll-panel" :key="`dashboard-${moduleRefreshKeys.dashboard}`">
           <n-space vertical size="large">
-            <n-card :segmented="{ content: true }" :style="{
-              background: 'linear-gradient(135deg, rgba(66, 184, 131, 0.12), rgba(108, 99, 255, 0.12))',
-              border: '1px solid rgba(66, 184, 131, 0.24)',
-            }">
-              <n-grid cols="1 m:2" :x-gap="18" :y-gap="18" align="center">
-                <n-grid-item>
-                  <n-space vertical size="small">
-                    <n-tag type="success" size="small" bordered>Traveler spotlight</n-tag>
-                    <div style="font-size: 1.8rem; font-weight: 700;">
-                      Craft your own journey
-                    </div>
-                    <n-text depth="3">
-                      Plan flexible itineraries, track your eco impact, and stay in touch with responsible guides.
-                    </n-text>
-                    <n-space justify="center">
-                      <n-button type="primary" round>
-                        Continue last itinerary
-                      </n-button>
-                      <n-button tertiary type="primary" round>
-                        Explore eco pledges
-                      </n-button>
-                    </n-space>
-                  </n-space>
-                </n-grid-item>
-              </n-grid>
-            </n-card>
-
             <n-grid cols="1 m:3" :x-gap="16" :y-gap="16">
               <n-grid-item span="1 m:2">
                 <n-card title="Upcoming journeys" :segmented="{ content: true }">
+                  <template #header-extra>
+                    <n-tag v-if="hasTrips" round size="small" type="success">
+                      {{ upcomingTrips.length }} {{ upcomingTrips.length === 1 ? 'journey' : 'journeys' }}
+                    </n-tag>
+                  </template>
                   <template v-if="hasTrips">
-                    <n-timeline size="large">
-                      <n-timeline-item v-for="trip in upcomingTrips" :key="trip.id ?? trip.title" :title="trip.title"
-                        :time="`${trip.location} Ã‚Â· ${trip.duration}`">
-                        <n-text depth="3">{{ trip.focus }}</n-text>
-                        <template #footer>
-                          <n-button text type="primary">Open trip board</n-button>
-                        </template>
-                      </n-timeline-item>
-                    </n-timeline>
+                    <div class="journey-list" aria-live="polite">
+                      <article
+                        v-for="trip in upcomingTrips"
+                        :key="trip.id ?? trip.title"
+                        class="journey-card"
+                        :class="[
+                          `journey-card--${trip.status}`,
+                          trip.countdownState ? `journey-card--${trip.countdownState}` : null,
+                        ]"
+                      >
+                        <div class="journey-card__header">
+                          <div>
+                            <div class="journey-card__eyebrow">{{ trip.location }}</div>
+                            <div class="journey-card__title">{{ trip.title }}</div>
+                          </div>
+                          <n-tag round size="small" :type="trip.statusTone">
+                            {{ trip.statusLabel }}
+                          </n-tag>
+                        </div>
+                        <div class="journey-card__dates-row">
+                          <div class="journey-card__dates">
+                            <i class="ri-calendar-line" aria-hidden="true"></i>
+                            <span>{{ trip.displayDateRange || trip.duration }}</span>
+                          </div>
+                          <div class="journey-card__countdown" v-if="trip.countdownValue !== null">
+                            <div class="journey-countdown-chip">
+                              <span class="journey-countdown-chip__value">{{ trip.countdownValue }}</span>
+                              <span class="journey-countdown-chip__unit">{{ trip.countdownUnit }}</span>
+                            </div>
+                            <span class="journey-countdown-chip__label">{{ trip.countdownLabel }}</span>
+                          </div>
+                          <div class="journey-card__countdown journey-card__countdown--text" v-else>
+                            {{ trip.countdownLabel }}
+                          </div>
+                        </div>
+                        <div class="journey-card__travel">
+                          <div
+                            class="journey-travel-track"
+                            :class="`journey-travel-track--${trip.travelMode}`"
+                          >
+                            <span class="journey-travel-track__dot journey-travel-track__dot--origin"></span>
+                            <span class="journey-travel-track__line"></span>
+                            <span class="journey-travel-track__dot journey-travel-track__dot--dest"></span>
+                            <span
+                              class="journey-travel-icon"
+                              :class="[
+                                getTravelModeIconData(trip.travelMode, getTripKey(trip)).class,
+                                { 'journey-travel-icon--paused': trip.status === 'in-progress' },
+                              ]"
+                              :style="trip.status === 'in-progress' ? pausedTravelIconStyle : undefined">
+                              <i :class="getTravelModeIconData(trip.travelMode, getTripKey(trip)).icon" aria-hidden="true"></i>
+                            </span>
+                          </div>
+                          <div class="journey-travel-track__labels">
+                            <span>{{ getTravelModeLabel(trip.travelMode) }}</span>
+                            <span>{{ trip.location }}</span>
+                          </div>
+                        </div>
+                        <p class="journey-card__focus">{{ trip.focus }}</p>
+                      </article>
+                    </div>
                   </template>
                   <template v-else>
-                    <n-empty description="No upcoming trips scheduled." />
+                    <n-empty description="No upcoming trips scheduled.">
+                      <n-button type="primary" size="small" @click="openTripPlanner">
+                        Plan your next escape
+                      </n-button>
+                    </n-empty>
                   </template>
                 </n-card>
               </n-grid-item>
@@ -1154,6 +1689,35 @@ defineExpose({
   max-width: none;
 }
 
+.scroll-panel {
+  max-height: clamp(420px, 70vh, 860px);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.scroll-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scroll-panel::-webkit-scrollbar-thumb {
+  background: rgba(15, 59, 39, 0.25);
+  border-radius: 999px;
+}
+
+.scroll-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (max-width: 768px) {
+  .scroll-panel {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
 .trip-planner-panel {
   width: 100%;
 }
@@ -1233,5 +1797,435 @@ defineExpose({
   font-size: 0.9rem;
   color: rgba(15, 23, 42, 0.45);
   padding: 16px 0;
+}
+
+.journey-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
+.header-clock {
+  padding: 10px 20px;
+  border-radius: 18px;
+  background: radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.16), rgba(16, 185, 129, 0.1));
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  font-weight: 600;
+  font-size: 1.05rem;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.journey-card {
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 18px;
+  padding: 20px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.05);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.journey-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.08);
+}
+
+.journey-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.journey-card__eyebrow {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(15, 23, 42, 0.5);
+  margin-bottom: 4px;
+}
+
+.journey-card__title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.journey-card__dates-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.journey-card__dates {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: rgba(15, 23, 42, 0.78);
+  font-weight: 500;
+}
+
+.journey-card__dates i {
+  color: rgba(15, 23, 42, 0.3);
+  font-size: 1.1rem;
+}
+
+.journey-card__countdown {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.journey-card__countdown--text {
+  font-size: 0.95rem;
+  color: rgba(15, 23, 42, 0.65);
+}
+
+.journey-card__travel {
+  margin-top: 14px;
+}
+
+.journey-travel-track {
+  position: relative;
+  height: 34px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(14, 165, 233, 0.12), rgba(59, 130, 246, 0.08));
+  overflow: hidden;
+}
+
+.journey-travel-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 165, 233, 0.18);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.journey-travel-track__line {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(15, 23, 42, 0.15);
+  border-radius: 999px;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.journey-travel-track__dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15);
+  z-index: 2;
+}
+
+.journey-travel-track__dot--origin {
+  left: 20px;
+}
+
+.journey-travel-track__dot--dest {
+  right: 20px;
+  background: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+}
+
+.journey-travel-icon {
+  position: absolute;
+  top: 50%;
+  left: 20px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transform: translate(-50%, -50%);
+  animation: none;
+  z-index: 3;
+}
+
+.journey-travel-icon--air {
+  color: #2563eb;
+  animation: journey-travel-air 7s ease-in-out infinite;
+}
+.journey-travel-icon--airland {
+  color: #38bdf8;
+  animation: journey-travel-air 7s ease-in-out infinite;
+}
+
+.journey-travel-icon--ferry {
+  color: #0ea5e9;
+  animation: journey-travel-ferry 8s ease-in-out infinite;
+}
+.journey-travel-icon--ferryalt {
+  color: #0891b2;
+  animation: journey-travel-ferry 8s ease-in-out infinite;
+}
+
+.journey-travel-icon--road {
+  color: #10b981;
+  animation: journey-travel-road 6s ease-in-out infinite;
+}
+.journey-travel-icon--roadcar {
+  color: #f97316;
+  animation: journey-travel-road 6s ease-in-out infinite;
+}
+
+.journey-travel-track__labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  margin-top: 6px;
+  color: rgba(15, 23, 42, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.journey-travel-track__labels span:last-child {
+  color: rgba(37, 99, 235, 0.9);
+}
+
+.journey-travel-track--road .journey-travel-track__line {
+  background: rgba(16, 185, 129, 0.55);
+}
+
+.journey-travel-track--ferry .journey-travel-track__line {
+  background: rgba(14, 165, 233, 0.6);
+}
+
+.journey-travel-track--air .journey-travel-track__line {
+  background: rgba(79, 70, 229, 0.55);
+}
+
+@keyframes journey-travel-road {
+  0% {
+    left: 20px;
+  }
+  50% {
+    left: calc(100% - 20px);
+  }
+  100% {
+    left: 20px;
+  }
+}
+
+@keyframes journey-travel-ferry {
+  0% {
+    left: 20px;
+    margin-top: 0;
+  }
+  25% {
+    margin-top: -4px;
+  }
+  50% {
+    left: calc(100% - 20px);
+    margin-top: 4px;
+  }
+  75% {
+    margin-top: -2px;
+  }
+  100% {
+    left: 20px;
+    margin-top: 0;
+  }
+}
+
+@keyframes journey-travel-air {
+  0% {
+    left: 20px;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  25% {
+    top: 37%;
+    transform: translate(-50%, -50%) rotate(12deg);
+  }
+  50% {
+    left: calc(100% - 20px);
+    top: 62%;
+    transform: translate(-50%, -50%) rotate(-10deg);
+  }
+  75% {
+    top: 45%;
+    transform: translate(-50%, -50%) rotate(14deg);
+  }
+  100% {
+    left: 20px;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+}
+
+.journey-travel-icon--paused {
+  animation: none !important;
+  animation-play-state: paused;
+}
+
+@keyframes journey-track-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes journey-line-scroll {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 120px 0;
+  }
+}
+
+.journey-countdown-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.journey-countdown-chip__value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.journey-countdown-chip__unit {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.journey-countdown-chip__label {
+  font-size: 0.9rem;
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.journey-card__focus {
+  margin: 12px 0 0;
+  color: rgba(15, 23, 42, 0.75);
+  line-height: 1.4;
+}
+
+.journey-card--in-progress {
+  border-color: rgba(16, 185, 129, 0.45);
+  box-shadow: 0 12px 32px rgba(5, 150, 105, 0.1);
+}
+
+.journey-card--unscheduled,
+.journey-card--open {
+  border-style: dashed;
+}
+
+.journey-card--live {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(59, 130, 246, 0.05));
+}
+
+.journey-card--soon {
+  border-color: rgba(251, 191, 36, 0.55);
+}
+
+.journey-card--urgent {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(251, 191, 36, 0.05));
+}
+
+.journey-card--calm {
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+.journey-card--done {
+  opacity: 0.75;
+}
+
+.journey-card--confirmed {
+  border-color: rgba(37, 99, 235, 0.35);
+}
+
+.journey-card--authorized {
+  border-color: rgba(16, 185, 129, 0.55);
+}
+
+.journey-card--cancelled {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05), rgba(15, 23, 42, 0.02));
+}
+
+.journey-card--refunded {
+  border-color: rgba(234, 179, 8, 0.45);
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.08), rgba(15, 23, 42, 0.02));
+}
+
+.journey-card--pending,
+.journey-card--processing {
+  border-style: dashed;
+}
+
+.journey-card--failed {
+  border-color: rgba(220, 38, 38, 0.45);
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.08), rgba(239, 68, 68, 0.03));
+}
+
+@media (max-width: 1400px) {
+  .journey-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
+  .journey-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .journey-list {
+    grid-template-columns: 1fr;
+  }
+
+  .header-clock {
+    width: 100%;
+    text-align: left;
+  }
+
+  .journey-travel-track__labels {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .journey-card__header {
+    flex-direction: column;
+  }
+
+  .journey-card__countdown {
+    justify-content: flex-start;
+    width: 100%;
+  }
 }
 </style>
