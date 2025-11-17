@@ -30,6 +30,16 @@
   "profile": {
     "edit": "Edit profile"
   },
+  "traveler": {
+    "menu": {
+      "weather": "Weather outlook",
+      "community": "Community feed",
+      "savedPosts": "Saved posts",
+      "marketplace": "Marketplace",
+      "trips": "Trip planner",
+      "savedPlaces": "Saved places"
+    }
+  },
   "theme": {
     "label": "Theme",
     "light": "Light mode",

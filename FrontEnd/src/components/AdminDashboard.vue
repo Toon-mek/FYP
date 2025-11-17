@@ -1,5 +1,6 @@
 <script setup>
-import { computed, h, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { NAlert, NAvatar, NButton, NEmpty, NForm, NFormItem, NInput, NModal, NIcon, NSpin, NSpace, NTag, NText, useMessage } from 'naive-ui'
 import AdminBusinessListing from './admin/AdminBusinessListing.vue'
 import AdminCommunityModeration from './admin/AdminCommunityModeration.vue'
@@ -85,6 +86,9 @@ const adminNotificationFeed = useNotificationFeed({
 })
 provide(notificationFeedSymbol, adminNotificationFeed)
 
+const route = useRoute()
+const router = useRouter()
+
 const sidebarCollapsed = ref(false)
 const expandedSidebarStyle = computed(() => ({
   padding: '18px 16px',
@@ -129,6 +133,9 @@ const menuOptions = [
   { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
   { key: 'analytics', label: 'System Reports', icon: renderIcon('ri-bar-chart-line') },
 ]
+
+const DEFAULT_ADMIN_MODULE = 'overview'
+const moduleKeys = new Set(menuOptions.map((option) => option.key))
 
 const moduleMeta = {
   overview: {
@@ -532,9 +539,58 @@ const approvalColumns = [
   },
 ]
 
-const activeModule = ref('overview')
+const activeModule = ref(DEFAULT_ADMIN_MODULE)
 const activeModuleMeta = computed(() => moduleMeta[activeModule.value] ?? moduleMeta.overview)
 const userModuleRef = ref(null)
+
+function normaliseModuleKey(candidate) {
+  if (Array.isArray(candidate)) {
+    return normaliseModuleKey(candidate[0])
+  }
+  if (typeof candidate !== 'string') {
+    return null
+  }
+  const trimmed = candidate.trim().toLowerCase()
+  return trimmed && moduleKeys.has(trimmed) ? trimmed : null
+}
+
+function ensureRouteModule(targetKey, replace = false) {
+  const key = moduleKeys.has(targetKey) ? targetKey : DEFAULT_ADMIN_MODULE
+  const desiredQueryValue = key !== DEFAULT_ADMIN_MODULE ? key : null
+  const currentQueryValue = normaliseModuleKey(route.query.module)
+  const queryHasModule = Object.prototype.hasOwnProperty.call(route.query, 'module')
+  const hasParamModule = typeof route.params.module !== 'undefined' && route.params.module !== null
+
+  if (desiredQueryValue) {
+    if (currentQueryValue === desiredQueryValue && !hasParamModule) {
+      return
+    }
+  } else if (!queryHasModule && !hasParamModule) {
+    return
+  }
+
+  const nextQuery = { ...route.query }
+  if (desiredQueryValue) {
+    nextQuery.module = desiredQueryValue
+  } else {
+    delete nextQuery.module
+  }
+
+  const navigate = replace ? router.replace : router.push
+  navigate({
+    name: 'admin',
+    params: {},
+    query: nextQuery,
+  }).catch(() => {})
+}
+
+function setActiveModule(key, options = {}) {
+  const resolved = normaliseModuleKey(key) ?? DEFAULT_ADMIN_MODULE
+  if (resolved !== activeModule.value) {
+    activeModule.value = resolved
+  }
+  ensureRouteModule(resolved, options.replace === true)
+}
 
 const announcementModal = ref({
   visible: false,
@@ -545,8 +601,47 @@ const announcementModal = ref({
 })
 
 function handleMenuSelect(key) {
-  activeModule.value = key
+  setActiveModule(key)
 }
+
+watch(
+  () => ({
+    queryModule: route.query.module,
+    paramModule: route.params.module,
+  }),
+  ({ queryModule, paramModule }) => {
+    const queryKey = normaliseModuleKey(queryModule)
+    if (queryKey) {
+      if (activeModule.value !== queryKey) {
+        activeModule.value = queryKey
+      }
+      if (typeof paramModule !== 'undefined' && paramModule !== null) {
+        ensureRouteModule(queryKey, true)
+      }
+      return
+    }
+
+    const paramKey = normaliseModuleKey(paramModule)
+    if (paramKey) {
+      if (activeModule.value !== paramKey) {
+        activeModule.value = paramKey
+      }
+      ensureRouteModule(paramKey, true)
+      return
+    }
+
+    if (activeModule.value !== DEFAULT_ADMIN_MODULE) {
+      activeModule.value = DEFAULT_ADMIN_MODULE
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(route.query, 'module') ||
+      typeof paramModule !== 'undefined'
+    ) {
+      ensureRouteModule(DEFAULT_ADMIN_MODULE, true)
+    }
+  },
+  { immediate: true },
+)
 
 function openAnnouncementModal() {
   announcementModal.value.visible = true

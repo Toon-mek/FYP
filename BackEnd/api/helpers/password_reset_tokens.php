@@ -67,7 +67,8 @@ function createPasswordResetRequest(
 
     $cooldownSeconds = 60;
     $cooldownStmt = $pdo->prepare(
-        "SELECT createdAt FROM password_reset_requests
+        "SELECT TIMESTAMPDIFF(SECOND, createdAt, NOW()) AS elapsedSeconds
+         FROM password_reset_requests
          WHERE accountType = :type AND accountId = :id AND completedAt IS NULL
          ORDER BY createdAt DESC LIMIT 1"
     );
@@ -76,11 +77,13 @@ function createPasswordResetRequest(
         ':id' => $accountId,
     ]);
     $recent = $cooldownStmt->fetch(PDO::FETCH_ASSOC);
-    if ($recent) {
-        $created = new DateTimeImmutable($recent['createdAt']);
-        $diff = (new DateTimeImmutable('now'))->getTimestamp() - $created->getTimestamp();
-        if ($diff < $cooldownSeconds) {
-            $remaining = $cooldownSeconds - $diff;
+    if ($recent && isset($recent['elapsedSeconds'])) {
+        $elapsed = (int)$recent['elapsedSeconds'];
+        if ($elapsed < 0) {
+            $elapsed = 0;
+        }
+        if ($elapsed < $cooldownSeconds) {
+            $remaining = $cooldownSeconds - $elapsed;
             throw new RuntimeException(sprintf('Please wait %d seconds before requesting another OTP.', $remaining));
         }
     }
@@ -132,7 +135,7 @@ function verifyPasswordResetOtp(
     ensurePasswordResetTable($pdo);
 
     $select = $pdo->prepare(
-        "SELECT id, otpHash, otpExpiresAt, otpAttempts
+        "SELECT id, otpHash, otpExpiresAt, otpAttempts, requestToken
          FROM password_reset_requests
          WHERE accountType = :type
            AND accountId = :id
@@ -149,6 +152,23 @@ function verifyPasswordResetOtp(
 
     if (!$row) {
         throw new RuntimeException('OTP session not found. Please request a new code.');
+    }
+
+    $latestStmt = $pdo->prepare(
+        "SELECT id FROM password_reset_requests
+         WHERE accountType = :type
+           AND accountId = :id
+           AND completedAt IS NULL
+         ORDER BY createdAt DESC
+         LIMIT 1"
+    );
+    $latestStmt->execute([
+        ':type' => $accountType,
+        ':id' => $accountId,
+    ]);
+    $latest = $latestStmt->fetch(PDO::FETCH_ASSOC);
+    if ($latest && (int)$latest['id'] !== (int)$row['id']) {
+        throw new RuntimeException('A newer verification code was issued. Use the latest OTP we emailed you.');
     }
 
     $now = new DateTimeImmutable('now');
