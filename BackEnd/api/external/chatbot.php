@@ -12,23 +12,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
-// Simple chatbot usage logging
-function logChatbotUsage($pdo, $travelerId = null) {
+// Enhanced chatbot logging with conversation history and metrics
+function logChatbotUsage($pdo, $travelerId = null, $intent = '', $responseTime = 0, $success = true, $errorType = null) {
     try {
-        // Create table if not exists
+        // Create enhanced ChatbotLog table
         $pdo->exec("CREATE TABLE IF NOT EXISTS ChatbotLog (
             id INT AUTO_INCREMENT PRIMARY KEY,
             travelerID INT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_timestamp (timestamp)
+            intent VARCHAR(100) NULL,
+            responseTime DECIMAL(6,3) NULL,
+            success BOOLEAN DEFAULT TRUE,
+            errorType VARCHAR(100) NULL,
+            INDEX idx_timestamp (timestamp),
+            INDEX idx_intent (intent)
         )");
         
-        // Insert log
-        $stmt = $pdo->prepare("INSERT INTO ChatbotLog (travelerID, timestamp) VALUES (?, NOW())");
-        $stmt->execute([$travelerId]);
+        // Create conversation history table
+        $pdo->exec("CREATE TABLE IF NOT EXISTS ChatbotConversation (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            sessionID VARCHAR(100) NOT NULL,
+            travelerID INT NULL,
+            role ENUM('user', 'assistant') NOT NULL,
+            message TEXT NOT NULL,
+            actions JSON NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_session (sessionID),
+            INDEX idx_traveler (travelerID)
+        )");
+        
+        // Insert usage log with metrics
+        $stmt = $pdo->prepare("INSERT INTO ChatbotLog (travelerID, timestamp, intent, responseTime, success, errorType) VALUES (?, NOW(), ?, ?, ?, ?)");
+        $stmt->execute([$travelerId, $intent, $responseTime, $success, $errorType]);
     } catch (Exception $e) {
-        // Silently fail - don't break chatbot if logging fails
         error_log('Chatbot logging failed: ' . $e->getMessage());
+    }
+}
+
+function saveConversationMessage($pdo, $sessionId, $travelerId, $role, $message, $actions = null) {
+    try {
+        $stmt = $pdo->prepare("INSERT INTO ChatbotConversation (sessionID, travelerID, role, message, actions, timestamp) VALUES (?, ?, ?, ?, ?, NOW())");
+        $actionsJson = $actions ? json_encode($actions) : null;
+        $stmt->execute([$sessionId, $travelerId, $role, $message, $actionsJson]);
+    } catch (Exception $e) {
+        error_log('Conversation save failed: ' . $e->getMessage());
     }
 }
 
@@ -52,26 +79,104 @@ try {
         throw new Exception('Message is required');
     }
     
-    // Log chatbot usage
+    // Start performance tracking
+    $startTime = microtime(true);
     $travelerId = isset($input['travelerId']) ? (int)$input['travelerId'] : null;
+    $sessionId = trim((string)($input['sessionId'] ?? ''));
+    if ($sessionId === '') {
+        $sessionId = 'session_' . uniqid();
+    }
+    
+    // Save user message to conversation history
     if ($pdo !== null) {
-        logChatbotUsage($pdo, $travelerId);
+        saveConversationMessage($pdo, $sessionId, $travelerId, 'user', $userMessage);
     }
 
     $persona = normalisePersona($input['persona'] ?? null);
+    
+    // Detect query intent for analytics
+    $intent = detectQueryIntent($userMessage, $persona['role']);
+    
     $moduleActions = determineModuleActions($userMessage, $persona['role']);
+
+    // Check for itinerary planning request FIRST (before FAQ)
+    $itineraryIntent = detectItineraryIntent($userMessage);
+    if ($itineraryIntent !== null && $persona['role'] === 'traveler') {
+        $reply = "I can help plan your trip! To create a personalized itinerary, I'll need a few details. Would you like to start the trip planner?";
+        $actions = [
+            [
+                'type' => 'module',
+                'module' => 'trips',
+                'label' => 'Open Trip Planner',
+                'description' => 'Create a detailed AI-powered itinerary',
+                'view' => 'traveler',
+            ],
+        ];
+        
+        $responseTime = microtime(true) - $startTime;
+        if ($pdo !== null) {
+            logChatbotUsage($pdo, $travelerId, 'itinerary_planning', $responseTime, true);
+            saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $reply, $actions);
+        }
+        
+        echo json_encode(['ok' => true, 'reply' => $reply, 'actions' => $actions, 'sessionId' => $sessionId]);
+        exit;
+    }
+
+    // Enhanced FAQ system - check for common questions
+    $faqReply = tryFAQReply($userMessage, $persona, $pdo, $travelerId);
+    if ($faqReply !== null) {
+        $faqReply['actions'] = $faqReply['actions'] ?? $moduleActions;
+        $responseTime = microtime(true) - $startTime;
+        
+        if ($pdo !== null) {
+            logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
+            saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $faqReply['reply'], $faqReply['actions']);
+        }
+        
+        echo json_encode(['ok' => true, 'reply' => $faqReply['reply'], 'actions' => $faqReply['actions'], 'sessionId' => $sessionId]);
+        exit;
+    }
 
     $quickReply = tryQuickReply($userMessage, $persona);
     if ($quickReply !== null) {
         $quickReply['actions'] = $quickReply['actions'] ?? $moduleActions;
-        echo json_encode(['ok' => true, 'reply' => $quickReply['reply'], 'actions' => $quickReply['actions']]);
+        $responseTime = microtime(true) - $startTime;
+        
+        if ($pdo !== null) {
+            logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
+            saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $quickReply['reply'], $quickReply['actions']);
+        }
+        
+        echo json_encode(['ok' => true, 'reply' => $quickReply['reply'], 'actions' => $quickReply['actions'], 'sessionId' => $sessionId]);
         exit;
     }
 
     $personaTip = tryOperatorTipReply($userMessage, $persona);
     if ($personaTip !== null) {
         $personaTip['actions'] = $personaTip['actions'] ?? $moduleActions;
-        echo json_encode(['ok' => true, 'reply' => $personaTip['reply'], 'actions' => $personaTip['actions']]);
+        $responseTime = microtime(true) - $startTime;
+        
+        if ($pdo !== null) {
+            logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
+            saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $personaTip['reply'], $personaTip['actions']);
+        }
+        
+        echo json_encode(['ok' => true, 'reply' => $personaTip['reply'], 'actions' => $personaTip['actions'], 'sessionId' => $sessionId]);
+        exit;
+    }
+    
+    // Check for marketplace search
+    $marketplaceSearch = tryMarketplaceSearch($userMessage, $pdo, $persona);
+    if ($marketplaceSearch !== null) {
+        $responseTime = microtime(true) - $startTime;
+        
+        if ($pdo !== null) {
+            logChatbotUsage($pdo, $travelerId, 'marketplace_search', $responseTime, true);
+            saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $marketplaceSearch['reply'], $marketplaceSearch['actions']);
+        }
+        
+        echo json_encode(['ok' => true, 'reply' => $marketplaceSearch['reply'], 'actions' => $marketplaceSearch['actions'], 'sessionId' => $sessionId]);
         exit;
     }
 
@@ -79,10 +184,12 @@ try {
     $apiKey = 'AIzaSyBX-rjihi94msB_QIHbvmYI6pKdJ0GYr2Q';
     $url = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=" . $apiKey;
 
-    // Build conversation context
+    // Build conversation context with enhanced prompting
     $historyBlock = buildHistoryBlock($input['history'] ?? []);
     $moduleGuide = buildModuleGuide($persona['role']);
     $personaContext = buildPersonaContext($persona);
+    $fewShotExamples = buildFewShotExamples($persona['role']);
+    
     $prompt = <<<PROMPT
 You are a dedicated AI assistant for Malaysia Sustainable Travel. Your only responsibility is to guide travelers to the correct in-app modules, provide general tips, and reassure them that detailed data can be viewed inside those modules.
 
@@ -91,7 +198,11 @@ Important rules:
 2. If users ask for restricted data (e.g., totals, user numbers, moderation notes), politely decline and point them to the relevant module or contact support.
 3. Encourage responsible, sustainable travel practices for Malaysia.
 4. Whenever possible, reference the specific module that can help and briefly describe what the user can do there.
-5. Keep responses under 4 concise sentences.
+5. Keep responses under 4 concise sentences unless the question requires detailed explanation.
+6. Maintain a friendly, helpful tone - use "you can", "feel free to", "I'd be happy to help".
+7. If you cannot help with a request, apologize and suggest alternatives.
+
+{$fewShotExamples}
 
 Suggest the relevant in-app module from the list below and mention that a shortcut button is available for the user when appropriate.
 
@@ -148,10 +259,24 @@ PROMPT;
     if (!$reply) {
         throw new Exception('No response from AI service');
     }
+    
+    // Track successful response
+    $responseTime = microtime(true) - $startTime;
+    if ($pdo !== null) {
+        logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
+        saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $reply, $moduleActions);
+    }
 
-    echo json_encode(['ok' => true, 'reply' => $reply, 'actions' => $moduleActions]);
+    echo json_encode(['ok' => true, 'reply' => $reply, 'actions' => $moduleActions, 'sessionId' => $sessionId]);
 
 } catch (Exception $e) {
+    // Track failed response
+    if (isset($pdo) && $pdo !== null && isset($travelerId) && isset($startTime)) {
+        $responseTime = microtime(true) - $startTime;
+        $intent = $intent ?? 'unknown';
+        logChatbotUsage($pdo, $travelerId, $intent, $responseTime, false, get_class($e));
+    }
+    
     error_log('Chatbot error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
@@ -593,4 +718,453 @@ function buildModuleAction(array $definition): array {
         'view' => $definition['view'] ?? null,
         'params' => $definition['params'] ?? [],
     ];
+}
+
+// ===== NEW HELPER FUNCTIONS =====
+
+function detectQueryIntent(string $message, string $role): string {
+    $text = strtolower($message);
+    
+    // Intent patterns
+    if (preg_match('/\b(plan|itinerary|trip|travel)\b/i', $text)) {
+        return 'itinerary_planning';
+    }
+    if (preg_match('/\b(hotel|accommodation|stay|lodging|resort)\b/i', $text)) {
+        return 'marketplace_search';
+    }
+    if (preg_match('/\b(weather|forecast|climate)\b/i', $text)) {
+        return 'weather_info';
+    }
+    if (preg_match('/\b(book|booking|reserve|payment)\b/i', $text)) {
+        return 'booking_help';
+    }
+    if (preg_match('/\b(edit|change|update|modify)\b/i', $text)) {
+        return 'edit_help';
+    }
+    if (preg_match('/\b(contact|support|help|call)\b/i', $text)) {
+        return 'customer_support';
+    }
+    
+    return 'general_inquiry';
+}
+
+function detectItineraryIntent(string $message): ?array {
+    $text = strtolower($message);
+    $patterns = [
+        'plan.*trip',
+        'create.*itinerary',
+        'create.*trip',
+        'make.*trip',
+        'build.*itinerary',
+        'new.*trip',
+        'travel.*plan',
+        '\\d+[- ]day.*trip',
+        'trip.*to.*\\w+',
+        'visit.*\\w+',
+        'itinerary.*for',
+    ];
+    
+    foreach ($patterns as $pattern) {
+        if (preg_match('/' . $pattern . '/i', $text)) {
+            return ['detected' => true, 'pattern' => $pattern];
+        }
+    }
+    
+    return null;
+}
+
+function tryFAQReply(string $message, array $persona, $pdo = null, $travelerId = null): ?array {
+    $text = strtolower($message);
+    
+    // ============================================
+    // BUSINESS OPERATOR FAQs (Check FIRST - before traveler FAQs)
+    // ============================================
+    
+    if ($persona['role'] === 'operator') {
+        
+        // Create/Upload listing FAQ
+        if (str_contains($text, 'listing') || str_contains($text, 'business')) {
+            if (containsAny($text, ['create', 'add', 'new', 'upload', 'submit', 'list', 'register', 'how do i', 'how to'])) {
+                return [
+                    'reply' => 'To create a new listing: 1) Go to "Upload Business Info" and fill in your business details (name, description, location, contact). 2) Navigate to "Upload Photos / Media" to add high-quality images. 3) Submit for admin verification. Check the "Operator Guidelines" for detailed requirements!',
+                    'actions' => [[
+                        'type' => 'module',
+                        'module' => 'upload-info',
+                        'label' => 'Upload Business Info',
+                        'description' => 'Start creating your listing',
+                        'view' => 'operator',
+                    ]],
+                ];
+            }
+        }
+        
+        // Manage listings FAQ
+        if (containsAny($text, ['manage listing', 'edit listing', 'my listing', 'view listing', 'listing status', 'update listing'])) {
+            return [
+                'reply' => 'You can manage all your listings in the "Manage Listings" section. View status (pending, active, rejected), edit details, hide/unhide listings, and track verification progress.',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'manage-listings',
+                    'label' => 'Manage My Listings',
+                    'description' => 'View and edit your business listings',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+        
+        // Upload photos/media FAQ
+        if (containsAny($text, ['upload photo', 'add image', 'upload media', 'add picture', 'gallery', 'upload menu', 'add brochure'])) {
+            return [
+                'reply' => 'Upload high-quality photos, menus, brochures, and promotional materials in the "Upload Photos / Media" section. Good visuals attract more travelers and increase bookings!',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'media-manager',
+                    'label' => 'Upload Media',
+                    'description' => 'Add photos and promotional materials',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+        
+        // Verification/approval FAQ
+        if (containsAny($text, ['verification', 'approval', 'pending', 'under review', 'waiting approval', 'not approved', 'rejected'])) {
+            return [
+                'reply' => 'All new listings require admin verification to ensure quality and sustainability standards. Check your listing status in "Manage Listings". Pending listings are reviewed within 24-48 hours.',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'manage-listings',
+                    'label' => 'Check Listing Status',
+                    'description' => 'View verification progress',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+        
+        // Guidelines/documentation FAQ
+        if (containsAny($text, ['guideline', 'how to', 'documentation', 'rules', 'policy', 'requirement', 'checklist'])) {
+            return [
+                'reply' => 'Check the "Operator Guidelines" for complete documentation on creating listings, photo requirements, sustainability criteria, and best practices. Follow these guidelines for faster approval!',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'guidelines',
+                    'label' => 'View Guidelines',
+                    'description' => 'Read operator documentation',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+        
+        // Dashboard/analytics FAQ
+        if (containsAny($text, ['dashboard', 'analytics', 'statistics', 'views', 'performance', 'insights'])) {
+            return [
+                'reply' => 'Your Dashboard Overview shows key metrics: total listings, active/pending status, visitor engagement, and performance insights. Use this data to optimize your listings!',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'overview',
+                    'label' => 'View Dashboard',
+                    'description' => 'Check your business analytics',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+        
+        // Eco-certification/sustainability FAQ
+        if (containsAny($text, ['eco', 'sustainable', 'certification', 'green', 'eco-friendly', 'environment'])) {
+            return [
+                'reply' => 'Highlight your sustainability practices! Include eco-certifications, green initiatives, and responsible tourism practices in your listing. Eco-certified businesses get featured prominence and attract conscious travelers.',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'upload-info',
+                    'label' => 'Add Eco Information',
+                    'description' => 'Update sustainability details',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+        
+        // Messages/communication FAQ
+        if (containsAny($text, ['message', 'contact', 'inquiry', 'traveler message', 'communication'])) {
+            return [
+                'reply' => 'Check your Messages section to communicate with travelers, respond to inquiries, and manage booking requests. Quick responses improve your business rating!',
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'messages',
+                    'label' => 'View Messages',
+                    'description' => 'Check traveler inquiries',
+                    'view' => 'operator',
+                ]],
+            ];
+        }
+    }
+    
+    // ============================================
+    // TRAVELER FAQs
+    // ============================================
+    
+    // Weather FAQ
+    if (containsAny($text, ['weather', 'forecast', 'temperature', 'rain', 'climate'])) {
+        return [
+            'reply' => 'Check the Weather module for localized forecasts, air quality, and travel advice tailored to your destination. You can view detailed weather patterns to plan your activities better!',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'weather',
+                'label' => 'Go to Weather outlook',
+                'description' => 'Check forecasts and travel advice',
+                'view' => resolveViewForRole($persona['role']),
+            ]],
+        ];
+    }
+    
+    // Itinerary editing FAQ
+    if (containsAny($text, ['edit itinerary', 'change trip', 'modify plan', 'update itinerary', 'edit trip', 'saved trip', 'edit my trip', 'change itinerary', 'modify trip'])) {
+        return [
+            'reply' => 'To edit your saved itineraries, go to your Traveler Dashboard and select the "Itineraries" tab. Click on any saved trip to view details, then use the edit options to modify activities, dates, locations, or bookings.',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'dashboard',
+                'label' => 'Go to My Itineraries',
+                'description' => 'View and edit your saved trips',
+                'view' => 'traveler',
+                'params' => ['tab' => 'itineraries'],
+            ]],
+        ];
+    }
+    
+    // Booking history FAQ - check database for actual bookings (MUST come before Payment FAQ)
+    if (str_contains($text, 'booking') && (str_contains($text, 'history') || str_contains($text, 'see') || str_contains($text, 'view') || str_contains($text, 'check') || str_contains($text, 'show') || str_contains($text, 'my') || str_contains($text, 'past') || str_contains($text, 'previous'))) {
+        if ($persona['role'] === 'traveler') {
+            // Check if user has booking history
+            $hasBookings = false;
+            $bookingCount = 0;
+            
+            if ($pdo !== null && $travelerId !== null && $travelerId > 0) {
+                try {
+                    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM traveler_booking_history WHERE travelerID = ?");
+                    $stmt->execute([$travelerId]);
+                    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+                    $bookingCount = (int)($result['count'] ?? 0);
+                    $hasBookings = $bookingCount > 0;
+                } catch (Exception $e) {
+                    error_log('Booking count check failed: ' . $e->getMessage());
+                    error_log('TravelerID: ' . $travelerId);
+                }
+            } else {
+                error_log('Cannot check bookings - PDO: ' . ($pdo ? 'yes' : 'no') . ', TravelerID: ' . ($travelerId ?? 'null'));
+            }
+            
+            if ($hasBookings) {
+                $reply = "You have {$bookingCount} booking" . ($bookingCount > 1 ? 's' : '') . " in your history. Click below to view your booking details, payment receipts, and trip information.";
+                $buttonLabel = 'View My Bookings';
+            } else {
+                $reply = "You don't have any confirmed bookings yet. Browse our marketplace to discover eco-friendly accommodations and experiences, then make your first booking!";
+                $buttonLabel = 'Go to Booking History';
+            }
+            
+            return [
+                'reply' => $reply,
+                'actions' => [[
+                    'type' => 'module',
+                    'module' => 'payment-history',
+                    'label' => $buttonLabel,
+                    'description' => 'View your booking history and receipts',
+                    'view' => 'traveler',
+                ]],
+            ];
+        }
+    }
+    
+    // Marketplace FAQ - direct marketplace request
+    if (containsAny($text, ['marketplace', 'market place', 'browse listing', 'see listing'])) {
+        return [
+            'reply' => 'Browse our Marketplace to discover eco-friendly accommodations, sustainable experiences, and green travel options across Malaysia. You can filter by location, price, and eco-certifications!',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'marketplace',
+                'label' => 'Open Marketplace',
+                'description' => 'Browse eco-friendly stays and activities',
+                'view' => resolveViewForRole($persona['role']),
+            ]],
+        ];
+    }
+    
+    // Payment FAQ
+    if (containsAny($text, ['payment', 'pay', 'book', 'reserve', 'purchase'])) {
+        return [
+            'reply' => 'For bookings and payments, you can browse sustainable accommodations and experiences in our marketplace. Each listing shows pricing and booking options directly.',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'marketplace',
+                'label' => 'Explore Marketplace',
+                'description' => 'Browse eco-friendly stays and activities',
+                'view' => resolveViewForRole($persona['role']),
+            ]],
+        ];
+    }
+    
+    // Community/recommendations FAQ
+    if (containsAny($text, ['recommend', 'suggestion', 'where to', 'best place', 'food', 'restaurant', 'eat'])) {
+        return [
+            'reply' => 'Explore the Community feed for authentic traveler recommendations, local food spots, and hidden gems! You can also save posts you like for later reference.',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'community',
+                'label' => 'View Community feed',
+                'description' => 'See traveler stories and local insights',
+                'view' => resolveViewForRole($persona['role']),
+            ]],
+        ];
+    }
+    
+    // Save posts/itineraries FAQ
+    if (containsAny($text, ['save post', 'save itinerary', 'bookmark', 'saved items', 'how to save', 'favorite'])) {
+        return [
+            'reply' => 'You can save posts and itineraries for later! In the Community feed, click the bookmark icon on any post. Your saved items are accessible from the Saved Posts section in your dashboard.',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'saved-posts',
+                'label' => 'View Saved Posts',
+                'description' => 'Access your bookmarked content',
+                'view' => 'traveler',
+            ]],
+        ];
+    }
+    
+    // Emergency contacts FAQ
+    if (containsAny($text, ['emergency', 'help', 'police', 'hospital', 'ambulance', 'emergency number', 'emergency contact'])) {
+        return [
+            'reply' => 'Emergency contacts in Malaysia: Police/Ambulance/Fire: 999 | Tourism Police: 03-2149 6590 | Private Ambulance: 1-300-36-9999. For medical emergencies, find the nearest hospital or clinic.',
+            'actions' => [
+                [
+                    'type' => 'link',
+                    'label' => 'Call 999 (Emergency)',
+                    'url' => 'tel:999',
+                ],
+                [
+                    'type' => 'link',
+                    'label' => 'Tourism Police Hotline',
+                    'url' => 'tel:+60321496590',
+                ],
+            ],
+        ];
+    }
+    
+    // Visa/travel requirements FAQ
+    if (containsAny($text, ['visa', 'passport', 'travel requirement', 'entry requirement', 'immigration', 'visa-free', 'evisa'])) {
+        return [
+            'reply' => 'Visa requirements for Malaysia vary by nationality. Many countries enjoy visa-free entry for 30-90 days. Check the official Immigration Department of Malaysia website for specific requirements based on your passport.',
+            'actions' => [
+                [
+                    'type' => 'link',
+                    'label' => 'Check Visa Requirements',
+                    'url' => 'https://www.imi.gov.my/index.php/en/',
+                ],
+                [
+                    'type' => 'link',
+                    'label' => 'Apply for eVisa',
+                    'url' => 'https://visa.imi.gov.my/evisa/evisa.jsp',
+                ],
+            ],
+        ];
+    }
+    
+    // Eco-friendly travel practices FAQ
+    if (containsAny($text, ['eco-friendly', 'sustainable', 'green travel', 'responsible travel', 'eco tips', 'environmental'])) {
+        return [
+            'reply' => 'Practice sustainable travel in Malaysia: Use public transport, choose eco-certified accommodations, reduce plastic waste, support local businesses, respect wildlife, and participate in conservation activities. Every small action counts!',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'community',
+                'label' => 'Explore Eco Experiences',
+                'description' => 'Find sustainable activities and stays',
+                'view' => 'traveler',
+            ]],
+        ];
+    }
+    
+    // Budget planning FAQ
+    if (containsAny($text, ['budget', 'cost', 'how much', 'expensive', 'cheap', 'price', 'money', 'afford'])) {
+        return [
+            'reply' => 'Malaysia offers great value! Budget travelers: RM100-150/day, Mid-range: RM200-400/day, Luxury: RM500+/day. Use our AI trip planner to create itineraries matching your budget, including accommodation, meals, and activities!',
+            'actions' => [[
+                'type' => 'module',
+                'module' => 'dashboard',
+                'label' => 'Plan Budget Trip',
+                'description' => 'Create AI-powered itinerary with budget',
+                'view' => 'traveler',
+            ]],
+        ];
+    }
+    
+    return null;
+}
+
+function tryMarketplaceSearch(string $message, $pdo, array $persona): ?array {
+    $text = strtolower($message);
+    
+    // Check for accommodation search keywords
+    $accommodationKeywords = ['hotel', 'resort', 'accommodation', 'stay', 'lodging', 'room', 'hostel', 'guesthouse'];
+    $locationKeywords = ['in', 'at', 'near', 'around'];
+    
+    $hasAccommodation = containsAny($text, $accommodationKeywords);
+    $hasLocation = false;
+    $location = '';
+    
+    // Extract location if mentioned
+    foreach ($locationKeywords as $locKeyword) {
+        if (strpos($text, $locKeyword) !== false) {
+            $hasLocation = true;
+            // Try to extract location name
+            if (preg_match('/' . $locKeyword . '\\s+([\\w\\s]+?)(?:\\s|$|\\?|\\.)/i', $message, $matches)) {
+                $location = trim($matches[1]);
+                break;
+            }
+        }
+    }
+    
+    if (!$hasAccommodation) {
+        return null;
+    }
+    
+    // Check for eco-friendly keywords
+    $ecoFriendly = containsAny($text, ['eco', 'sustainable', 'green', 'responsible', 'environmental', 'eco-friendly']);
+    
+    // Build response
+    if ($location !== '') {
+        $ecoPrefix = $ecoFriendly ? 'eco-friendly ' : '';
+        $reply = "Great! I can help you find {$ecoPrefix}accommodations in {$location}. Check out our marketplace for sustainable stays and experiences.";
+    } else {
+        $ecoPrefix = $ecoFriendly ? 'eco-friendly ' : '';
+        $reply = "I can help you find {$ecoPrefix}accommodations! Browse our marketplace for sustainable stays across Malaysia.";
+    }
+    
+    return [
+        'reply' => $reply,
+        'actions' => [[
+            'type' => 'module',
+            'module' => 'community',
+            'label' => 'Browse Marketplace',
+            'description' => 'Explore eco-friendly accommodations and experiences',
+            'view' => resolveViewForRole($persona['role']),
+        ]],
+    ];
+}
+
+function buildFewShotExamples(string $role): string {
+    return <<<EXAMPLES
+
+Example interactions to guide your tone:
+
+USER: How do I check the weather?
+ASSISTANT: You can check weather forecasts in the Weather module! It shows localized forecasts, air quality, and travel advisories to help you plan your trip better.
+
+USER: I want to plan a trip to Penang
+ASSISTANT: I'd be happy to help you plan a trip to Penang! Would you like to use our AI-powered trip planner? It can create a personalized itinerary based on your interests and budget.
+
+USER: Where can I find good food recommendations?
+ASSISTANT: The Community feed is perfect for discovering authentic food spots! Travelers share their favorite restaurants, street food finds, and local dining experiences. You can also save posts for later.
+
+USER: How many users are on the platform?
+ASSISTANT: I don't have access to user statistics, but I can point you to relevant modules! If you're an admin, you can check analytics in the admin dashboard.
+
+EXAMPLES;
 }
