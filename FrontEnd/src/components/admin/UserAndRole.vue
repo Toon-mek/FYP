@@ -1,9 +1,10 @@
 <script setup>
 import { computed, h, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { NButton, NRadioGroup, NRadioButton, NSpace, NTag, NText, useMessage } from 'naive-ui'
+import { NButton, NRadioGroup, NRadioButton, NSpace, NTag, NText, NTooltip, NIcon, useMessage } from 'naive-ui'
 import PaginatedTable from '../shared/PaginatedTable.vue'
-import { RefreshOutline } from '@vicons/ionicons5'
+import { RefreshOutline, InformationCircleOutline } from '@vicons/ionicons5'
 import { resolveRoleTagType } from './RoleTagTypes.js'
+import { useAccountFormValidation } from '../../composables/useAccountFormValidation.js'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 const SESSION_HISTORY_PAGE_SIZE = 5
@@ -51,6 +52,19 @@ function formatDuration(milliseconds) {
 }
 
 const message = useMessage()
+
+const fieldHints = {
+  accountType: 'Select whether the account should be Traveler, Operator, or Admin.',
+  fullName: '1-25 characters (letters, spaces, apostrophes, periods, or hyphens).',
+  travelerEmail: 'Traveler accounts: gmail.com, yahoo.com, or hotmail.com only.',
+  operatorEmail: 'Operator/Admin: use a company or institutional domain (not gmail/yahoo/hotmail).',
+  companyName: 'Your business or organization name.',
+  phone: 'Use Malaysian format, e.g. +60 12-345 6789 or 03-1234 5678.',
+  password: 'Minimum 6 characters with at least one letter and one number.',
+  confirmPassword: 'Must match the password exactly.',
+  role: 'Assign an admin role template that defines permissions.',
+  status: 'Set account status for existing users.',
+}
 
 function isActiveSessionFlag(source) {
   if (source === true) return true
@@ -136,7 +150,6 @@ const filteredUsers = computed(() => {
     return matchesName && matchesType && matchesStatus
   })
 })
-
 
 const refreshingSessions = ref(false)
 
@@ -525,9 +538,25 @@ const userForm = reactive({
   role: 'Traveler',
   type: 'Traveler',
   phone: '',
-  businessType: '',
+  companyName: '',
   password: '',
   confirmPassword: '',
+})
+
+const emailPlaceholder = computed(() => (userForm.type === 'Traveler' ? '***@gmail.com' : '***@company.com'))
+
+const {
+  nameValidation,
+  companyNameValidation,
+  emailValidation,
+  phoneValidation,
+  passwordValidation,
+  confirmValidation,
+  markFieldTouched,
+  resetTouchedState,
+  validateBeforeSubmit,
+} = useAccountFormValidation(userForm, editingUserId, {
+  includeCompanyName: true,
 })
 
 function resetUserForm() {
@@ -537,10 +566,11 @@ function resetUserForm() {
   userFormStatus.value = 'Active'
   userForm.type = 'Traveler'
   userForm.phone = ''
-  userForm.businessType = ''
+  userForm.companyName = ''
   userForm.password = ''
   userForm.confirmPassword = ''
   editingUserId.value = null
+  resetTouchedState()
 }
 
 function openUserModal(row) {
@@ -552,12 +582,13 @@ function openUserModal(row) {
     userFormStatus.value = row.status || null
     userForm.type = row.type || 'Traveler'
     userForm.phone = row.phone || ''
-    userForm.businessType = row.businessType || ''
+    userForm.companyName = row.companyName || ''
     userForm.password = ''
     userForm.confirmPassword = ''
   } else {
     resetUserForm()
   }
+  resetTouchedState()
   showUserModal.value = true
 }
 
@@ -596,23 +627,16 @@ async function fetchUsers() {
 }
 
 async function saveUser() {
-  if (!userForm.name.trim() || !userForm.email.trim()) {
-    return
-  }
-
+  const name = userForm.name.trim()
+  const email = userForm.email.trim()
+  const phone = userForm.phone.trim()
+  const companyName = userForm.companyName.trim()
   const passwordValue = userForm.password.trim()
-  const confirmValue = userForm.confirmPassword.trim()
   const passwordProvided = passwordValue !== ''
 
-  if (!editingUserId.value || passwordProvided) {
-    if (passwordValue.length < 6) {
-      message.error('Password must be at least 6 characters')
-      return
-    }
-    if (passwordValue !== confirmValue) {
-      message.error('Passwords do not match')
-      return
-    }
+  if (!validateBeforeSubmit()) {
+    message.error('Please resolve the highlighted fields before saving.')
+    return
   }
 
   savingUser.value = true
@@ -620,12 +644,12 @@ async function saveUser() {
     const payload = {
       id: editingUserId.value,
       type: userForm.type,
-      name: userForm.name.trim(),
-      email: userForm.email.trim(),
+      name,
+      email,
       status: userFormStatus.value,
       role: userForm.type === 'Admin' ? userForm.role : undefined,
-      phone: userForm.type !== 'Admin' ? userForm.phone.trim() : undefined,
-      businessType: userForm.type === 'Operator' ? userForm.businessType.trim() : undefined,
+      phone: userForm.type !== 'Admin' ? phone : undefined,
+      companyName: userForm.type === 'Operator' ? companyName : undefined,
       password: passwordProvided ? passwordValue : undefined,
     }
 
@@ -728,12 +752,13 @@ defineExpose({
   <n-space vertical size="large">
     <n-card title="Account directory" :segmented="{ content: true }">
       <template #header-extra>
-        <n-space size="small">
+        <n-space size="small" align="center">
           <n-select v-model:value="userTypeFilter" size="small" :options="userTypeFilterOptions"
             style="width: 150px;" />
           <n-select v-model:value="statusFilter" size="small" :options="statusFilterOptions" style="width: 150px;" />
           <n-input v-model:value="userSearchTerm" size="small" clearable placeholder="Search name"
             style="width: 220px;" />
+          <n-button type="primary" size="small" @click="openUserModal()">Add user</n-button>
         </n-space>
       </template>
       <PaginatedTable v-model:page="page" :columns="userColumns" :rows="filteredUsers" :loading="loadingUsers"
@@ -796,9 +821,20 @@ defineExpose({
     </n-card>
 
     <n-modal v-model:show="showUserModal" preset="card" :title="editingUserId ? 'Edit user' : 'Add user'"
-      style="max-width: 480px; width: 100%;">
+      style="max-width: 500px; width: 100%;">
       <n-form label-placement="top">
-        <n-form-item label="Account type">
+        <n-form-item>
+          <template #label>
+            Account type
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.accountType }}
+            </n-tooltip>
+          </template>
           <template v-if="editingUserId">
             <n-tag type="info" size="small">{{ userForm.type }}</n-tag>
           </template>
@@ -806,28 +842,136 @@ defineExpose({
             <n-select v-model:value="userForm.type" :options="createUserTypeOptions" />
           </template>
         </n-form-item>
-        <n-form-item label="Full name">
-          <n-input v-model:value="userForm.name" />
+        <n-form-item
+          v-if="userForm.type === 'Operator'"
+          :validation-status="companyNameValidation.status || undefined"
+          :feedback="companyNameValidation.message"
+        >
+          <template #label>
+            Business name
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.companyName }}
+            </n-tooltip>
+          </template>
+          <n-input
+            v-model:value="userForm.companyName"
+            placeholder="Company or organisation"
+            :status="companyNameValidation.status || undefined"
+            @blur="markFieldTouched('companyName')"
+          />
         </n-form-item>
-        <n-form-item label="Email address">
-          <n-input v-model:value="userForm.email" placeholder="***@example.com" />
+        <n-form-item :validation-status="nameValidation.status || undefined" :feedback="nameValidation.message">
+          <template #label>
+            Full name
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.fullName }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="userForm.name" :status="nameValidation.status || undefined"
+            @blur="markFieldTouched('name')" />
         </n-form-item>
-        <n-form-item v-if="userForm.type !== 'Admin'" label="Contact number (optional)">
-          <n-input v-model:value="userForm.phone" placeholder="012-345 6789" />
+        <n-form-item :validation-status="emailValidation.status || undefined" :feedback="emailValidation.message">
+          <template #label>
+            Email address
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{
+                userForm.type === 'Traveler'
+                  ? fieldHints.travelerEmail
+                  : fieldHints.operatorEmail
+              }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="userForm.email" :placeholder="emailPlaceholder"
+            :status="emailValidation.status || undefined" @blur="markFieldTouched('email')" />
         </n-form-item>
-        <n-form-item v-if="userForm.type === 'Operator'" label="Business type">
-          <n-input v-model:value="userForm.businessType" placeholder="Eco travel agency" />
+        <n-form-item v-if="userForm.type !== 'Admin'" :validation-status="phoneValidation.status || undefined"
+          :feedback="phoneValidation.message">
+          <template #label>
+            Contact number (optional)
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.phone }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="userForm.phone" placeholder="012-345 6789"
+            :status="phoneValidation.status || undefined" @blur="markFieldTouched('phone')" />
         </n-form-item>
-        <n-form-item :label="editingUserId ? 'New password (optional)' : 'Password'">
-          <n-input v-model:value="userForm.password" type="password" placeholder="At least 6 characters" />
+        <n-form-item :validation-status="passwordValidation.status || undefined" :feedback="passwordValidation.message">
+          <template #label>
+            {{ editingUserId ? 'New password (optional)' : 'Password' }}
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.password }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="userForm.password" type="password" placeholder="At least 6 characters"
+            :status="passwordValidation.status || undefined" @blur="markFieldTouched('password')" />
         </n-form-item>
-        <n-form-item v-if="!editingUserId || userForm.password" label="Confirm password">
-          <n-input v-model:value="userForm.confirmPassword" type="password" placeholder="Re-enter password" />
+        <n-form-item v-if="!editingUserId || userForm.password"
+          :validation-status="confirmValidation.status || undefined" :feedback="confirmValidation.message">
+          <template #label>
+            Confirm password
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.confirmPassword }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="userForm.confirmPassword" type="password" placeholder="Re-enter password"
+            :status="confirmValidation.status || undefined" @blur="markFieldTouched('confirmPassword')" />
         </n-form-item>
-        <n-form-item v-if="userForm.type === 'Admin'" label="Role">
+        <n-form-item v-if="userForm.type === 'Admin'">
+          <template #label>
+            Role
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.role }}
+            </n-tooltip>
+          </template>
           <n-select v-model:value="userForm.role" :options="roleOptions" placeholder="Select role" />
         </n-form-item>
-        <n-form-item v-if="editingUserId" label="Status">
+        <n-form-item v-if="editingUserId">
+          <template #label>
+            Status
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.status }}
+            </n-tooltip>
+          </template>
           <n-radio-group v-model:value="userFormStatus" button-style="solid">
             <n-radio-button v-for="option in statusRadioOptions" :key="option.value" :value="option.value"
               :disabled="option.disabled">
@@ -867,5 +1011,20 @@ defineExpose({
     opacity: 0.9;
     transform: translateY(0);
   }
+}
+
+.form-hint-icon {
+  margin-left: 6px;
+  cursor: help;
+  color: var(--n-text-color-3, #94a3b8);
+  vertical-align: middle;
+}
+
+.form-hint-icon:hover {
+  color: var(--n-primary-color, #18a058);
+}
+
+:deep(.n-form-item-feedback-wrapper .n-form-item-feedback--success) {
+  color: #52c41a;
 }
 </style>

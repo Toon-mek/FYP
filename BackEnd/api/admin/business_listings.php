@@ -156,8 +156,29 @@ SQL;
     $rows = $stmt->fetchAll();
 
     $listings = array_map(static fn(array $row): array => formatListingRow($row), $rows);
-    $summary = buildSummary($listings);
 
+    if (isAllStatusFilter($statusFilter) && isAllVisibilityFilter($visibilityFilter)) {
+        $removedListings = loadRemovedListings($pdo, $categoryFilter, $searchTerm);
+        if ($removedListings) {
+            $listings = array_merge($listings, $removedListings);
+
+            usort(
+                $listings,
+                static function (array $a, array $b): int {
+                    $aTimestamp = $a['submittedTimestamp'] ?? $a['removedTimestamp'] ?? 0;
+                    $bTimestamp = $b['submittedTimestamp'] ?? $b['removedTimestamp'] ?? 0;
+
+                    if ($aTimestamp === $bTimestamp) {
+                        return ($b['id'] ?? 0) <=> ($a['id'] ?? 0);
+                    }
+
+                    return $bTimestamp <=> $aTimestamp;
+                }
+            );
+        }
+    }
+
+    $summary = buildSummary($listings);
     echo json_encode([
         'listings' => $listings,
         'summary' => $summary,
@@ -226,6 +247,7 @@ SQL;
 
     return array_map(static fn(array $row): array => formatRemovedListingRow($row), $rows);
 }
+
 
 function handleDelete(PDO $pdo): void
 {
@@ -314,6 +336,16 @@ function normaliseStatusFilter(string $filter): ?array
         'active' => ['Active', 'Approved'],
         default => null,
     };
+}
+
+function isAllStatusFilter(string $filter): bool
+{
+    return trim($filter) === '' || strtolower(trim($filter)) === 'all';
+}
+
+function isAllVisibilityFilter(string $filter): bool
+{
+    return trim($filter) === '' || strtolower(trim($filter)) === 'all';
 }
 
 function isRemovedFilter(string $filter): bool
@@ -432,7 +464,7 @@ function formatDateString(?string $value): ?string
 
     try {
         $dt = new DateTimeImmutable($value);
-        return $dt->format('Y-m-d');
+        return $dt->format('Y-m-d H:i');
     } catch (Throwable) {
         return null;
     }
@@ -537,13 +569,27 @@ function formatRemovedListingRow(array $row): array
         'imageCount' => count($images),
         'images' => $images,
         'removalReason' => $row['removalReason'],
-        'removedAt' => formatDateString($row['removedAt'] ?? null),
+        'removedAt' => formatDateTimeLabel($row['removedAt'] ?? null),
         'removedTimestamp' => $removedTimestamp,
         'removedBy' => [
             'id' => $row['removedBy'] !== null ? (int) $row['removedBy'] : null,
             'name' => $row['removedByName'],
         ],
     ];
+}
+
+function formatDateTimeLabel(?string $value): ?string
+{
+    if ($value === null || $value === '') {
+        return null;
+    }
+
+    try {
+        $dt = new DateTimeImmutable($value);
+        return $dt->format('Y-m-d H:i');
+    } catch (Throwable) {
+        return null;
+    }
 }
 
 function decodeImagesSnapshot(?string $snapshot): array

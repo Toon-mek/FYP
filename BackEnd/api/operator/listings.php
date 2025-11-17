@@ -107,10 +107,10 @@ function resolveAppTimezone(): DateTimeZone
   return $timezone;
 }
 
-function currentAppDate(): string
+function currentAppDateTime(): string
 {
   $timezone = resolveAppTimezone();
-  return (new DateTimeImmutable('now', $timezone))->format('Y-m-d');
+  return (new DateTimeImmutable('now', $timezone))->format('Y-m-d H:i:s');
 }
 function normalisePriceRangeValue($value): ?string
 {
@@ -454,7 +454,7 @@ function handleCreate(PDO $pdo, array $payload): void
       ':priceRange' => $priceRange,
       ':visibilityState' => 'Hidden',
       ':status' => 'Pending Review',
-      ':submittedDate' => currentAppDate(),
+      ':submittedDate' => currentAppDateTime(),
     ]);
 
     $listingId = (int) $pdo->lastInsertId();

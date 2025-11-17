@@ -50,12 +50,12 @@ switch ($accountType) {
     case 'traveler':
         $table = 'Traveler';
         $idField = 'travelerID';
-        $select = 'travelerID AS id, username, email, password, fullName, contactNumber, registeredDate, accountStatus, profileImage';
+        $select = 'travelerID AS id, username, email, password, fullName, contactNumber, registeredDate, accountStatus AS status, profileImage';
         break;
     case 'operator':
         $table = 'TourismOperator';
         $idField = 'operatorID';
-        $select = 'operatorID AS id, username, email, password, fullName, contactNumber, registeredDate, accountStatus, businessType, profileImage';
+        $select = 'operatorID AS id, username, email, password, fullName, contactNumber, registeredDate, accountStatus AS status, businessType, profileImage';
         break;
     case 'admin':
         $table = 'Administrator';
@@ -80,6 +80,20 @@ if (!$record || !password_verify($password, (string)($record['password'] ?? ''))
 }
 
 $accountId = (int)($record['id'] ?? 0);
+
+// Check if account is suspended
+$userStatus = $record['status'] ?? null;
+if ($userStatus === 'Suspended') {
+    // Log failed login attempt for suspended account
+    $ipAddress = resolveClientIp();
+    $deviceInfo = $_SERVER['HTTP_USER_AGENT'] ?? null;
+    if ($accountId > 0) {
+        record_login_event($pdo, $accountType, $accountId, 'Failed - Suspended', $ipAddress, $deviceInfo);
+    }
+    http_response_code(403);
+    echo json_encode(['error' => 'Your account has been suspended. Please contact customer service to reactivate your account.']);
+    exit;
+}
 
 if ($accountId > 0) {
     storePasswordLastDigit($pdo, $accountType, $accountId, $password);

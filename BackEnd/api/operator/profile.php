@@ -94,28 +94,15 @@ if (array_key_exists('email', $payload)) {
     $params[':email'] = $email;
 }
 
-if (array_key_exists('username', $payload)) {
-    $username = trim((string)$payload['username']);
-    if ($username === '') {
-        http_response_code(400);
-        echo json_encode(['error' => 'Username cannot be empty']);
-        exit;
-    }
-    $checkUsername = $pdo->prepare('SELECT operatorID FROM TourismOperator WHERE username = :username AND operatorID <> :id LIMIT 1');
-    $checkUsername->execute([':username' => $username, ':id' => $operatorId]);
-    if ($checkUsername->fetch()) {
-        http_response_code(409);
-        echo json_encode(['error' => 'Username is already taken']);
-        exit;
-    }
-    $fields[] = 'username = :username';
-    $params[':username'] = $username;
-}
-
 if (array_key_exists('contactNumber', $payload)) {
     $contactNumber = trim((string)$payload['contactNumber']);
+    if ($contactNumber === '') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Phone number is required']);
+        exit;
+    }
     $fields[] = 'contactNumber = :contactNumber';
-    $params[':contactNumber'] = $contactNumber !== '' ? $contactNumber : null;
+    $params[':contactNumber'] = $contactNumber;
 }
 
 if (array_key_exists('businessType', $payload)) {

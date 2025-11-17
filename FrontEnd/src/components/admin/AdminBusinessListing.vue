@@ -154,9 +154,9 @@ const columns = computed(() => [
     width: 140,
     render(row) {
       if (isRemovedStatus(row.status)) {
-        return row.removedAt ? `Removed ${row.removedAt}` : 'Removed'
+        return row.removedAt || '-'
       }
-      return row.submittedDate || '—'
+      return row.submittedDate || '-'
     },
   },
   {

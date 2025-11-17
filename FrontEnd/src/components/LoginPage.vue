@@ -1,13 +1,30 @@
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
+import { useMessage } from 'naive-ui'
 import {
   emailRule,
   minLengthRule,
   phoneRule,
   required,
 } from '../utils/validators'
+import { useAccountFormValidation } from '../composables/useAccountFormValidation.js'
+import { InformationCircleOutline } from '@vicons/ionicons5'
 
 const emit = defineEmits(['login-success'])
+const message = useMessage()
+
+const fieldHints = {
+  travelerFullName: '1-25 characters (letters, spaces, apostrophes, periods, or hyphens).',
+  travelerEmail: 'Use gmail.com, yahoo.com, or hotmail.com.',
+  operatorCompanyName: 'Your business or organization name.',
+  operatorFullName: 'Full name of the primary contact person.',
+  operatorEmail: 'Use a company or institutional domain (not gmail/yahoo/hotmail).',
+  operatorPhone: 'Use Malaysian format, e.g. +60 12-345 6789 or 03-1234 5678.',
+  password: 'Minimum 6 characters with at least one letter and one number.',
+  confirmPassword: 'Must match the password exactly.',
+  profilePhoto: 'Upload a profile picture (JPG, PNG, or WebP, max 4 MB).',
+}
+
 const accountTypes = [
   {
     id: 'traveler',
@@ -110,11 +127,80 @@ const loginRules = {
   password: [required('Password is required'), minLengthRule(6, 'Password must be at least 6 characters')],
 }
 
+// Login form validations
+const {
+  emailValidation: travelerLoginEmailValidation,
+  passwordValidation: travelerLoginPasswordValidation,
+  markFieldTouched: travelerLoginMarkFieldTouched,
+} = useAccountFormValidation(
+  loginForms.traveler,
+  ref(null),
+  {
+    requireConfirm: false,
+    accountTypeResolver: () => 'Traveler',
+    includeName: false,
+    includePhone: false,
+    isLoginMode: true,
+  }
+)
+
+const {
+  emailValidation: businessLoginEmailValidation,
+  passwordValidation: businessLoginPasswordValidation,
+  markFieldTouched: businessLoginMarkFieldTouched,
+} = useAccountFormValidation(
+  loginForms.business,
+  ref(null),
+  {
+    requireConfirm: false,
+    accountTypeResolver: () => 'Operator',
+    includeName: false,
+    includePhone: false,
+    isLoginMode: true,
+  }
+)
+
+const {
+  emailValidation: adminLoginEmailValidation,
+  passwordValidation: adminLoginPasswordValidation,
+  markFieldTouched: adminLoginMarkFieldTouched,
+} = useAccountFormValidation(
+  loginForms.admin,
+  ref(null),
+  {
+    requireConfirm: false,
+    accountTypeResolver: () => 'Admin',
+    includeName: false,
+    includePhone: false,
+    isLoginMode: true,
+  }
+)
+
+const currentLoginEmailValidation = computed(() => {
+  const key = resolveLoginFormKey(selectedType.value)
+  if (key === 'business') return businessLoginEmailValidation.value
+  if (key === 'admin') return adminLoginEmailValidation.value
+  return travelerLoginEmailValidation.value
+})
+
+const currentLoginPasswordValidation = computed(() => {
+  const key = resolveLoginFormKey(selectedType.value)
+  if (key === 'business') return businessLoginPasswordValidation.value
+  if (key === 'admin') return adminLoginPasswordValidation.value
+  return travelerLoginPasswordValidation.value
+})
+
+const currentLoginMarkFieldTouched = computed(() => {
+  const key = resolveLoginFormKey(selectedType.value)
+  if (key === 'business') return businessLoginMarkFieldTouched
+  if (key === 'admin') return adminLoginMarkFieldTouched
+  return travelerLoginMarkFieldTouched
+})
+
 const showTravelerSignup = ref(false)
 const travelerFormRef = ref(null)
 const travelerUploadRef = ref(null)
 const travelerSubmitting = ref(false)
-const travelerError = ref('')
 const travelerForm = reactive({
   fullName: '',
   email: '',
@@ -124,6 +210,28 @@ const travelerForm = reactive({
   profileImagePreview: '',
   profileImageName: '',
 })
+
+const travelerFormType = ref('Traveler')
+const {
+  nameValidation: travelerNameValidation,
+  emailValidation: travelerEmailValidation,
+  passwordValidation: travelerPasswordValidation,
+  confirmValidation: travelerConfirmValidation,
+  markFieldTouched: travelerMarkFieldTouched,
+  resetTouchedState: travelerResetTouchedState,
+  validateBeforeSubmit: travelerValidateBeforeSubmit,
+} = useAccountFormValidation(
+  travelerForm,
+  ref(null),
+  {
+    nameField: 'fullName',
+    requireConfirm: true,
+    accountTypeResolver: () => travelerFormType.value,
+    includeName: true,
+    includePhone: false,
+  }
+)
+
 const travelerRules = {
   fullName: [required('Full name is required')],
   email: loginRules.email,
@@ -149,7 +257,6 @@ const showBusinessApply = ref(false)
 const operatorFormRef = ref(null)
 const operatorUploadRef = ref(null)
 const operatorSubmitting = ref(false)
-const operatorError = ref('')
 const operatorForm = reactive({
   companyName: '',
   contactPerson: '',
@@ -161,6 +268,33 @@ const operatorForm = reactive({
   profileImagePreview: '',
   profileImageName: '',
 })
+
+const operatorFormType = ref('Operator')
+const {
+  nameValidation: operatorNameValidation,
+  companyNameValidation: operatorCompanyNameValidation,
+  emailValidation: operatorEmailValidation,
+  phoneValidation: operatorPhoneValidation,
+  passwordValidation: operatorPasswordValidation,
+  confirmValidation: operatorConfirmValidation,
+  markFieldTouched: operatorMarkFieldTouched,
+  resetTouchedState: operatorResetTouchedState,
+  validateBeforeSubmit: operatorValidateBeforeSubmit,
+} = useAccountFormValidation(
+  operatorForm,
+  ref(null),
+  {
+    nameField: 'contactPerson',
+    companyNameField: 'companyName',
+    phoneField: 'phone',
+    requireConfirm: true,
+    accountTypeResolver: () => operatorFormType.value,
+    includeName: true,
+    includeCompanyName: true,
+    includePhone: true,
+  }
+)
+
 const operatorRules = {
   companyName: [required('Company name is required')],
   contactPerson: [required('Contact person is required')],
@@ -395,7 +529,7 @@ function resetTravelerForm() {
   travelerForm.profileImagePreview = ''
   travelerForm.profileImageName = ''
   travelerUploadRef.value?.clear?.()
-  travelerError.value = ''
+  travelerResetTouchedState()
 }
 
 function resetOperatorForm() {
@@ -409,7 +543,7 @@ function resetOperatorForm() {
   operatorForm.profileImagePreview = ''
   operatorForm.profileImageName = ''
   operatorUploadRef.value?.clear?.()
-  operatorError.value = ''
+  operatorResetTouchedState()
 }
 
 function resetForgotPasswordForm(key = currentForgotKey.value, options = {}) {
@@ -434,7 +568,6 @@ async function handleTravelerUploadChange({ file }) {
   if (!file?.file) {
     return
   }
-  travelerError.value = ''
   try {
     if (file.file.size > 4 * 1024 * 1024) {
       throw new Error('Profile image must be 4MB or smaller.')
@@ -447,8 +580,7 @@ async function handleTravelerUploadChange({ file }) {
     file.url = dataUrl
     await runPartialValidation(travelerFormRef.value, ['profileImageData'])
   } catch (error) {
-    travelerError.value =
-      error instanceof Error ? error.message : 'Unable to process the selected image.'
+    message.error(error instanceof Error ? error.message : 'Unable to process the selected image.')
     travelerForm.profileImageData = ''
     travelerForm.profileImagePreview = ''
     travelerForm.profileImageName = ''
@@ -467,7 +599,6 @@ async function handleOperatorUploadChange({ file }) {
   if (!file?.file) {
     return
   }
-  operatorError.value = ''
   try {
     if (file.file.size > 4 * 1024 * 1024) {
       throw new Error('Profile image must be 4MB or smaller.')
@@ -480,8 +611,7 @@ async function handleOperatorUploadChange({ file }) {
     file.url = dataUrl
     await runPartialValidation(operatorFormRef.value, ['profileImageData'])
   } catch (error) {
-    operatorError.value =
-      error instanceof Error ? error.message : 'Unable to process the selected image.'
+    message.error(error instanceof Error ? error.message : 'Unable to process the selected image.')
     operatorForm.profileImageData = ''
     operatorForm.profileImagePreview = ''
     operatorForm.profileImageName = ''
@@ -509,6 +639,19 @@ async function handleLogin(event) {
   if (event) event.preventDefault()
   loginError.value = ''
   loginSuccess.value = ''
+
+  // Mark all fields as touched to show validation
+  currentLoginMarkFieldTouched.value('email')
+  currentLoginMarkFieldTouched.value('password')
+
+  // Check composable validation first
+  const emailValid = currentLoginEmailValidation.value.status === 'success' || currentLoginEmailValidation.value.status === null
+  const passwordValid = currentLoginPasswordValidation.value.status === 'success' || currentLoginPasswordValidation.value.status === null
+
+  if (!emailValid || !passwordValid) {
+    message.error('Please resolve the highlighted fields before signing in.')
+    return
+  }
 
   const valid = await loginFormRef.value
     ?.validate()
@@ -550,6 +693,14 @@ async function handleLogin(event) {
       throw new Error(payload?.error || 'Invalid credentials')
     }
 
+    // Check if user account is suspended
+    const userStatus = payload.user.status || payload.user.Status
+    if (userStatus === 'Suspended') {
+      loggingIn.value = false
+      message.error('Your account has been suspended. Please contact customer service to reactivate your account.')
+      return
+    }
+
     emit('login-success', payload)
     clearLoginFormAfterSuccess(payload.accountType ?? payloadBody.accountType)
   } catch (error) {
@@ -561,7 +712,11 @@ async function handleLogin(event) {
 
 async function handleTravelerSignupSubmit(event) {
   if (event) event.preventDefault()
-  travelerError.value = ''
+
+  if (!travelerValidateBeforeSubmit()) {
+    message.error('Please resolve the highlighted fields before creating account.')
+    return
+  }
 
   const valid = await travelerFormRef.value
     ?.validate()
@@ -598,8 +753,9 @@ async function handleTravelerSignupSubmit(event) {
     resetTravelerForm()
     loginError.value = ''
     loginSuccess.value = 'Traveler account created. Please sign in.'
+    message.success('Traveler account created successfully!')
   } catch (error) {
-    travelerError.value = error instanceof Error ? error.message : 'Unexpected error'
+    message.error(error instanceof Error ? error.message : 'Unexpected error')
   } finally {
     travelerSubmitting.value = false
   }
@@ -607,7 +763,11 @@ async function handleTravelerSignupSubmit(event) {
 
 async function handleOperatorApplySubmit(event) {
   if (event) event.preventDefault()
-  operatorError.value = ''
+
+  if (!operatorValidateBeforeSubmit()) {
+    message.error('Please resolve the highlighted fields before submitting.')
+    return
+  }
 
   const valid = await operatorFormRef.value
     ?.validate()
@@ -636,8 +796,8 @@ async function handleOperatorApplySubmit(event) {
 
     if (!response.ok || !data?.ok) {
       const detail = data?.details ? ` (${data.details})` : ''
-      const message = data?.error || 'Unable to submit application'
-      throw new Error(`${message}${detail}`)
+      const errMsg = data?.error || 'Unable to submit application'
+      throw new Error(`${errMsg}${detail}`)
     }
 
     showBusinessApply.value = false
@@ -648,9 +808,10 @@ async function handleOperatorApplySubmit(event) {
     resetOperatorForm()
     loginError.value = ''
     loginSuccess.value = 'Operator application submitted. Our team will review it shortly.'
+    message.success('Application submitted successfully!')
   } catch (error) {
     console.error('Operator application failed', error)
-    operatorError.value = error instanceof Error ? error.message : 'Unexpected error'
+    message.error(error instanceof Error ? error.message : 'Unexpected error')
   } finally {
     operatorSubmitting.value = false
   }
@@ -681,9 +842,9 @@ async function runPartialValidation(formRef, fields) {
     allowed.size === 0
       ? undefined
       : (rule) => {
-          const key = rule?.key
-          return key ? allowed.has(key) : false
-        }
+        const key = rule?.key
+        return key ? allowed.has(key) : false
+      }
   try {
     await formRef.validate(undefined, shouldApply)
     return true
@@ -869,53 +1030,49 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
             {{ loginSuccess }}
           </n-alert>
 
-          <n-form
-            ref="loginFormRef"
-            :model="currentLoginForm"
-            :rules="loginRules"
-            size="large"
-            label-placement="top"
-            label-width="auto"
-            require-mark-placement="right-hanging"
-          >
-            <n-form-item :label="activeType.emailLabel" path="email">
-              <n-input
-                v-model:value="currentLoginForm.email"
-                type="text"
+          <n-form ref="loginFormRef" :model="currentLoginForm" :rules="loginRules" size="large" label-placement="top"
+            label-width="auto" require-mark-placement="right-hanging">
+            <n-form-item 
+              :label="activeType.emailLabel" 
+              path="email"
+              :validation-status="currentLoginEmailValidation.status || undefined"
+              :feedback="currentLoginEmailValidation.message"
+            >
+              <n-input 
+                v-model:value="currentLoginForm.email" 
+                type="text" 
                 :placeholder="activeType.emailPlaceholder"
-                clearable
-                size="large"
+                :status="currentLoginEmailValidation.status || undefined"
+                @blur="currentLoginMarkFieldTouched('email')"
+                clearable 
+                size="large" 
               />
             </n-form-item>
 
-            <n-form-item :label="activeType.passwordLabel" path="password">
-              <n-input
-                v-model:value="currentLoginForm.password"
-                type="password"
+            <n-form-item 
+              :label="activeType.passwordLabel" 
+              path="password"
+              :validation-status="currentLoginPasswordValidation.status || undefined"
+              :feedback="currentLoginPasswordValidation.message"
+            >
+              <n-input 
+                v-model:value="currentLoginForm.password" 
+                type="password" 
                 show-password-on="mousedown"
-                placeholder="Enter password"
-                size="large"
+                placeholder="Enter password" 
+                :status="currentLoginPasswordValidation.status || undefined"
+                @blur="currentLoginMarkFieldTouched('password')"
+                size="large" 
               />
             </n-form-item>
 
             <n-form-item class="form-actions">
-              <n-button
-                type="primary"
-                size="medium"
-                round
-                :loading="loggingIn"
-                :disabled="loggingIn"
-                @click="handleLogin"
-              >
+              <n-button type="primary" size="medium" round :loading="loggingIn" :disabled="loggingIn"
+                @click="handleLogin">
                 {{ activeType.submitLabel }}
               </n-button>
-              <n-button
-                v-if="activeType.help?.label"
-                text
-                type="primary"
-                size="medium"
-                @click.prevent="openForgotPasswordModal(selectedAccountType)"
-              >
+              <n-button v-if="activeType.help?.label" text type="primary" size="medium"
+                @click.prevent="openForgotPasswordModal(selectedAccountType)">
                 {{ activeType.help.label }}
               </n-button>
             </n-form-item>
@@ -926,61 +1083,98 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
       <template #footer>
         <div v-if="activeType.footer" class="form-footer">
           <span v-if="activeType.footer.text">{{ activeType.footer.text }}</span>
-          <n-button
-            v-if="activeType.footer.actionLabel"
-            text
-            type="primary"
-            size="small"
-            @click="selectedType === 'traveler' ? (showTravelerSignup = true) : (showBusinessApply = true)"
-          >
+          <n-button v-if="activeType.footer.actionLabel" text type="primary" size="small"
+            @click="selectedType === 'traveler' ? (showTravelerSignup = true) : (showBusinessApply = true)">
             {{ activeType.footer.actionLabel }}
           </n-button>
         </div>
       </template>
     </n-card>
 
-    <n-modal
-      v-model:show="showTravelerSignup"
-      preset="card"
-      title="Create traveler account"
-      :style="smallDialogCardStyle"
-      :header-style="dialogHeaderStyle"
-      :content-style="dialogContentStyle"
-      :footer-style="dialogFooterStyle"
-    >
-      <n-alert v-if="travelerError" type="error" closable strong @close="travelerError = ''">
-        {{ travelerError }}
-      </n-alert>
-      <n-form
-        ref="travelerFormRef"
-        :model="travelerForm"
-        :rules="travelerRules"
-        label-placement="top"
-        label-width="auto"
-        size="medium"
-      >
-        <n-form-item label="Full name" path="fullName">
-          <n-input v-model:value="travelerForm.fullName" type="text" placeholder="Your name" />
+    <n-modal v-model:show="showTravelerSignup" preset="card" title="Create traveler account"
+      :style="smallDialogCardStyle" :header-style="dialogHeaderStyle" :content-style="dialogContentStyle"
+      :footer-style="dialogFooterStyle">
+      <n-form ref="travelerFormRef" :model="travelerForm" :rules="travelerRules" label-placement="top"
+        label-width="auto" size="medium">
+        <n-form-item :validation-status="travelerNameValidation.status || undefined"
+          :feedback="travelerNameValidation.message">
+          <template #label>
+            Full name
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.travelerFullName }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="travelerForm.fullName" type="text" placeholder="Your name"
+            :status="travelerNameValidation.status || undefined" @blur="travelerMarkFieldTouched('fullName')" />
         </n-form-item>
-        <n-form-item label="Email address" path="email">
-          <n-input v-model:value="travelerForm.email" type="text" placeholder="traveler@email.com" />
+        <n-form-item :validation-status="travelerEmailValidation.status || undefined"
+          :feedback="travelerEmailValidation.message">
+          <template #label>
+            Email address
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.travelerEmail }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="travelerForm.email" type="text" placeholder="traveler@email.com"
+            :status="travelerEmailValidation.status || undefined" @blur="travelerMarkFieldTouched('email')" />
         </n-form-item>
-        <n-form-item label="Password" path="password">
-          <n-input v-model:value="travelerForm.password" type="password" placeholder="Create password" />
+        <n-form-item :validation-status="travelerPasswordValidation.status || undefined"
+          :feedback="travelerPasswordValidation.message">
+          <template #label>
+            Password
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.password }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="travelerForm.password" type="password" placeholder="Create password"
+            :status="travelerPasswordValidation.status || undefined" @blur="travelerMarkFieldTouched('password')" />
         </n-form-item>
-        <n-form-item label="Confirm password" path="confirmPassword">
-          <n-input v-model:value="travelerForm.confirmPassword" type="password" placeholder="Re-enter password" />
+        <n-form-item :validation-status="travelerConfirmValidation.status || undefined"
+          :feedback="travelerConfirmValidation.message">
+          <template #label>
+            Confirm password
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.confirmPassword }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="travelerForm.confirmPassword" type="password" placeholder="Re-enter password"
+            :status="travelerConfirmValidation.status || undefined"
+            @blur="travelerMarkFieldTouched('confirmPassword')" />
         </n-form-item>
-        <n-form-item label="Profile photo" path="profileImageData" class="signup-upload">
-          <n-upload
-            ref="travelerUploadRef"
-            list-type="image-card"
-            :default-upload="false"
-            :accept="imageAccept"
-            :max="1"
-            @change="handleTravelerUploadChange"
-            @remove="handleTravelerUploadRemove"
-          >
+        <n-form-item class="signup-upload">
+          <template #label>
+            Profile photo
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.profilePhoto }}
+            </n-tooltip>
+          </template>
+          <n-upload ref="travelerUploadRef" list-type="image-card" :default-upload="false" :accept="imageAccept"
+            :max="1" @change="handleTravelerUploadChange" @remove="handleTravelerUploadRemove">
             Upload
           </n-upload>
           <n-text depth="3" class="upload-tip">
@@ -997,55 +1191,123 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
       </n-form>
     </n-modal>
 
-    <n-modal
-      v-model:show="showBusinessApply"
-      preset="card"
-      title="Apply as a business partner"
-      :style="businessDialogCardStyle"
-      :header-style="dialogHeaderStyle"
-      :content-style="businessDialogContentStyle"
-      :footer-style="dialogFooterStyle"
-    >
-      <n-alert v-if="operatorError" type="error" closable strong @close="operatorError = ''">
-        {{ operatorError }}
-      </n-alert>
-      <n-form
-        ref="operatorFormRef"
-        :model="operatorForm"
-        :rules="operatorRules"
-        label-placement="top"
-        label-width="auto"
-        size="medium"
-        class="business-signup-form"
-      >
-        <n-form-item label="Business name" path="companyName">
-          <n-input v-model:value="operatorForm.companyName" type="text" placeholder="Company or organisation" />
+    <n-modal v-model:show="showBusinessApply" preset="card" title="Apply as a business partner"
+      :style="businessDialogCardStyle" :header-style="dialogHeaderStyle" :content-style="businessDialogContentStyle"
+      :footer-style="dialogFooterStyle">
+      <n-form ref="operatorFormRef" :model="operatorForm" :rules="operatorRules" label-placement="top"
+        label-width="auto" size="medium" class="business-signup-form">
+        <n-form-item :validation-status="operatorCompanyNameValidation.status || undefined"
+          :feedback="operatorCompanyNameValidation.message">
+          <template #label>
+            Business name
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.operatorCompanyName }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="operatorForm.companyName" type="text" placeholder="Company or organisation"
+            :status="operatorCompanyNameValidation.status || undefined"
+            @blur="operatorMarkFieldTouched('companyName')" />
         </n-form-item>
-        <n-form-item label="Contact person" path="contactPerson">
-          <n-input v-model:value="operatorForm.contactPerson" type="text" placeholder="Your name" />
+        <n-form-item :validation-status="operatorNameValidation.status || undefined"
+          :feedback="operatorNameValidation.message">
+          <template #label>
+            Full name
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.operatorFullName }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="operatorForm.contactPerson" type="text" placeholder="Your name"
+            :status="operatorNameValidation.status || undefined" @blur="operatorMarkFieldTouched('contactPerson')" />
         </n-form-item>
-        <n-form-item label="Business email" path="email">
-          <n-input v-model:value="operatorForm.email" type="text" placeholder="contact@yourcompany.my" />
+        <n-form-item :validation-status="operatorEmailValidation.status || undefined"
+          :feedback="operatorEmailValidation.message">
+          <template #label>
+            Business email
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.operatorEmail }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="operatorForm.email" type="text" placeholder="contact@yourcompany.my"
+            :status="operatorEmailValidation.status || undefined" @blur="operatorMarkFieldTouched('email')" />
         </n-form-item>
-        <n-form-item label="Phone number" path="phone">
-          <n-input v-model:value="operatorForm.phone" type="text" placeholder="+60 12-345 6789" />
+        <n-form-item :validation-status="operatorPhoneValidation.status || undefined"
+          :feedback="operatorPhoneValidation.message">
+          <template #label>
+            Phone number
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.operatorPhone }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="operatorForm.phone" type="text" placeholder="+60 12-345 6789"
+            :status="operatorPhoneValidation.status || undefined" @blur="operatorMarkFieldTouched('phone')" />
         </n-form-item>
-        <n-form-item label="Password" path="password">
-          <n-input v-model:value="operatorForm.password" type="password" placeholder="Create password" />
+        <n-form-item :validation-status="operatorPasswordValidation.status || undefined"
+          :feedback="operatorPasswordValidation.message">
+          <template #label>
+            Password
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.password }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="operatorForm.password" type="password" placeholder="Create password"
+            :status="operatorPasswordValidation.status || undefined" @blur="operatorMarkFieldTouched('password')" />
         </n-form-item>
-        <n-form-item label="Confirm password" path="confirmPassword">
-          <n-input v-model:value="operatorForm.confirmPassword" type="password" placeholder="Re-enter password" />
+        <n-form-item :validation-status="operatorConfirmValidation.status || undefined"
+          :feedback="operatorConfirmValidation.message">
+          <template #label>
+            Confirm password
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.confirmPassword }}
+            </n-tooltip>
+          </template>
+          <n-input v-model:value="operatorForm.confirmPassword" type="password" placeholder="Re-enter password"
+            :status="operatorConfirmValidation.status || undefined"
+            @blur="operatorMarkFieldTouched('confirmPassword')" />
         </n-form-item>
-        <n-form-item label="Profile photo" path="profileImageData" class="signup-upload">
-          <n-upload
-            ref="operatorUploadRef"
-            list-type="image-card"
-            :default-upload="false"
-            :accept="imageAccept"
-            :max="1"
-            @change="handleOperatorUploadChange"
-            @remove="handleOperatorUploadRemove"
-          >
+        <n-form-item class="signup-upload">
+          <template #label>
+            Profile photo
+            <n-tooltip :show-arrow="false">
+              <template #trigger>
+                <n-icon size="16" class="form-hint-icon">
+                  <InformationCircleOutline />
+                </n-icon>
+              </template>
+              {{ fieldHints.profilePhoto }}
+            </n-tooltip>
+          </template>
+          <n-upload ref="operatorUploadRef" list-type="image-card" :default-upload="false" :accept="imageAccept"
+            :max="1" @change="handleOperatorUploadChange" @remove="handleOperatorUploadRemove">
             Upload
           </n-upload>
           <n-text depth="3" class="upload-tip">
@@ -1063,115 +1325,57 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
     </n-modal>
   </section>
 
-  <n-modal
-    v-model:show="forgotPasswordModal.visible"
-    preset="card"
-    :title="forgotPasswordTitle"
-    :style="dialogCardStyle"
-    :header-style="dialogHeaderStyle"
-    :content-style="dialogContentStyle"
-    :footer-style="dialogFooterStyle"
-  >
-    <n-alert
-      v-if="forgotPasswordModal.error"
-      type="error"
-      closable
-      strong
-      @close="forgotPasswordModal.error = ''"
-    >
+  <n-modal v-model:show="forgotPasswordModal.visible" preset="card" :title="forgotPasswordTitle"
+    :style="dialogCardStyle" :header-style="dialogHeaderStyle" :content-style="dialogContentStyle"
+    :footer-style="dialogFooterStyle">
+    <n-alert v-if="forgotPasswordModal.error" type="error" closable strong @close="forgotPasswordModal.error = ''">
       {{ forgotPasswordModal.error }}
     </n-alert>
-    <n-alert
-      v-if="forgotPasswordModal.success"
-      type="success"
-      closable
-      strong
-      @close="forgotPasswordModal.success = ''"
-    >
+    <n-alert v-if="forgotPasswordModal.success" type="success" closable strong
+      @close="forgotPasswordModal.success = ''">
       {{ forgotPasswordModal.success }}
     </n-alert>
-    <n-form
-      :model="currentForgotForm"
-      :rules="currentForgotRules"
-      :show-require-mark="false"
-      size="large"
-      label-placement="top"
-      :ref="setCurrentForgotFormRef"
-    >
+    <n-form :model="currentForgotForm" :rules="currentForgotRules" :show-require-mark="false" size="large"
+      label-placement="top" :ref="setCurrentForgotFormRef">
       <n-form-item label="Email" path="email">
         <div class="forgot-email-row">
-          <n-input
-            v-model:value="currentForgotForm.email"
-            type="text"
-            placeholder="account@email.com"
-          />
-          <n-button
-            secondary
-            type="primary"
-            :loading="forgotPasswordModal.otpSending"
-            @click="handleForgotPasswordSendOtp"
-          >
+          <n-input v-model:value="currentForgotForm.email" type="text" placeholder="account@email.com" />
+          <n-button secondary type="primary" :loading="forgotPasswordModal.otpSending"
+            @click="handleForgotPasswordSendOtp">
             {{ currentForgotForm.requestToken ? 'Resend code' : 'Send code' }}
           </n-button>
         </div>
       </n-form-item>
       <n-form-item label="Email verification code" path="otp">
         <div class="otp-input-row">
-          <n-input
-            v-model:value="currentForgotForm.otp"
-            type="text"
-            maxlength="6"
-            placeholder="6-digit code"
-            :disabled="!canVerifyForgotOtp"
-          />
-          <n-button
-            tertiary
-            type="primary"
-            :disabled="!canVerifyForgotOtp"
-            :loading="forgotPasswordModal.otpVerifying"
-            @click="handleForgotPasswordVerifyOtp"
-          >
+          <n-input v-model:value="currentForgotForm.otp" type="text" maxlength="6" placeholder="6-digit code"
+            :disabled="!canVerifyForgotOtp" />
+          <n-button tertiary type="primary" :disabled="!canVerifyForgotOtp" :loading="forgotPasswordModal.otpVerifying"
+            @click="handleForgotPasswordVerifyOtp">
             Verify code
           </n-button>
         </div>
-        <small
-          v-if="currentForgotForm.otpVerified"
-          class="otp-status success"
-        >
+        <small v-if="currentForgotForm.otpVerified" class="otp-status success">
           Code verified. You can now update your password.
         </small>
-        <small
-          v-else-if="canVerifyForgotOtp"
-          class="otp-status hint"
-        >
+        <small v-else-if="canVerifyForgotOtp" class="otp-status hint">
           Enter the code we emailed to {{ currentForgotForm.email }}.
         </small>
       </n-form-item>
       <n-form-item label="New password" path="password">
-        <n-input
-          v-model:value="currentForgotForm.password"
-          type="password"
-          :disabled="!canSubmitForgotPassword"
-        />
+        <n-input v-model:value="currentForgotForm.password" type="password" :disabled="!canSubmitForgotPassword" />
       </n-form-item>
       <n-form-item label="Confirm password" path="confirmPassword">
-        <n-input
-          v-model:value="currentForgotForm.confirmPassword"
-          type="password"
-          :disabled="!canSubmitForgotPassword"
-        />
+        <n-input v-model:value="currentForgotForm.confirmPassword" type="password"
+          :disabled="!canSubmitForgotPassword" />
       </n-form-item>
     </n-form>
     <n-space justify="end">
       <n-button quaternary type="primary" @click="forgotPasswordModal.visible = false">
         Cancel
       </n-button>
-      <n-button
-        type="primary"
-        :loading="forgotPasswordModal.loading"
-        :disabled="!canSubmitForgotPassword"
-        @click="handleForgotPasswordReset"
-      >
+      <n-button type="primary" :loading="forgotPasswordModal.loading" :disabled="!canSubmitForgotPassword"
+        @click="handleForgotPasswordReset">
         Reset password
       </n-button>
     </n-space>
@@ -1209,7 +1413,7 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
 
 .login-card {
   max-width: 760px;
-  margin-inline: 0;
+  margin-inline: auto;
   border-radius: 28px;
   box-shadow: 0 28px 54px rgba(9, 54, 34, 0.08);
   overflow: hidden;
@@ -1239,11 +1443,15 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
 }
 
 .form-actions {
+  padding-top: 0.5rem;
+}
+
+.form-actions :deep(.n-form-item-blank) {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
-  flex-wrap: wrap;
-  padding-top: 0.5rem;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
 }
 
 .form-footer {
@@ -1311,6 +1519,17 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
   border-radius: 18px;
 }
 
+.form-hint-icon {
+  margin-left: 6px;
+  cursor: help;
+  color: var(--n-text-color-3, #94a3b8);
+  vertical-align: middle;
+}
+
+.form-hint-icon:hover {
+  color: var(--n-primary-color, #18a058);
+}
+
 .forgot-email-row,
 .otp-input-row {
   display: flex;
@@ -1364,5 +1583,10 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
   .hero-copy {
     max-width: none;
   }
+}
+
+/* Success validation feedback styling */
+:deep(.n-form-item-feedback-wrapper .n-form-item-feedback--success) {
+  color: #52c41a;
 }
 </style>

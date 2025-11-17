@@ -114,18 +114,20 @@ function getUsers(PDO $pdo): void
          ORDER BY t.travelerID DESC'
     );
     while ($row = $travelerStmt->fetch()) {
+        $accountStatus = $row['accountStatus'] ?? 'Pending';
+        $isSuspended = $accountStatus === 'Suspended';
         $users[] = [
             'id' => (int) $row['travelerID'],
             'type' => 'Traveler',
             'name' => $row['fullName'] ?? 'Traveler',
             'email' => $row['email'] ?? '',
             'role' => 'Traveler',
-            'status' => $row['accountStatus'] ?? 'Pending',
+            'status' => $accountStatus,
             'phone' => $row['contactNumber'] ?? '',
             'businessType' => null,
             'lastLoginAt' => $row['lastLoginAt'] ?? null,
             'lastLogoutAt' => $row['lastLogoutAt'] ?? null,
-            'activeSession' => isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null,
+            'activeSession' => $isSuspended ? false : (isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null),
             'lastIpAddress' => $row['lastIpAddress'] ?? null,
             'lastDeviceInfo' => $row['lastDeviceInfo'] ?? null,
             'sessionHistory' => fetchSessionHistory($travelerHistoryStmt, (int) $row['travelerID']),
@@ -163,18 +165,20 @@ function getUsers(PDO $pdo): void
          ORDER BY o.operatorID DESC'
     );
     while ($row = $operatorStmt->fetch()) {
+        $accountStatus = $row['accountStatus'] ?? 'Pending';
+        $isSuspended = $accountStatus === 'Suspended';
         $users[] = [
             'id' => (int) $row['operatorID'],
             'type' => 'Operator',
             'name' => $row['fullName'] ?? 'Operator',
             'email' => $row['email'] ?? '',
             'role' => 'Operator',
-            'status' => $row['accountStatus'] ?? 'Pending',
+            'status' => $accountStatus,
             'phone' => $row['contactNumber'] ?? '',
             'businessType' => $row['businessType'] ?? '',
             'lastLoginAt' => $row['lastLoginAt'] ?? null,
             'lastLogoutAt' => $row['lastLogoutAt'] ?? null,
-            'activeSession' => isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null,
+            'activeSession' => $isSuspended ? false : (isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null),
             'lastIpAddress' => $row['lastIpAddress'] ?? null,
             'lastDeviceInfo' => $row['lastDeviceInfo'] ?? null,
             'sessionHistory' => fetchSessionHistory($operatorHistoryStmt, (int) $row['operatorID']),
@@ -212,18 +216,20 @@ function getUsers(PDO $pdo): void
          ORDER BY a.adminID DESC'
     );
     while ($row = $adminStmt->fetch()) {
+        $accountStatus = $row['status'] ?? 'Active';
+        $isSuspended = $accountStatus === 'Suspended';
         $users[] = [
             'id' => (int) $row['adminID'],
             'type' => 'Admin',
             'name' => $row['fullName'] ?? 'Administrator',
             'email' => $row['email'] ?? '',
             'role' => $row['roleName'] ?? 'Admin',
-            'status' => $row['status'] ?? 'Active',
+            'status' => $accountStatus,
             'phone' => null,
             'businessType' => null,
             'lastLoginAt' => $row['lastLoginAt'] ?? null,
             'lastLogoutAt' => $row['lastLogoutAt'] ?? null,
-            'activeSession' => isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null,
+            'activeSession' => $isSuspended ? false : (isset($row['lastIsActive']) ? ((int) $row['lastIsActive'] === 1) : null),
             'lastIpAddress' => $row['lastIpAddress'] ?? null,
             'lastDeviceInfo' => $row['lastDeviceInfo'] ?? null,
             'sessionHistory' => fetchSessionHistory($adminHistoryStmt, (int) $row['adminID']),
@@ -333,6 +339,21 @@ function saveUser(PDO $pdo): void
                 ':contactNumber' => $phone !== '' ? $phone : null,
                 ':id' => $id,
             ]);
+            
+            // Close all active sessions when account is suspended
+            if ($status === 'Suspended' && $currentStatus !== 'Suspended') {
+                $meta = get_login_table_meta($pdo, 'TravelerLoginLog');
+                if ($meta['has_is_active']) {
+                    if ($meta['has_logout_timestamp']) {
+                        $pdo->prepare('UPDATE TravelerLoginLog SET isActive = 0, logoutTimestamp = NOW() WHERE travelerID = :id AND isActive = 1')
+                            ->execute([':id' => $id]);
+                    } else {
+                        $pdo->prepare('UPDATE TravelerLoginLog SET isActive = 0 WHERE travelerID = :id AND isActive = 1')
+                            ->execute([':id' => $id]);
+                    }
+                }
+            }
+            
             if ($passwordInput !== '') {
                 if (strlen($passwordInput) < 6) {
                     http_response_code(400);
@@ -400,6 +421,21 @@ function saveUser(PDO $pdo): void
                 ':businessType' => $businessType !== '' ? $businessType : null,
                 ':id' => $id,
             ]);
+            
+            // Close all active sessions when account is suspended
+            if ($status === 'Suspended' && $currentStatus !== 'Suspended') {
+                $meta = get_login_table_meta($pdo, 'OperatorLoginLog');
+                if ($meta['has_is_active']) {
+                    if ($meta['has_logout_timestamp']) {
+                        $pdo->prepare('UPDATE OperatorLoginLog SET isActive = 0, logoutTimestamp = NOW() WHERE operatorID = :id AND isActive = 1')
+                            ->execute([':id' => $id]);
+                    } else {
+                        $pdo->prepare('UPDATE OperatorLoginLog SET isActive = 0 WHERE operatorID = :id AND isActive = 1')
+                            ->execute([':id' => $id]);
+                    }
+                }
+            }
+            
             if ($passwordInput !== '') {
                 if (strlen($passwordInput) < 6) {
                     http_response_code(400);
@@ -417,6 +453,15 @@ function saveUser(PDO $pdo): void
             if ($name === '' || $email === '' || $status === '' || !$roleName) {
                 http_response_code(400);
                 echo json_encode(['error' => 'Name, email, status, and role are required']);
+                return;
+            }
+
+            $currentStatusStmt = $pdo->prepare('SELECT status FROM Administrator WHERE adminID = :id');
+            $currentStatusStmt->execute([':id' => $id]);
+            $currentStatus = $currentStatusStmt->fetchColumn();
+            if ($currentStatus === false) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Administrator not found']);
                 return;
             }
 
@@ -439,6 +484,20 @@ function saveUser(PDO $pdo): void
                 ':roleID' => $roleID,
                 ':id' => $id,
             ]);
+            
+            // Close all active sessions when account is suspended
+            if ($status === 'Suspended' && $currentStatus !== 'Suspended') {
+                $meta = get_login_table_meta($pdo, 'AdminLoginLog');
+                if ($meta['has_is_active']) {
+                    if ($meta['has_logout_timestamp']) {
+                        $pdo->prepare('UPDATE AdminLoginLog SET isActive = 0, logoutTimestamp = NOW() WHERE adminID = :id AND isActive = 1')
+                            ->execute([':id' => $id]);
+                    } else {
+                        $pdo->prepare('UPDATE AdminLoginLog SET isActive = 0 WHERE adminID = :id AND isActive = 1')
+                            ->execute([':id' => $id]);
+                    }
+                }
+            }
 
             echo json_encode(['ok' => true]);
             return;

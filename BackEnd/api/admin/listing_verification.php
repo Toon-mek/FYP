@@ -446,7 +446,7 @@ function formatDateString(?string $value): ?string
 
     try {
         $dt = new DateTimeImmutable($value);
-        return $dt->format('Y-m-d');
+        return $dt->format('Y-m-d H:i');
     } catch (Throwable) {
         return null;
     }

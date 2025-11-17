@@ -11,6 +11,7 @@ import {
   NUpload,
 } from 'naive-ui'
 import { extractProfileImage } from '../utils/profileImage.js'
+import { useAccountFormValidation } from '../composables/useAccountFormValidation.js'
 
 const props = defineProps({
   modelValue: {
@@ -37,7 +38,6 @@ const show = computed({
 const base = reactive({
   fullName: '',
   email: '',
-  username: '',
   phone: '',
   profileImagePath: '',
   profileImageUrl: '',
@@ -46,7 +46,6 @@ const base = reactive({
 const form = reactive({
   fullName: '',
   email: '',
-  username: '',
   phone: '',
   currentPassword: '',
   passwordLastDigit: '',
@@ -57,6 +56,31 @@ const form = reactive({
   profileImageName: '',
   removeProfileImage: false,
 })
+
+// Validation composable
+const {
+  nameValidation,
+  emailValidation,
+  phoneValidation,
+  passwordValidation,
+  confirmValidation: confirmPasswordValidation,
+  markFieldTouched,
+} = useAccountFormValidation(
+  form,
+  ref(null),
+  {
+    nameField: 'fullName',
+    phoneField: 'phone',
+    passwordField: 'newPassword',
+    confirmPasswordField: 'confirmPassword',
+    requireConfirm: true,
+    accountTypeResolver: () => 'Traveler',
+    includeName: true,
+    includePhone: true,
+    includeCompanyName: false,
+    includePassword: true,
+  }
+)
 
 const passwordState = reactive({
   verified: false,
@@ -165,14 +189,12 @@ function syncForm(profile) {
   const { relative, url } = resolveProfileImageFromSource(source)
   base.fullName = source.fullName ?? ''
   base.email = source.email ?? ''
-  base.username = source.username ?? ''
   base.phone = source.contactNumber ?? source.phone ?? ''
   base.profileImagePath = relative
   base.profileImageUrl = url
 
   form.fullName = base.fullName
   form.email = base.email
-  form.username = base.username
   form.phone = base.phone
   form.profileImagePreview = base.profileImageUrl
   form.profileImageData = ''
@@ -194,6 +216,10 @@ watch(
 
 watch(show, (visible) => {
   if (!visible) {
+    // Reset form to original base values when modal closes
+    form.fullName = base.fullName
+    form.email = base.email
+    form.phone = base.phone
     form.newPassword = ''
     form.confirmPassword = ''
     form.profileImagePreview = base.profileImageUrl
@@ -209,7 +235,7 @@ const profileHasPreview = computed(() => Boolean(form.profileImagePreview))
 const hasBaseProfileImage = computed(() => Boolean(base.profileImageUrl))
 const hasNewProfileImage = computed(() => Boolean(form.profileImageData))
 const profileInitials = computed(() => {
-  const source = (form.fullName || base.fullName || form.username || '').trim()
+  const source = (form.fullName || base.fullName || '').trim()
   return source ? source[0]?.toUpperCase() : ''
 })
 
@@ -372,17 +398,23 @@ function switchToCurrentPassword() {
 function validate() {
   resetErrors()
   const errors = {}
-  if (!form.fullName || !form.fullName.trim()) {
-    errors.fullName = 'Name is required.'
+  
+  // Mark all fields as touched to show validation
+  markFieldTouched('fullName')
+  markFieldTouched('email')
+  markFieldTouched('phone')
+  
+  // Check composable validations
+  if (nameValidation.value.status === 'error') {
+    errors.fullName = nameValidation.value.message
   }
-  if (!form.email || !form.email.trim()) {
-    errors.email = 'Email is required.'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
-    errors.email = 'Enter a valid email.'
+  if (emailValidation.value.status === 'error') {
+    errors.email = emailValidation.value.message
   }
-  if (!form.username || !form.username.trim()) {
-    errors.username = 'Username is required.'
+  if (phoneValidation.value.status === 'error') {
+    errors.phone = phoneValidation.value.message
   }
+  
   if (form.newPassword || form.confirmPassword) {
     if (!passwordState.verified) {
       errors.currentPassword =
@@ -397,11 +429,17 @@ function validate() {
           'Enter the last digit of your password to continue.'
       }
     }
-    if (form.newPassword.length < 6) {
-      errors.newPassword = 'Password must be at least 6 characters.'
+    
+    // Mark password fields as touched to show validation
+    markFieldTouched('newPassword')
+    markFieldTouched('confirmPassword')
+    
+    // Check password validation from composable
+    if (passwordValidation.value.status === 'error') {
+      errors.newPassword = passwordValidation.value.message
     }
-    if (form.newPassword !== form.confirmPassword) {
-      errors.confirmPassword = 'Passwords do not match.'
+    if (confirmPasswordValidation.value.status === 'error') {
+      errors.confirmPassword = confirmPasswordValidation.value.message
     }
   }
 
@@ -416,9 +454,6 @@ function collectPayload() {
   }
   if (form.email.trim() !== base.email) {
     payload.email = form.email.trim()
-  }
-  if (form.username.trim() !== base.username) {
-    payload.username = form.username.trim()
   }
   if ((form.phone || '') !== (base.phone || '')) {
     payload.contactNumber = form.phone.trim()
@@ -479,20 +514,43 @@ function handleSubmit() {
         size="small"
         :model="form"
       >
-        <n-form-item label="Full name" :feedback="formErrors.fullName" :validation-status="formErrors.fullName ? 'error' : undefined">
-          <n-input v-model:value="form.fullName" placeholder="Enter full name" />
+        <n-form-item 
+          label="Full name" 
+          :feedback="nameValidation.message"
+          :validation-status="nameValidation.status || undefined"
+        >
+          <n-input 
+            v-model:value="form.fullName" 
+            placeholder="Enter full name"
+            :status="nameValidation.status || undefined"
+            @blur="markFieldTouched('fullName')"
+          />
         </n-form-item>
 
-        <n-form-item label="Email address" :feedback="formErrors.email" :validation-status="formErrors.email ? 'error' : undefined">
-          <n-input v-model:value="form.email" placeholder="traveler@email.com" />
+        <n-form-item 
+          label="Email address" 
+          :feedback="emailValidation.message"
+          :validation-status="emailValidation.status || undefined"
+        >
+          <n-input 
+            v-model:value="form.email" 
+            placeholder="traveler@email.com"
+            :status="emailValidation.status || undefined"
+            @blur="markFieldTouched('email')"
+          />
         </n-form-item>
 
-        <n-form-item label="Username" :feedback="formErrors.username" :validation-status="formErrors.username ? 'error' : undefined">
-          <n-input v-model:value="form.username" placeholder="traveler username" />
-        </n-form-item>
-
-        <n-form-item label="Phone (optional)">
-          <n-input v-model:value="form.phone" placeholder="+60 12-345 6789" />
+        <n-form-item 
+          label="Phone number" 
+          :feedback="phoneValidation.message"
+          :validation-status="phoneValidation.status || undefined"
+        >
+          <n-input 
+            v-model:value="form.phone" 
+            placeholder="+60 12-345 6789"
+            :status="phoneValidation.status || undefined"
+            @blur="markFieldTouched('phone')"
+          />
         </n-form-item>
 
         <n-form-item label="Profile photo">
@@ -619,12 +677,34 @@ function handleSubmit() {
           </n-space>
         </n-form-item>
 
-        <n-form-item label="New password" :feedback="formErrors.newPassword" :validation-status="formErrors.newPassword ? 'error' : undefined">
-          <n-input v-model:value="form.newPassword" type="password" placeholder="Leave blank to keep current password" :disabled="!canEditPassword" />
+        <n-form-item 
+          label="New password" 
+          :feedback="passwordValidation.message" 
+          :validation-status="passwordValidation.status || undefined"
+        >
+          <n-input 
+            v-model:value="form.newPassword" 
+            type="password" 
+            placeholder="Leave blank to keep current password" 
+            :disabled="!canEditPassword"
+            :status="passwordValidation.status || undefined"
+            @blur="markFieldTouched('newPassword')"
+          />
         </n-form-item>
 
-        <n-form-item label="Confirm password" :feedback="formErrors.confirmPassword" :validation-status="formErrors.confirmPassword ? 'error' : undefined">
-          <n-input v-model:value="form.confirmPassword" type="password" placeholder="Re-enter new password" :disabled="!canEditPassword" />
+        <n-form-item 
+          label="Confirm password" 
+          :feedback="confirmPasswordValidation.message" 
+          :validation-status="confirmPasswordValidation.status || undefined"
+        >
+          <n-input 
+            v-model:value="form.confirmPassword" 
+            type="password" 
+            placeholder="Re-enter new password" 
+            :disabled="!canEditPassword"
+            :status="confirmPasswordValidation.status || undefined"
+            @blur="markFieldTouched('confirmPassword')"
+          />
         </n-form-item>
       </n-form>
 
@@ -729,6 +809,10 @@ function handleSubmit() {
 .edit-profile-form :deep(.password-actions > span) {
   flex: 1;
   text-align: right;
+}
+
+.edit-profile-form :deep(.n-form-item-feedback-wrapper .n-form-item-feedback--success) {
+  color: #52c41a;
 }
 
 .edit-profile-actions {
