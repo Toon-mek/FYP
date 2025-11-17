@@ -175,12 +175,24 @@ export function buildStaticMapUrl({ center = '4.2105,101.9758', zoom = 5, marker
   return `${MAPS_STATIC_ENDPOINT}?${params.toString()}`
 }
 
-export async function reverseGeocode(lat, lng) {
+export async function reverseGeocode(lat, lng, options = {}) {
   const params = new URLSearchParams({
     action: 'reverse_geocode',
     lat: String(lat),
     lng: String(lng),
   })
+  const language = typeof options.language === 'string' ? options.language.trim() : ''
+  if (language) {
+    params.set('language', language)
+  }
+  const region = typeof options.region === 'string' ? options.region.trim() : ''
+  if (region) {
+    params.set('region', region)
+  }
+  const resultType = typeof options.resultType === 'string' ? options.resultType.trim() : ''
+  if (resultType) {
+    params.set('result_type', resultType)
+  }
   const response = await fetch(`${GOOGLE_PLACES_ENDPOINT}?${params.toString()}`)
   return handleResponse(response)
 }

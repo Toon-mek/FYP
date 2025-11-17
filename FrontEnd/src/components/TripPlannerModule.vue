@@ -27,6 +27,9 @@ import {
   savePlacesPackage,
 } from '../services/tripPlannerService.js'
 
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+const NETWORK_POSITION_ENDPOINT = `${API_BASE.replace(/\/$/, '')}/external/network_position.php`
+
 const DEFAULT_ORIGIN = ''
 const TRENDING_DESTINATIONS = [
   { label: 'Kuala Lumpur', secondary: 'Malaysia', lat: 3.139, lng: 101.6869 },
@@ -90,6 +93,10 @@ const DESTINATION_SYNONYMS = {
   'tioman island': ['tioman island'],
   'perhentian islands': ['perhentian islands'],
 }
+const MALAYSIA_BOUNDING_BOXES = [
+  { latMin: 0.6, latMax: 7.8, lngMin: 99, lngMax: 105.6 },
+  { latMin: -1.5, latMax: 7.8, lngMin: 109, lngMax: 120.8 },
+]
 
 function normaliseDestinationKey(raw) {
   if (!raw) return null
@@ -342,6 +349,24 @@ const calendarPopoverVisible = ref(false)
 const calendarDraft = ref(
   heroForm.dateRange && heroForm.dateRange.length === 2 ? [...heroForm.dateRange] : null,
 )
+const calendarQuickOptions = Object.freeze([
+  { label: '+ 1 day', days: 1 },
+  { label: '+ 2 days', days: 2 },
+  { label: '+ 3 days', days: 3 },
+  { label: '+ 7 days', days: 7 },
+])
+const HERO_DATE_PLACEHOLDER = 'Check-in date - Check-out date'
+const CALENDAR_SUMMARY_PLACEHOLDER = 'Select your check-in and check-out dates'
+const heroDateRangeNormalized = computed(() => normaliseCalendarRange(heroForm.dateRange))
+const calendarDraftRange = computed(() => normaliseCalendarRange(calendarDraft.value))
+const calendarMinSelectableTs = ref(startOfDayTimestamp())
+const isCalendarDateDisabled = (ts) => {
+  const timestamp = coerceMidnightTimestamp(ts)
+  if (timestamp === null) {
+    return true
+  }
+  return timestamp < calendarMinSelectableTs.value
+}
 const plannerActivated = ref(false)
 const showItineraryBoard = ref(false)
 const latestTravelStats = ref(null)
@@ -439,17 +464,15 @@ watch(
 watch(
   () => heroForm.dateRange,
   (range) => {
-    if (Array.isArray(range) && range[0] && range[1]) {
-      const startIso = ensureIsoDate(range[0])
-      const endIso = ensureIsoDate(range[1])
-      if (startIso && endIso) {
-        plannerPreferences.value.startDate = startIso
-        plannerPreferences.value.endDate = endIso
-        editor.startDate = startIso
-        editor.endDate = endIso
-        plannerPreferences.value.durationDays = calculateDurationDays(startIso, endIso)
-        calendarDraft.value = [startIso, endIso]
-      }
+    const normalisedRange = normaliseCalendarRange(range)
+    if (normalisedRange) {
+      const [startIso, endIso] = normalisedRange
+      plannerPreferences.value.startDate = startIso
+      plannerPreferences.value.endDate = endIso
+      editor.startDate = startIso
+      editor.endDate = endIso
+      plannerPreferences.value.durationDays = calculateDurationDays(startIso, endIso)
+      calendarDraft.value = [...normalisedRange]
     } else {
       calendarDraft.value = null
     }
@@ -591,7 +614,8 @@ watch(
   () => calendarPopoverVisible.value,
   (visible) => {
     if (visible) {
-      calendarDraft.value = heroForm.dateRange && heroForm.dateRange.length === 2 ? [...heroForm.dateRange] : null
+      syncCalendarDraftFromHero()
+      refreshCalendarMinTimestamp()
     }
   },
 )
@@ -620,36 +644,27 @@ const heroDurationLabel = computed(() => {
 })
 
 const heroDateLabel = computed(() => {
-  if (!heroForm.dateRange || heroForm.dateRange.length !== 2) {
-    return 'Check-in date - Check-out date'
+  const range = heroDateRangeNormalized.value
+  if (!range) {
+    return HERO_DATE_PLACEHOLDER
   }
-  const [start, end] = heroForm.dateRange
-  if (!start || !end) {
-    return 'Check-in date - Check-out date'
-  }
-  return `${formatDisplayDate(start)} - ${formatDisplayDate(end)}`
+  return `${formatDisplayDate(range[0])} - ${formatDisplayDate(range[1])}`
 })
 
 const calendarDraftSummary = computed(() => {
-  if (!Array.isArray(calendarDraft.value) || calendarDraft.value.length !== 2) {
-    return 'Select your check-in and check-out dates'
+  const range = calendarDraftRange.value
+  if (!range) {
+    return CALENDAR_SUMMARY_PLACEHOLDER
   }
-  const [start, end] = calendarDraft.value
-  if (!start || !end) {
-    return 'Select your check-in and check-out dates'
-  }
-  return `${formatDisplayDate(start)} - ${formatDisplayDate(end)}`
+  return `${formatDisplayDate(range[0])} - ${formatDisplayDate(range[1])}`
 })
 
 const calendarDraftNightsLabel = computed(() => {
-  if (!Array.isArray(calendarDraft.value) || calendarDraft.value.length !== 2) {
+  const range = calendarDraftRange.value
+  if (!range) {
     return ''
   }
-  const [start, end] = calendarDraft.value
-  if (!start || !end) {
-    return ''
-  }
-  const days = calculateDurationDays(start, end)
+  const days = calculateDurationDays(range[0], range[1])
   if (!Number.isFinite(days) || days <= 0) {
     return ''
   }
@@ -1134,23 +1149,47 @@ async function handleDetectOrigin() {
 }
 
 async function acquireBestAvailablePosition() {
-  const geoSupported = typeof navigator !== 'undefined' && !!navigator.geolocation
-  if (geoSupported) {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    const fallback = await fetchNetworkEstimatedPosition()
+    if (fallback) {
+      return fallback
+    }
+    throw new Error('This browser cannot access precise GPS information. Please enable location services.')
+  }
+  const accuracyGoals = [
+    { desiredAccuracy: 20, maxWait: 20000 },
+    { desiredAccuracy: 30, maxWait: 20000 },
+    { desiredAccuracy: 40, maxWait: 22000 },
+  ]
+  let browserFallbackPosition = null
+  for (const goal of accuracyGoals) {
     try {
-      const precise = await watchForPrecisePosition({ desiredAccuracy: 40, maxWait: 12000 })
-      return { coords: precise.coords, meta: { source: 'browser', accuracy: precise.coords?.accuracy ?? null } }
-    } catch (error) {
-      console.warn('High-accuracy watch failed, falling back to single read.', error)
-      try {
-        const single = await getBrowserPositionOnce()
-        return { coords: single.coords, meta: { source: 'browser', accuracy: single.coords?.accuracy ?? null } }
-      } catch (innerError) {
-        console.warn('Single geolocation read failed, attempting network lookup.', innerError)
+      const precise = await watchForPrecisePosition(goal)
+      browserFallbackPosition = precise
+      if (hasAcceptableAccuracy(precise.coords, goal.desiredAccuracy + 5)) {
+        return normaliseBrowserPosition(precise)
       }
+    } catch (error) {
+      console.warn(`Precise watch attempt (goal ${goal.desiredAccuracy}m) failed`, error)
     }
   }
+  try {
+    const single = await getBrowserPositionOnce({ enableHighAccuracy: true, maximumAge: 0, timeout: 25000 })
+    browserFallbackPosition = single
+    if (hasAcceptableAccuracy(single.coords, 65)) {
+      return normaliseBrowserPosition(single)
+    }
+  } catch (error) {
+    console.warn('Single geolocation attempt failed', error)
+  }
+  if (browserFallbackPosition) {
+    return normaliseBrowserPosition(browserFallbackPosition, { approximate: true })
+  }
   const network = await fetchNetworkEstimatedPosition()
-  return network
+  if (network) {
+    return network
+  }
+  throw new Error('Unable to acquire a high-accuracy GPS fix. Please allow location access and try again.')
 }
 
 function getBrowserPositionOnce(options = {}) {
@@ -1167,7 +1206,7 @@ function getBrowserPositionOnce(options = {}) {
   })
 }
 
-function watchForPrecisePosition({ desiredAccuracy = 50, maxWait = 12000 } = {}) {
+function watchForPrecisePosition({ desiredAccuracy = 25, maxWait = 20000 } = {}) {
   return new Promise((resolve, reject) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       reject(new Error('Geolocation is not supported in this browser.'))
@@ -1215,36 +1254,26 @@ function watchForPrecisePosition({ desiredAccuracy = 50, maxWait = 12000 } = {})
   })
 }
 
-async function fetchNetworkEstimatedPosition() {
-  try {
-    const response = await fetch('https://ipapi.co/json/')
-    if (!response.ok) {
-      throw new Error('Network lookup failed.')
-    }
-    const data = await response.json()
-    const latitude = Number(data.latitude)
-    const longitude = Number(data.longitude)
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      throw new Error('Network lookup did not return coordinates.')
-    }
-    return {
-      coords: {
-        latitude,
-        longitude,
-        accuracy:
-          Number(data.accuracy) ||
-          Number(data.location?.accuracy_radius) ||
-          Number(data.postal?.accuracy) ||
-          null,
-      },
-      meta: {
-        source: 'network',
-        fallbackLabel: [data.city, data.region].filter(Boolean).join(', ') || data.country_name || 'Approximate area',
-      },
-    }
-  } catch (error) {
-    console.error('Network-based geolocation failed.', error)
-    throw new Error('Unable to approximate your location from the network.')
+function normaliseBrowserPosition(position, { approximate = false } = {}) {
+  const coords = position?.coords ?? {}
+  const latitude = Number(coords.latitude)
+  const longitude = Number(coords.longitude)
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error('Browser location did not return valid coordinates.')
+  }
+  const accuracyValue = Number.isFinite(Number(coords.accuracy)) ? Number(coords.accuracy) : null
+  const isApproximate = approximate || (accuracyValue !== null && accuracyValue > 150)
+  return {
+    coords: {
+      latitude,
+      longitude,
+      accuracy: accuracyValue,
+    },
+    meta: {
+      source: 'browser',
+      accuracy: accuracyValue,
+      approximate: isApproximate,
+    },
   }
 }
 
@@ -1254,17 +1283,22 @@ async function hydrateOriginFromCoordinates(coords = {}, meta = {}) {
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     throw new Error('Detected coordinates are invalid.')
   }
+  let plusCodeLabel = null
   try {
-    const { data } = await reverseGeocode(latitude, longitude)
+    const geocodeOptions = buildReverseGeocodeOptions(latitude, longitude)
+    const { data } = await reverseGeocode(latitude, longitude, geocodeOptions)
+    const results = Array.isArray(data?.results) ? data.results : []
+    plusCodeLabel = extractPlusCodeLabel(data?.plus_code)
     const result =
-      data?.results?.find((entry) =>
+      results.find((entry) =>
         ['street_address', 'premise', 'sublocality', 'locality', 'administrative_area_level_2'].some((type) =>
           entry.types?.includes(type),
         ),
-      ) || data?.results?.[0]
+      ) || results[0]
     const label =
       extractLocalityName(result?.address_components) ||
       result?.formatted_address ||
+      plusCodeLabel ||
       formatCoordinateLabel(latitude, longitude)
     applyOriginDetails({
       label,
@@ -1273,11 +1307,15 @@ async function hydrateOriginFromCoordinates(coords = {}, meta = {}) {
       lng: longitude,
       address: result?.formatted_address ?? label,
     })
-    const prefix = meta?.source === 'network' ? 'Approximate starting point set to' : 'Starting point set to'
-    message.success(`${prefix} ${label}`)
+    const isApproximate = meta?.source === 'network' || Boolean(meta?.approximate)
+    const prefix = isApproximate ? 'Approximate starting point set to' : 'Starting point set to'
+    const accuracyLabel =
+      Number.isFinite(meta?.accuracy) && meta.accuracy > 0 ? ` (+/-${Math.round(meta.accuracy)} m)` : ''
+    const notifier = isApproximate ? message.warning : message.success
+    notifier(`${prefix} ${label}${accuracyLabel}`)
   } catch (error) {
     console.error(error)
-    const fallbackLabel = meta?.fallbackLabel ?? formatCoordinateLabel(latitude, longitude)
+    const fallbackLabel = meta?.fallbackLabel ?? plusCodeLabel ?? formatCoordinateLabel(latitude, longitude)
     applyOriginDetails({
       label: fallbackLabel,
       lat: latitude,
@@ -1291,13 +1329,109 @@ async function hydrateOriginFromCoordinates(coords = {}, meta = {}) {
   }
 }
 
+function hasAcceptableAccuracy(coords = {}, threshold = 30) {
+  const accuracy = Number(coords?.accuracy)
+  if (!Number.isFinite(accuracy)) {
+    return true
+  }
+  return accuracy <= threshold
+}
+
+async function fetchNetworkEstimatedPosition() {
+  try {
+    const response = await fetch(NETWORK_POSITION_ENDPOINT, { method: 'GET' })
+    if (!response.ok) {
+      throw new Error(`Network lookup failed (${response.status})`)
+    }
+    const data = await response.json()
+    const latitude = Number(data?.coords?.latitude)
+    const longitude = Number(data?.coords?.longitude)
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error('Network lookup did not return coordinates.')
+    }
+    return {
+      coords: {
+        latitude,
+        longitude,
+        accuracy: Number(data?.coords?.accuracy) || null,
+      },
+      meta: {
+        source: 'network',
+        fallbackLabel: data?.meta?.fallbackLabel || null,
+      },
+    }
+  } catch (error) {
+    console.error('Network-based geolocation failed.', error)
+    return null
+  }
+}
+
+function buildReverseGeocodeOptions(lat, lng) {
+  const options = {}
+  const language = resolveBrowserLanguageCode()
+  if (language) {
+    options.language = language
+  }
+  const region = inferRegionFromCoordinate(lat, lng)
+  if (region) {
+    options.region = region
+  }
+  options.resultType = 'street_address|premise|subpremise|route|intersection|sublocality|locality|political'
+  return options
+}
+
+function resolveBrowserLanguageCode() {
+  if (typeof navigator === 'undefined') {
+    return null
+  }
+  const languages = Array.isArray(navigator.languages) ? navigator.languages : []
+  const candidates = [navigator.language, navigator.userLanguage, ...languages]
+  const match = candidates.find((entry) => typeof entry === 'string' && entry.trim().length > 0)
+  return match ? match.trim() : null
+}
+
+function inferRegionFromCoordinate(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null
+  }
+  const isMalaysia = MALAYSIA_BOUNDING_BOXES.some(
+    ({ latMin, latMax, lngMin, lngMax }) => lat >= latMin && lat <= latMax && lng >= lngMin && lng <= lngMax,
+  )
+  return isMalaysia ? 'MY' : null
+}
+
+function extractPlusCodeLabel(plusCode) {
+  if (!plusCode || typeof plusCode !== 'object') {
+    return null
+  }
+  const candidate = typeof plusCode.compound_code === 'string' ? plusCode.compound_code : plusCode.global_code
+  if (typeof candidate !== 'string') {
+    return null
+  }
+  const trimmed = candidate.trim()
+  if (!trimmed) {
+    return null
+  }
+  const match = trimmed.match(/^[A-Z0-9+]{4,}\s*(.+)$/i)
+  if (match && match[1]) {
+    const remainder = match[1].trim()
+    if (remainder) {
+      return remainder
+    }
+  }
+  return trimmed
+}
+
 function extractLocalityName(components = []) {
   const priority = [
     'locality',
     'sublocality',
     'sublocality_level_1',
     'sublocality_level_2',
+    'sublocality_level_3',
     'neighborhood',
+    'postal_town',
+    'administrative_area_level_3',
     'administrative_area_level_2',
     'administrative_area_level_1',
   ]
@@ -1344,7 +1478,7 @@ function formatTravelInsightSummary(insight) {
   if (warnings.length) {
     parts.push(warnings.slice(0, 1).join(', '))
   }
-  return parts.join(' Â· ') || 'Travel stats unavailable.'
+  return parts.join(' | ') || 'Travel stats unavailable.'
 }
 
 function resolveOriginCoordinates() {
@@ -3366,6 +3500,13 @@ function buildPackageSummary(selection, destination) {
     destination,
     dateRange: heroDateLabel.value,
     durationLabel: heroDurationLabel.value,
+    startDate: plannerPreferences.value.startDate || null,
+    endDate: plannerPreferences.value.endDate || null,
+    durationDays:
+      plannerPreferences.value.durationDays ||
+      (plannerPreferences.value.startDate && plannerPreferences.value.endDate
+        ? calculateDurationDays(plannerPreferences.value.startDate, plannerPreferences.value.endDate)
+        : null),
     travelStyles: plannerPreferences.value.travelStyles ?? [],
     accommodation: plannerPreferences.value.accommodation ?? '',
     group: {
@@ -3575,26 +3716,66 @@ function handleQuickPreferencesReset() {
   message.info('Preferences reset to smart defaults')
 }
 
-function confirmCalendarSelection(range) {
-  if (Array.isArray(range) && range[0] && range[1]) {
-    const startIso = ensureIsoDate(range[0])
-    const endIso = ensureIsoDate(range[1])
-    heroForm.dateRange = startIso && endIso ? [startIso, endIso] : null
+function confirmCalendarSelection(range = calendarDraft.value) {
+  const normalisedRange = normaliseCalendarRange(range)
+  if (normalisedRange) {
+    const clampedRange = clampRangeToMinimum(normalisedRange)
+    heroForm.dateRange = [...clampedRange]
+    calendarDraft.value = [...clampedRange]
+  } else {
+    heroForm.dateRange = null
+    calendarDraft.value = null
   }
   calendarPopoverVisible.value = false
 }
 
+function handleCalendarApply() {
+  confirmCalendarSelection(calendarDraft.value)
+}
+
+function handleCalendarClear() {
+  calendarDraft.value = null
+  heroForm.dateRange = null
+  plannerPreferences.value.startDate = ''
+  plannerPreferences.value.endDate = ''
+  plannerPreferences.value.durationDays = null
+  editor.startDate = ''
+  editor.endDate = ''
+}
+
+function handleCalendarCancel() {
+  syncCalendarDraftFromHero()
+  calendarPopoverVisible.value = false
+}
+
+function syncCalendarDraftFromHero() {
+  const heroRange = normaliseCalendarRange(heroForm.dateRange)
+  calendarDraft.value = heroRange ? [...heroRange] : null
+}
+
+function refreshCalendarMinTimestamp() {
+  calendarMinSelectableTs.value = startOfDayTimestamp()
+}
+
 function applyQuickDuration(days) {
-  const base =
-    (calendarDraft.value && calendarDraft.value[0]) ||
-    heroForm.dateRange?.[0] ||
-    plannerPreferences.value.startDate ||
+  const duration = Number(days)
+  if (!Number.isFinite(duration) || duration <= 0) {
+    return
+  }
+  const baseIso =
+    calendarDraftRange.value?.[0] ||
+    heroDateRangeNormalized.value?.[0] ||
+    ensureIsoDate(plannerPreferences.value.startDate) ||
     formatDate(new Date())
-  const start = new Date(base)
+  if (!baseIso) {
+    return
+  }
+  const safeBaseIso = ensureIsoNotBeforeMin(baseIso)
+  const start = new Date(safeBaseIso)
   if (Number.isNaN(start.getTime())) {
     return
   }
-  const end = formatDate(addDays(start, Math.max(days - 1, 0)))
+  const end = formatDate(addDays(start, Math.max(duration - 1, 0)))
   const startFormatted = formatDate(start)
   calendarDraft.value = [startFormatted, end]
 }
@@ -4796,6 +4977,45 @@ function ensureIsoDate(value) {
   return ''
 }
 
+function normaliseCalendarRange(range) {
+  if (!Array.isArray(range) || range.length !== 2) {
+    return null
+  }
+  const startIso = ensureIsoDate(range[0])
+  const endIso = ensureIsoDate(range[1])
+  if (!startIso || !endIso) {
+    return null
+  }
+  return startIso <= endIso ? [startIso, endIso] : [endIso, startIso]
+}
+
+function clampRangeToMinimum(range) {
+  const minTs = calendarMinSelectableTs.value
+  let [startIso, endIso] = range
+  let startTs = coerceMidnightTimestamp(startIso)
+  let endTs = coerceMidnightTimestamp(endIso)
+  if (startTs === null) {
+    startTs = minTs
+  }
+  if (startTs < minTs) {
+    startTs = minTs
+  }
+  if (endTs === null || endTs < startTs) {
+    endTs = startTs
+  }
+  return [formatTimestampToIso(startTs), formatTimestampToIso(endTs)]
+}
+
+function ensureIsoNotBeforeMin(iso) {
+  const minTs = calendarMinSelectableTs.value
+  const ts = coerceMidnightTimestamp(iso)
+  if (ts === null) {
+    return formatTimestampToIso(minTs)
+  }
+  const clamped = ts < minTs ? minTs : ts
+  return formatTimestampToIso(clamped)
+}
+
 function buildPreferencePayload() {
   return {
     travelStyles: plannerPreferences.value.travelStyles ?? [],
@@ -4885,6 +5105,44 @@ function addDays(date, days) {
   const copy = new Date(date)
   copy.setDate(copy.getDate() + days)
   return copy
+}
+
+function startOfDayTimestamp(date = new Date()) {
+  const copy = new Date(date)
+  copy.setHours(0, 0, 0, 0)
+  return copy.getTime()
+}
+
+function coerceMidnightTimestamp(value) {
+  if (value instanceof Date) {
+    const copy = new Date(value)
+    copy.setHours(0, 0, 0, 0)
+    return copy.getTime()
+  }
+  if (typeof value === 'number') {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return null
+    }
+    date.setHours(0, 0, 0, 0)
+    return date.getTime()
+  }
+  if (!value) {
+    return null
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+function formatTimestampToIso(ts) {
+  if (!Number.isFinite(ts)) {
+    return ''
+  }
+  return formatDate(new Date(ts))
 }
 
 function normaliseTime(value) {
@@ -5060,23 +5318,31 @@ function createPlacesSessionToken() {
                       </n-tag>
                     </div>
                     <n-date-picker
-                      v-model:value="calendarDraft"
+                      class="planner-calendar-picker"
+                      v-model:formatted-value="calendarDraft"
                       type="daterange"
                       panel
                       value-format="yyyy-MM-dd"
-                      :is-date-disabled="(ts) => ts < Date.now() - 86400000"
+                      :is-date-disabled="isCalendarDateDisabled"
+                      :actions="[]"
+                      :bind-calendar-months="true"
                     />
                     <div class="planner-calendar-footer">
                       <div class="planner-quick-range">
                         <span>Quick picks:</span>
-                        <n-button size="tiny" @click="applyQuickDuration(1)">+ 1 day</n-button>
-                        <n-button size="tiny" @click="applyQuickDuration(2)">+ 2 days</n-button>
-                        <n-button size="tiny" @click="applyQuickDuration(3)">+ 3 days</n-button>
-                        <n-button size="tiny" @click="applyQuickDuration(7)">+ 7 days</n-button>
+                        <n-button
+                          v-for="option in calendarQuickOptions"
+                          :key="option.days"
+                          size="tiny"
+                          @click="applyQuickDuration(option.days)"
+                        >
+                          {{ option.label }}
+                        </n-button>
                       </div>
                       <n-space>
-                        <n-button text size="small" @click="calendarPopoverVisible = false">Cancel</n-button>
-                        <n-button type="primary" size="small" @click="confirmCalendarSelection(calendarDraft)">
+                        <n-button text size="small" @click="handleCalendarClear">Clear</n-button>
+                        <n-button text size="small" @click="handleCalendarCancel">Cancel</n-button>
+                        <n-button type="primary" size="small" @click="handleCalendarApply">
                           Apply
                         </n-button>
                       </n-space>
@@ -5408,13 +5674,14 @@ function createPlacesSessionToken() {
 }
 
 .planner-calendar-panel {
-  padding: 18px;
-  width: 520px;
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(240, 249, 255, 0.95), rgba(252, 247, 241, 0.95));
-  box-shadow:
-    0 24px 60px rgba(15, 23, 42, 0.2),
-    0 2px 6px rgba(15, 23, 42, 0.08);
+  position: relative;
+  padding: 22px;
+  width: min(720px, calc(100vw - 32px));
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  color: rgba(15, 23, 42, 0.9);
 }
 
 .planner-calendar-header {
@@ -5431,68 +5698,136 @@ function createPlacesSessionToken() {
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(16, 185, 129, 0.12);
-  color: #047857;
+  background: rgba(16, 185, 129, 0.1);
+  color: #0f766e;
   font-weight: 600;
   font-size: 0.85rem;
 }
 
 .planner-calendar-subtitle {
   font-size: 0.9rem;
-  color: rgba(15, 23, 42, 0.7);
+  color: rgba(15, 23, 42, 0.55);
   margin-top: 4px;
 }
 
 .planner-calendar-panel :deep(.n-date-panel) {
   background: transparent;
   box-shadow: none;
+  padding: 0 16px;
 }
 
 .planner-calendar-panel :deep(.n-date-panel-calendar) {
   border-radius: 16px;
-  overflow: hidden;
-  padding-bottom: 6px;
+  overflow: visible;
+  padding: 6px 12px 12px;
 }
 
 .planner-calendar-panel :deep(.n-date-panel-calendar__month) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding-top: 6px;
-  font-weight: 600;
-  letter-spacing: 0.05rem;
+  font-weight: 700;
+  letter-spacing: 0.04rem;
+  font-size: 1rem;
   color: #0f172a;
+  text-transform: none;
+  pointer-events: none;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-calendar__fast-year-forward),
+.planner-calendar-panel :deep(.n-date-panel-calendar__fast-year-backward),
+.planner-calendar-panel :deep(.n-date-panel-calendar__fast-month-forward),
+.planner-calendar-panel :deep(.n-date-panel-calendar__fast-month-backward) {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-calendar__month-year),
+.planner-calendar-panel :deep(.n-date-panel-calendar__month-month) {
+  cursor: default;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-month__text) {
+  pointer-events: none;
+  cursor: default;
+  user-select: none;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-calendar__divider) {
+  background: rgba(15, 23, 42, 0.08);
+  width: 1px;
+}
+
+.planner-calendar-picker :deep(.n-date-panel-calendar__fast-year-forward),
+.planner-calendar-picker :deep(.n-date-panel-calendar__fast-year-backward),
+.planner-calendar-picker :deep(.n-date-panel-calendar__fast-month-forward),
+.planner-calendar-picker :deep(.n-date-panel-calendar__fast-month-backward) {
+  color: rgba(15, 23, 42, 0.6);
 }
 
 .planner-calendar-panel :deep(.n-date-panel-weekdays) {
   font-weight: 500;
-  color: rgba(15, 23, 42, 0.6);
+  color: rgba(15, 23, 42, 0.55);
+  text-transform: none;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-weekdays > *) {
+  width: 40px;
+  text-align: center;
 }
 
 .planner-calendar-panel :deep(.n-date-panel-date) {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.92);
   border-radius: 12px;
-  transition: transform 0.15s ease, background 0.2s ease;
+  transition: background 0.2s ease;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-date .n-date-panel-date__day) {
+  font-size: 0.95rem;
 }
 
 .planner-calendar-panel :deep(.n-date-panel-date:hover) {
-  transform: translateY(-2px);
-  background: rgba(34, 197, 94, 0.12);
+  background: rgba(16, 185, 129, 0.16);
   color: #065f46;
 }
 
+.planner-calendar-panel :deep(.n-date-panel-date--in-range) {
+  background: rgba(125, 211, 252, 0.2);
+  color: #0c4a6e;
+  border-radius: 14px;
+}
+
 .planner-calendar-panel :deep(.n-date-panel-date--selected) {
-  background: linear-gradient(120deg, #34d399, #10b981);
-  color: #fff;
-  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.35);
+  background: #0ea5e9;
+  color: #ffffff;
 }
 
 .planner-calendar-panel :deep(.n-date-panel-date--current) {
-  border: 1px solid rgba(34, 197, 94, 0.6);
-  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.55);
+  color: #0f766e;
+}
+
+.planner-calendar-panel :deep(.n-date-panel-date--excluded),
+.planner-calendar-panel :deep(.n-date-panel-date--disabled) {
+  color: rgba(15, 23, 42, 0.3);
+  background: transparent;
+  transform: none;
 }
 
 .planner-calendar-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
 }
 
 .planner-quick-range {
@@ -5504,16 +5839,18 @@ function createPlacesSessionToken() {
 }
 
 .planner-quick-range :deep(.n-button) {
+  padding: 0 14px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.04);
-  border: none;
+  border: 1px solid transparent;
   font-weight: 600;
-  color: rgba(15, 23, 42, 0.7);
+  color: rgba(15, 23, 42, 0.75);
 }
 
 .planner-quick-range :deep(.n-button:hover) {
-  background: rgba(16, 185, 129, 0.15);
-  color: #047857;
+  background: rgba(16, 185, 129, 0.18);
+  color: #064e3b;
+  border-color: rgba(16, 185, 129, 0.35);
 }
 
 .planner-hero-actions {
@@ -5596,3 +5933,4 @@ function createPlacesSessionToken() {
 }
 
 </style>
+

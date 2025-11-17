@@ -130,10 +130,24 @@ function handleDelete(PDO $pdo): void
         return;
     }
 
-    $stmt = $pdo->prepare(
-        'DELETE FROM traveler_saved_place_package WHERE packageID = :packageId AND travelerID = :travelerId'
-    );
-    $stmt->execute([':packageId' => $packageId, ':travelerId' => $travelerId]);
+    $pdo->beginTransaction();
+    try {
+        clearPackageReferences($pdo, $travelerId, $packageId);
+        $stmt = $pdo->prepare(
+            'DELETE FROM traveler_saved_place_package WHERE packageID = :packageId AND travelerID = :travelerId'
+        );
+        $stmt->execute([':packageId' => $packageId, ':travelerId' => $travelerId]);
+        $deleted = $stmt->rowCount();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    if ($deleted === 0) {
+        respond(404, ['error' => 'Package not found']);
+        return;
+    }
 
     respond(200, ['ok' => true]);
 }
@@ -202,4 +216,24 @@ function ensurePackagesTableExists(PDO $pdo): void
             INDEX traveler_idx (travelerID)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
     );
+}
+
+function clearPackageReferences(PDO $pdo, int $travelerId, int $packageId): void
+{
+    $queries = [
+        'UPDATE payment_session SET packageID = NULL WHERE packageID = :packageId AND travelerID = :travelerId',
+        'UPDATE traveler_booking_history SET packageID = NULL WHERE packageID = :packageId AND travelerID = :travelerId',
+    ];
+
+    foreach ($queries as $sql) {
+        try {
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute([':packageId' => $packageId, ':travelerId' => $travelerId]);
+        } catch (PDOException $exception) {
+            // Ignore missing table errors, everything else should bubble up.
+            if ($exception->getCode() !== '42S02') {
+                throw $exception;
+            }
+        }
+    }
 }
