@@ -64,13 +64,14 @@ try {
     $newListings = safeQuery($pdo, "SELECT COUNT(*) FROM BusinessListing 
         WHERE DATE(submittedDate) BETWEEN '{$startDate}' AND '{$endDate}'");
     
-    // Simulated Bookings (Messages as proxy for inquiries)
-    $simulatedBookings = safeQuery($pdo, "SELECT COUNT(*) FROM Message 
-        WHERE DATE(sentAt) BETWEEN '{$startDate}' AND '{$endDate}' 
-        AND listingID IS NOT NULL");
+    // Confirmed Bookings
+    $confirmedBookings = safeQuery($pdo, "SELECT COUNT(*) FROM traveler_booking_history 
+        WHERE DATE(paidAt) BETWEEN '{$startDate}' AND '{$endDate}' 
+        AND status = 'confirmed'");
     
     // Chatbot Usage
-    $chatbotUsage = 0;
+    $chatbotUsage = safeQuery($pdo, "SELECT COUNT(*) FROM ChatbotLog 
+        WHERE DATE(timestamp) BETWEEN '{$startDate}' AND '{$endDate}'");
     
     // ==================== ANALYTICS DASHBOARD ====================
     
@@ -225,7 +226,8 @@ try {
         'totalUsers' => safeQuery($pdo, "SELECT COUNT(*) FROM Traveler") +
                        safeQuery($pdo, "SELECT COUNT(*) FROM TourismOperator"),
         'totalListings' => safeQuery($pdo, "SELECT COUNT(*) FROM BusinessListing WHERE status = 'Approved'"),
-        'totalReviews' => safeQuery($pdo, "SELECT COUNT(*) FROM ListingReview"),
+        'totalListingReviews' => safeQuery($pdo, "SELECT COUNT(*) FROM ListingReview"),
+        'totalCommunityReviews' => safeQuery($pdo, "SELECT COUNT(*) FROM community_story_comment"),
         'totalMessages' => safeQuery($pdo, "SELECT COUNT(*) FROM Message"),
     ];
     
@@ -239,7 +241,7 @@ try {
         'usageReports' => [
             'activeUsers' => $activeUsers,
             'newListings' => $newListings,
-            'simulatedBookings' => $simulatedBookings,
+            'confirmedBookings' => $confirmedBookings,
             'chatbotUsage' => $chatbotUsage
         ],
         'analytics' => [

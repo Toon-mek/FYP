@@ -12,7 +12,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+// Simple chatbot usage logging
+function logChatbotUsage($pdo, $travelerId = null) {
+    try {
+        // Create table if not exists
+        $pdo->exec("CREATE TABLE IF NOT EXISTS ChatbotLog (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            travelerID INT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_timestamp (timestamp)
+        )");
+        
+        // Insert log
+        $stmt = $pdo->prepare("INSERT INTO ChatbotLog (travelerID, timestamp) VALUES (?, NOW())");
+        $stmt->execute([$travelerId]);
+    } catch (Exception $e) {
+        // Silently fail - don't break chatbot if logging fails
+        error_log('Chatbot logging failed: ' . $e->getMessage());
+    }
+}
+
 try {
+    // Connect to database for logging
+    $pdo = null;
+    try {
+        $pdo = require __DIR__ . '/../../config/db.php';
+    } catch (Exception $e) {
+        error_log('DB connection failed for chatbot logging: ' . $e->getMessage());
+    }
+    
     // Get user message
     $input = json_decode(file_get_contents('php://input'), true);
     if (!is_array($input)) {
@@ -22,6 +50,12 @@ try {
     $userMessage = trim((string)($input['message'] ?? ''));
     if ($userMessage === '') {
         throw new Exception('Message is required');
+    }
+    
+    // Log chatbot usage
+    $travelerId = isset($input['travelerId']) ? (int)$input['travelerId'] : null;
+    if ($pdo !== null) {
+        logChatbotUsage($pdo, $travelerId);
     }
 
     $persona = normalisePersona($input['persona'] ?? null);

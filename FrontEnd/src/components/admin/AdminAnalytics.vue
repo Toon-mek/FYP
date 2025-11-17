@@ -76,9 +76,9 @@ const usageCards = computed(() => {
       color: '#2080f0'
     },
     {
-      label: 'Simulated Bookings',
-      value: usage.simulatedBookings,
-      detail: 'Listing inquiries',
+      label: 'Confirmed Bookings',
+      value: usage.confirmedBookings,
+      detail: 'Completed bookings',
       icon: '📅',
       color: '#f0a020'
     },
@@ -510,88 +510,6 @@ const operatorColumns = [
   }
 ]
 
-// ==================== CATEGORY DISTRIBUTION ====================
-
-const categoryData = computed(() => {
-  const categories = data.value?.analytics?.categoryDistribution || []
-  if (!categories.length) return null
-
-  const total = categories.reduce((sum, c) => sum + c.count, 0)
-  if (total === 0) return null
-
-  const colors = ['#2080f0', '#18a058', '#f0a020', '#d03050', '#9333ea', '#0e7490']
-
-  return categories.map((cat, index) => ({
-    category: cat.category,
-    count: cat.count,
-    percentage: (cat.count / total) * 100,
-    color: colors[index % colors.length]
-  }))
-})
-
-const categoryColumns = [
-  {
-    title: 'Category',
-    key: 'category',
-    width: 200,
-    render: (row) => {
-      return h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
-        h('div', {
-          style: {
-            width: '12px',
-            height: '12px',
-            borderRadius: '3px',
-            background: row.color,
-            flexShrink: '0'
-          }
-        }),
-        h('span', { style: { fontWeight: '600' } }, row.category)
-      ])
-    }
-  },
-  {
-    title: 'Listings',
-    key: 'count',
-    width: 100,
-    align: 'center',
-    render: (row) => h('span', { style: { fontWeight: '600', fontSize: '1.1em' } }, row.count)
-  },
-  {
-    title: 'Percentage',
-    key: 'percentage',
-    width: 120,
-    align: 'center',
-    render: (row) => h('span', { style: { fontWeight: '600', color: row.color } }, `${row.percentage.toFixed(1)}%`)
-  },
-  {
-    title: 'Distribution',
-    key: 'bar',
-    render: (row) => {
-      return h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
-        h('div', {
-          style: {
-            flex: '1',
-            height: '12px',
-            background: 'rgba(0,0,0,0.05)',
-            borderRadius: '6px',
-            overflow: 'hidden'
-          }
-        }, [
-          h('div', {
-            style: {
-              height: '100%',
-              width: `${row.percentage}%`,
-              background: row.color,
-              borderRadius: '6px',
-              transition: 'width 0.3s ease'
-            }
-          })
-        ])
-      ])
-    }
-  }
-]
-
 // ==================== TOTAL STATS ====================
 
 const totalStats = computed(() => {
@@ -600,8 +518,9 @@ const totalStats = computed(() => {
   return [
     { label: 'Total Users', value: stats.totalUsers, icon: '👥' },
     { label: 'Total Listings', value: stats.totalListings, icon: '🏪' },
-    { label: 'Total Reviews', value: stats.totalReviews, icon: '⭐' },
-    { label: 'Total Messages', value: stats.totalMessages, icon: '💬' },
+    { label: 'Total Listing Reviews', value: stats.totalListingReviews, icon: '⭐' },
+    { label: 'Total Community Reviews', value: stats.totalCommunityReviews, icon: '⭐' },
+    { label: 'Total Messages', value: stats.totalMessages, icon: '✉️' },
   ]
 })
 
@@ -797,14 +716,14 @@ async function buildPdfChartImages(analytics) {
 
 function createAnalyticsPdf(report, charts) {
   const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' })
-  const margin = 48
-  const lineHeight = 18
+  const margin = 50
+  const lineHeight = 22
   const pageHeight = doc.internal.pageSize.getHeight()
   const pageWidth = doc.internal.pageSize.getWidth()
   let cursorY = margin
 
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(12)
+  doc.setFontSize(11)
 
   const ensureSpace = (height) => {
     if (cursorY + height > pageHeight - margin) {
@@ -817,19 +736,24 @@ function createAnalyticsPdf(report, charts) {
     lines.forEach(line => {
       const text = typeof line === 'string' ? line : line.text
       ensureSpace(lineHeight)
+      doc.setFontSize(10)
+      doc.setTextColor(60, 60, 60)
       doc.text(text, margin, cursorY)
       cursorY += lineHeight
     })
   }
 
   const addSectionHeading = (text) => {
+    ensureSpace(lineHeight * 2)
+    cursorY += 8 // Extra spacing before section
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(13)
-    ensureSpace(lineHeight * 1.5)
+    doc.setFontSize(14)
+    doc.setTextColor(0, 0, 0)
     doc.text(text, margin, cursorY)
-    cursorY += lineHeight
+    cursorY += lineHeight * 1.2
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(12)
+    doc.setFontSize(11)
+    doc.setTextColor(60, 60, 60)
   }
 
   const addTable = ({ headers, rows, columnWidths }) => {
@@ -854,41 +778,63 @@ function createAnalyticsPdf(report, charts) {
       return index === 0 ? firstWidth : remainingWidth / (columnCount - 1)
     }
 
-    const rowHeight = 26
+    const rowHeight = 32
     const totalHeight = rowHeight * (rows.length + 1)
     ensureSpace(totalHeight + lineHeight)
 
+    // Header row
     doc.setFont('helvetica', 'bold')
-    doc.setFillColor(240, 243, 248)
-    doc.setDrawColor(200, 205, 214)
+    doc.setFontSize(11)
+    doc.setFillColor(41, 98, 255)
+    doc.setDrawColor(41, 98, 255)
     let currentX = margin
     headers.forEach((header, index) => {
       const width = colWidth(index)
       doc.rect(currentX, cursorY, width, rowHeight, 'FD')
-      doc.text(String(header ?? ''), currentX + 10, cursorY + 17)
+      currentX += width
+    })
+    
+    // Draw header text on top
+    doc.setTextColor(255, 255, 255)
+    currentX = margin
+    headers.forEach((header, index) => {
+      const width = colWidth(index)
+      doc.text(String(header ?? ''), currentX + 12, cursorY + 20)
       currentX += width
     })
     cursorY += rowHeight
+    
+    // Data rows
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(28, 33, 44)
+    doc.setFontSize(10)
 
     rows.forEach((row, rowIndex) => {
-      doc.setFillColor(255, 255, 255)
-      doc.setDrawColor(222, 226, 235)
+      const bgColor = rowIndex % 2 === 0 ? [250, 250, 250] : [255, 255, 255]
+      doc.setFillColor(bgColor[0], bgColor[1], bgColor[2])
+      doc.setDrawColor(220, 220, 220)
       let xPos = margin
       row.forEach((cell, index) => {
         const width = colWidth(index)
-        doc.rect(xPos, cursorY, width, rowHeight)
+        doc.rect(xPos, cursorY, width, rowHeight, 'FD')
+        xPos += width
+      })
+      
+      // Draw text on top of filled rectangles
+      doc.setTextColor(40, 40, 40)
+      xPos = margin
+      row.forEach((cell, index) => {
+        const width = colWidth(index)
+        const cellText = String(cell ?? '')
         if (index === 0) {
-          doc.text(String(cell ?? ''), xPos + 10, cursorY + 17)
+          doc.text(cellText, xPos + 12, cursorY + 20)
         } else {
-          doc.text(String(cell ?? ''), xPos + width - 10, cursorY + 17, { align: 'right' })
+          doc.text(cellText, xPos + width - 12, cursorY + 20, { align: 'right' })
         }
         xPos += width
       })
       cursorY += rowHeight
     })
-    cursorY += rowHeight / 2
+    cursorY += lineHeight
   }
 
   const addChart = (chartImage) => {
@@ -896,12 +842,32 @@ function createAnalyticsPdf(report, charts) {
     const availableWidth = pageWidth - margin * 2
     const ratio = availableWidth / chartImage.width
     const renderedHeight = chartImage.height * ratio
-    ensureSpace(renderedHeight + lineHeight)
+    ensureSpace(renderedHeight + lineHeight * 2)
+    cursorY += 10 // Add spacing before chart
     doc.addImage(chartImage.dataUrl, 'PNG', margin, cursorY, availableWidth, renderedHeight)
-    cursorY += renderedHeight + lineHeight
+    cursorY += renderedHeight + lineHeight * 1.5
   }
 
-  addLines(buildAnalyticsReportLines(report))
+  // Add title page
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(24)
+  doc.setTextColor(0, 0, 0)
+  doc.text('EcoTravel Platform', pageWidth / 2, 120, { align: 'center' })
+  
+  doc.setFontSize(18)
+  doc.setTextColor(41, 98, 255)
+  doc.text('Analytics Report', pageWidth / 2, 155, { align: 'center' })
+  
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(11)
+  doc.setTextColor(100, 100, 100)
+  doc.text(`Generated: ${new Date(report.generatedAt).toLocaleString()}`, pageWidth / 2, 195, { align: 'center' })
+  
+  if (report.range?.start && report.range?.end) {
+    doc.text(`Range: ${report.range.start} -> ${report.range.end} (${report.range.days ?? '?'} days)`, pageWidth / 2, 220, { align: 'center' })
+  }
+  
+  cursorY = 280
 
   addSectionHeading('Usage Reports')
   addTable({
@@ -909,7 +875,7 @@ function createAnalyticsPdf(report, charts) {
     rows: [
       ['Active Users', formatNumber(report.usageReports?.activeUsers?.total ?? 0)],
       ['New Listings', formatNumber(report.usageReports?.newListings ?? 0)],
-      ['Simulated Bookings', formatNumber(report.usageReports?.simulatedBookings ?? 0)],
+      ['Confirmed Bookings', formatNumber(report.usageReports?.confirmedBookings ?? 0)],
       ['Chatbot Usage', formatNumber(report.usageReports?.chatbotUsage ?? 0)],
     ],
   })
@@ -920,7 +886,8 @@ function createAnalyticsPdf(report, charts) {
     rows: [
       ['Total Users', formatNumber(report.totalStats?.totalUsers ?? 0)],
       ['Approved Listings', formatNumber(report.totalStats?.totalListings ?? 0)],
-      ['Reviews', formatNumber(report.totalStats?.totalReviews ?? 0)],
+      ['Listing Reviews', formatNumber(report.totalStats?.totalListingReviews ?? 0)],
+      ['Community Reviews', formatNumber(report.totalStats?.totalCommunityReviews ?? 0)],
       ['Messages', formatNumber(report.totalStats?.totalMessages ?? 0)],
     ],
   })
@@ -1028,7 +995,7 @@ function formatDateShort(dateStr) {
       <template v-if="data">
         <n-card title="Generate Usage Reports" :segmented="{ content: true }">
           <n-text depth="3" style="margin-bottom: 16px; display: block;">
-            Periodic reports containing active users, new listings, simulated bookings, and chatbot usage trends.
+                        Periodic reports containing active users, new listings, confirmed bookings, and chatbot usage trends.
           </n-text>
           <n-grid cols="2 m:4" :x-gap="16" :y-gap="16">
             <n-grid-item v-for="card in usageCards" :key="card.label">
@@ -1193,15 +1160,6 @@ function formatDateShort(dateStr) {
             <n-data-table v-if="operatorRankings.length" :columns="operatorColumns" :data="operatorRankings"
               :bordered="false" :single-line="false" :pagination="{ pageSize: 10 }" striped />
             <n-empty v-else description="No operator data available" />
-          </n-card>
-
-          <n-card title="📊 Listing Category Distribution" size="small">
-            <n-text depth="3" style="margin-bottom: 16px; display: block;">
-              Breakdown of approved listings by category with percentage distribution.
-            </n-text>
-            <n-data-table v-if="categoryData" :columns="categoryColumns" :data="categoryData" :bordered="false"
-              :single-line="false" />
-            <n-empty v-else description="No category data available" />
           </n-card>
         </n-card>
 
@@ -1418,5 +1376,3 @@ function formatDateShort(dateStr) {
   padding: 12px 8px;
 }
 </style>
-
-
