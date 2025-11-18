@@ -344,6 +344,7 @@ const aiState = reactive({
   plan: null,
 })
 const aiConversation = ref([])
+const aiAssistantRef = ref(null)
 const quickPreferencesRef = ref(null)
 const detectingOrigin = ref(false)
 const calendarPopoverVisible = ref(false)
@@ -752,6 +753,7 @@ const mapDays = computed(() => {
   })
   return Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date))
 })
+const mapSessionKey = ref(0)
 
 async function fetchOriginSuggestions(query) {
   originSearchLoading.value = true
@@ -989,6 +991,95 @@ async function ensureDestinationCoordinates() {
       mainText: known.label,
     })
     return true
+  }
+  return false
+}
+
+async function ensureOriginCoordinates() {
+  if (
+    heroForm.originPlace &&
+    typeof heroForm.originPlace.lat === 'number' &&
+    typeof heroForm.originPlace.lng === 'number'
+  ) {
+    return true
+  }
+  if (
+    typeof plannerPreferences.value.originLat === 'number' &&
+    typeof plannerPreferences.value.originLng === 'number'
+  ) {
+    applyOriginDetails(
+      {
+        label: plannerPreferences.value.origin || heroForm.origin || '',
+        placeId: plannerPreferences.value.originPlaceId || '',
+        lat: plannerPreferences.value.originLat,
+        lng: plannerPreferences.value.originLng,
+        address: plannerPreferences.value.origin || heroForm.origin || '',
+      },
+      { syncPreferences: false },
+    )
+    return true
+  }
+  const rawLabel = heroForm.origin?.trim() || plannerPreferences.value.origin?.trim()
+  if (!rawLabel) {
+    return false
+  }
+  const preset = findOriginPresetCoordinate(rawLabel)
+  if (preset) {
+    applyOriginDetails(
+      {
+        label: rawLabel,
+        placeId: '',
+        lat: preset.lat,
+        lng: preset.lng,
+        address: rawLabel,
+      },
+      { syncPreferences: true },
+    )
+    return true
+  }
+  try {
+    const response = await searchPlacesByText({
+      query: /malaysia/i.test(rawLabel) ? rawLabel : `${rawLabel}, Malaysia`,
+      region: 'MY',
+      language: 'en',
+      radius: 60000,
+    })
+    const first = response?.data?.results?.[0]
+    const lat = first?.geometry?.location?.lat ?? null
+    const lng = first?.geometry?.location?.lng ?? null
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      applyOriginDetails({
+        label: first.name ?? first.formatted_address ?? rawLabel,
+        placeId: first.place_id ?? '',
+        lat,
+        lng,
+        address: first.formatted_address ?? first.vicinity ?? rawLabel,
+      })
+      return true
+    }
+  } catch (error) {
+    console.warn('Fallback origin lookup failed', error)
+  }
+  try {
+    const auto = await searchPlacesAutocomplete(rawLabel, {
+      region: 'MY',
+      language: 'en',
+    })
+    const prediction = auto?.data?.predictions?.[0]
+    if (prediction) {
+      await loadOriginDetails(prediction.place_id, prediction.description, {
+        secondaryText: prediction.description,
+      })
+      if (
+        heroForm.originPlace &&
+        typeof heroForm.originPlace.lat === 'number' &&
+        typeof heroForm.originPlace.lng === 'number'
+      ) {
+        return true
+      }
+    }
+  } catch (error) {
+    console.warn('Origin autocomplete fallback failed', error)
   }
   return false
 }
@@ -1446,9 +1537,11 @@ function extractLocalityName(components = []) {
 }
 
 async function computeTravelInsights() {
+  const originReady = await ensureOriginCoordinates()
+  const destinationReady = await ensureDestinationCoordinates()
   const origin = resolveOriginCoordinates()
   const destination = resolveDestinationCoordinates()
-  if (!origin || !destination) {
+  if (!originReady || !destinationReady || !origin || !destination) {
     return null
   }
   try {
@@ -1457,11 +1550,13 @@ async function computeTravelInsights() {
       destination,
       mode: 'driving',
     })
-    return result
+    if (result) {
+      return result
+    }
   } catch (error) {
     console.error('Travel insights fetch failed', error)
-    return null
   }
+  return buildFallbackTravelInsight(origin, destination)
 }
 
 function formatTravelInsightSummary(insight) {
@@ -1475,11 +1570,68 @@ function formatTravelInsightSummary(insight) {
   if (insight.durationText) {
     parts.push(insight.durationText)
   }
+  if (insight.meta?.source === 'fallback') {
+    parts.push('Estimated via scenic route')
+  }
   const warnings = insight.route?.warnings ?? []
   if (warnings.length) {
     parts.push(warnings.slice(0, 1).join(', '))
   }
   return parts.join(' | ') || 'Travel stats unavailable.'
+}
+
+function buildFallbackTravelInsight(origin, destination) {
+  const distanceKm = calculateGreatCircleDistance(
+    origin?.lat,
+    origin?.lng,
+    destination?.lat,
+    destination?.lng,
+  )
+  if (!Number.isFinite(distanceKm)) {
+    return null
+  }
+  const safeDistance = Math.max(1, Math.round(distanceKm))
+  const averageSpeed = 70
+  const durationMinutes = Math.max(30, Math.round((safeDistance / averageSpeed) * 60))
+  const hours = Math.floor(durationMinutes / 60)
+  const minutes = durationMinutes % 60
+  const durationParts = []
+  if (hours > 0) {
+    durationParts.push(`${hours} hour${hours > 1 ? 's' : ''}`)
+  }
+  if (minutes > 0) {
+    durationParts.push(`${minutes} min${minutes > 1 ? 's' : ''}`)
+  }
+  const durationText = durationParts.join(' ') || 'Under an hour'
+  return {
+    distanceText: `${safeDistance} km (est.)`,
+    durationText: `${durationText} (est.)`,
+    origin,
+    destination,
+    meta: { source: 'fallback', method: 'great_circle' },
+  }
+}
+
+function calculateGreatCircleDistance(lat1, lng1, lat2, lng2) {
+  const toRad = (value) => (value * Math.PI) / 180
+  if (
+    !Number.isFinite(lat1) ||
+    !Number.isFinite(lng1) ||
+    !Number.isFinite(lat2) ||
+    !Number.isFinite(lng2)
+  ) {
+    return NaN
+  }
+  const earthRadiusKm = 6371
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const startLat = toRad(lat1)
+  const endLat = toRad(lat2)
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(startLat) * Math.cos(endLat)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return earthRadiusKm * c
 }
 
 function resolveOriginCoordinates() {
@@ -1544,6 +1696,23 @@ async function ensureCuratedSelections() {
     (!curatedExperiences.themeResults.length && !curatedExperiences.stayResults.length)
   ) {
     await loadCuratedSuggestions(selectedThemes, contextKey)
+  }
+  if (!needsStayOptions) {
+    updateConversationStatus('Stay curation', 'done', 'No stay picks needed for this itinerary.')
+  }
+  if (curatedExperiences.themeResults.length) {
+    updateConversationStatus(
+      'Theme curation',
+      'done',
+      'Curated experiences ready. Pick your vibe below.',
+    )
+  }
+  if (needsStayOptions) {
+    if (curatedExperiences.stayResults.length) {
+      updateConversationStatus('Stay curation', 'done', 'Stay shortlist ready for your touch.')
+    } else {
+      updateConversationStatus('Stay curation', 'error', 'No matching stays found for this run.')
+    }
   }
   if (curatedExperiences.error) {
     message.error(curatedExperiences.error)
@@ -3855,6 +4024,44 @@ function handlePreferencesReset() {
   syncHeroFormFromPreferences()
 }
 
+function resetCuratedExperiencesState() {
+  curatedExperiences.contextKey = ''
+  curatedExperiences.visible = false
+  curatedExperiences.loading = false
+  curatedExperiences.error = ''
+  curatedExperiences.themeResults = []
+  curatedExperiences.stayResults = []
+  curatedExperiences.selections.experiences = reactive(new Map())
+  curatedExperiences.selections.stays = reactive(new Map())
+  curatedExperiences.lastSelections = null
+  curatedExperiences.resolver = null
+}
+
+function resetPlannerAfterSelections() {
+  handlePreferencesReset()
+  heroForm.originPlace = null
+  heroForm.origin = ''
+  heroForm.destination = null
+  heroForm.destinationInput = ''
+  heroForm.dateRange = null
+  plannerActivated.value = false
+  showItineraryBoard.value = false
+  aiConversation.value = []
+  latestTravelStats.value = null
+  editor.itineraryId = null
+  editor.items = []
+  editor.title = plannerPreferences.value.title
+  editor.startDate = ''
+  editor.endDate = ''
+  selectedItineraryId.value = null
+  deletedItemIds.value = new Set()
+  aiState.plan = null
+  aiState.error = ''
+  aiState.running = false
+  resetCuratedExperiencesState()
+  mapSessionKey.value += 1
+}
+
 function openPreferencesDrawer() {
   preferencesDrawerVisible.value = true
 }
@@ -3867,6 +4074,44 @@ function handleQuickPreferencesConfirm() {
 function handleQuickPreferencesReset() {
   handlePreferencesReset()
   message.info('Preferences reset to smart defaults')
+}
+
+let curationStatusesLocked = false
+watch(
+  () => curatedExperiences.visible,
+  (visible) => {
+    if (visible && aiConversation.value.length && !curationStatusesLocked) {
+      curationStatusesLocked = true
+      markCurationStepsComplete('Curated experiences are ready. Tap to pick your vibe.')
+    } else if (!visible) {
+      curationStatusesLocked = false
+    }
+  },
+)
+
+function markCurationStepsComplete(experienceSummary = 'Curated experiences ready.') {
+  if (!aiConversation.value.length) {
+    return
+  }
+  updateConversationStatus('Analyze preferences', 'done', 'Preferences locked in. Customise below.')
+  updateConversationStatus('Theme curation', 'done', experienceSummary)
+  updateConversationStatus('Stay curation', 'done', 'Stay shortlist ready for your touch.')
+  updateConversationStatus('Generate itinerary', 'done', 'Will finalise once you confirm picks.')
+  updateConversationStatus('Plot routes', 'done', 'Routes will refresh after you save selections.')
+}
+
+function scrollAiAssistantIntoView() {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.requestAnimationFrame(() => {
+    const component = aiAssistantRef.value
+    if (!component) return
+    const el = component.$el ?? component.$?.vnode?.el ?? component.$?.el ?? component
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  })
 }
 
 function confirmCalendarSelection(range = calendarDraft.value) {
@@ -3947,6 +4192,10 @@ async function handlePlanWithAi() {
     message.warning('Choose your travel dates to continue.')
     return
   }
+  const originReady = await ensureOriginCoordinates()
+  if (!originReady) {
+    message.warning('Origin not pinned on the map. Using a best-guess location for this run.')
+  }
   const destinationName =
     heroForm.destination?.description || heroForm.destinationInput || plannerPreferences.value.destination
   if (!destinationName) {
@@ -3964,6 +4213,7 @@ async function handlePlanWithAi() {
   editor.itineraryId = null
   selectedItineraryId.value = null
   deletedItemIds.value = new Set()
+  curationStatusesLocked = false
   const payload = {
     travelerId: props.travelerId,
     origin: heroForm.origin,
@@ -4023,6 +4273,8 @@ async function handlePlanWithAi() {
     message: 'Preparing map-friendly routes for each day...',
     status: 'pending',
   })
+  await nextTick()
+  scrollAiAssistantIntoView()
 
   const travelInsights = await computeTravelInsights()
   if (travelInsights) {
@@ -4059,13 +4311,12 @@ async function handlePlanWithAi() {
         .join(' | ')
     : 'Proceeding with AI-curated stays.'
   updateConversationStatus(stayConversationTitle, 'done', staySummary)
+  updateConversationStatus('Analyze preferences', 'done', 'Preferences locked in. Customise below.')
 
   updateConversationStatus('Generate itinerary', 'done', 'Saved your picks without generating a timeline.')
   updateConversationStatus('Plot routes', 'done', 'Use Saved places to build routes later.')
   message.success('Selections saved. Review them under Saved places.')
-  aiState.plan = null
-  aiState.error = ''
-  aiState.running = false
+  resetPlannerAfterSelections()
   return
 
   payload.travelStats = travelInsights
@@ -5413,7 +5664,7 @@ function createPlacesSessionToken() {
                       <n-button
                         tertiary
                         size="small"
-                        class="planner-detect-button"
+                        class="planner-button planner-button--ghost planner-detect-button"
                         :loading="detectingOrigin"
                         @click="handleDetectOrigin"
                       >
@@ -5487,15 +5738,16 @@ function createPlacesSessionToken() {
                           v-for="option in calendarQuickOptions"
                           :key="option.days"
                           size="tiny"
+                          class="planner-button planner-button--ghost planner-button--tiny"
                           @click="applyQuickDuration(option.days)"
                         >
                           {{ option.label }}
                         </n-button>
                       </div>
                       <n-space>
-                        <n-button text size="small" @click="handleCalendarClear">Clear</n-button>
-                        <n-button text size="small" @click="handleCalendarCancel">Cancel</n-button>
-                        <n-button type="primary" size="small" @click="handleCalendarApply">
+                        <n-button text size="small" class="planner-button planner-button--text" @click="handleCalendarClear">Clear</n-button>
+                        <n-button text size="small" class="planner-button planner-button--text" @click="handleCalendarCancel">Cancel</n-button>
+                        <n-button type="primary" size="small" class="planner-button planner-button--primary" @click="handleCalendarApply">
                           Apply
                         </n-button>
                       </n-space>
@@ -5516,7 +5768,12 @@ function createPlacesSessionToken() {
                   @advanced="openPreferencesDrawer"
                 />
                 <n-space justify="end">
-                  <n-button type="primary" :loading="aiState.running" @click="handlePlanWithAi">
+                  <n-button
+                    type="primary"
+                    class="planner-button planner-button--primary planner-button--cta"
+                    :loading="aiState.running"
+                    @click="handlePlanWithAi"
+                  >
                     Plan a trip with AI
                   </n-button>
                 </n-space>
@@ -5531,6 +5788,7 @@ function createPlacesSessionToken() {
       <n-grid cols="1 l:5" :x-gap="18" :y-gap="18">
         <n-grid-item :span="3">
           <TripPlannerAiAssistant
+            ref="aiAssistantRef"
             :conversation="aiConversation"
             :curation="curatedExperiences"
             :curation-disabled="curatedConfirmDisabled"
@@ -5542,11 +5800,12 @@ function createPlacesSessionToken() {
           />
         </n-grid-item>
         <n-grid-item :span="2">
-          <TripPlannerMap
-            :api-key="MAPS_JS_KEY"
-            :origin="mapOrigin"
-            :destination="heroForm.destination"
-            :days="mapDays"
+        <TripPlannerMap
+          :key="mapSessionKey"
+          :api-key="MAPS_JS_KEY"
+          :origin="mapOrigin"
+          :destination="heroForm.destination"
+          :days="mapDays"
             height="380px"
           />
         </n-grid-item>
@@ -5564,7 +5823,7 @@ function createPlacesSessionToken() {
             Open the board only when youâ€™re ready to fine-tune each day.
           </n-text>
         </div>
-        <n-button type="primary" size="small" @click="showItineraryBoard = true">
+        <n-button type="primary" size="small" class="planner-button planner-button--primary" @click="showItineraryBoard = true">
           Open itinerary draft
         </n-button>
       </n-space>
@@ -5579,7 +5838,7 @@ function createPlacesSessionToken() {
               {{ aiState.plan?.summary?.tagline ?? 'Gemini suggests daily highlights for your trip.' }}
             </n-text>
           </div>
-          <n-button text type="primary" @click="duplicateCurrentPlan">
+          <n-button text type="primary" class="planner-button planner-button--text" @click="duplicateCurrentPlan">
             Duplicate current plan
           </n-button>
         </n-space>
@@ -5602,7 +5861,9 @@ function createPlacesSessionToken() {
     <section v-if="shouldShowItineraryBoard" class="planner-board">
       <div class="planner-board__toolbar">
         <n-tag type="info" size="small">AI draft</n-tag>
-        <n-button text size="small" @click="showItineraryBoard = false">Hide itinerary</n-button>
+        <n-button text size="small" class="planner-button planner-button--text" @click="showItineraryBoard = false">
+          Hide itinerary
+        </n-button>
       </div>
       <TripPlannerItineraryBoard
         :title="plannerMeta.title"
@@ -5629,10 +5890,21 @@ function createPlacesSessionToken() {
           Save your itinerary to keep editing it from any device or regenerate with new filters anytime.
         </n-text>
         <n-space>
-          <n-button tertiary :disabled="!editor.items.length" @click="duplicateCurrentPlan">
+          <n-button
+            tertiary
+            class="planner-button planner-button--ghost"
+            :disabled="!editor.items.length"
+            @click="duplicateCurrentPlan"
+          >
             Copy as new draft
           </n-button>
-          <n-button type="primary" :loading="saving" :disabled="!canSave" @click="handleSaveItinerary">
+          <n-button
+            type="primary"
+            class="planner-button planner-button--primary"
+            :loading="saving"
+            :disabled="!canSave"
+            @click="handleSaveItinerary"
+          >
             {{ editor.itineraryId ? 'Update itinerary' : 'Save itinerary' }}
           </n-button>
         </n-space>
@@ -5682,8 +5954,10 @@ function createPlacesSessionToken() {
         </n-form>
         <template #footer>
           <n-space justify="space-between">
-            <n-button tertiary @click="itemEditor.show = false">Cancel</n-button>
-            <n-button type="primary" @click="saveItemFromEditor">
+            <n-button tertiary class="planner-button planner-button--ghost" @click="itemEditor.show = false">
+              Cancel
+            </n-button>
+            <n-button type="primary" class="planner-button planner-button--primary" @click="saveItemFromEditor">
               {{ itemEditor.mode === 'edit' ? 'Update activity' : 'Add activity' }}
             </n-button>
           </n-space>
@@ -5697,6 +5971,67 @@ function createPlacesSessionToken() {
 <style scoped>
 .trip-planner-shell {
   width: 100%;
+}
+
+.trip-planner-shell :deep(.planner-button) {
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.trip-planner-shell :deep(.planner-button--primary) {
+  background-image: linear-gradient(120deg, #0ea5e9, #14b8a6) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 14px 30px rgba(14, 165, 233, 0.3);
+}
+
+.trip-planner-shell :deep(.planner-button--primary:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 32px rgba(14, 165, 233, 0.4);
+}
+
+.trip-planner-shell :deep(.planner-button--primary:disabled),
+.trip-planner-shell :deep(.planner-button--primary:disabled:hover) {
+  opacity: 0.55;
+  box-shadow: none;
+  transform: none;
+}
+
+.trip-planner-shell :deep(.planner-button--ghost) {
+  background: rgba(15, 23, 42, 0.05) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  color: rgba(15, 23, 42, 0.78) !important;
+}
+
+.trip-planner-shell :deep(.planner-button--ghost:hover) {
+  background: rgba(14, 165, 233, 0.08) !important;
+  border-color: rgba(14, 165, 233, 0.35) !important;
+  color: #0c4a6e !important;
+}
+
+.trip-planner-shell :deep(.planner-button--text) {
+  background: transparent !important;
+  border: none !important;
+  color: #0ea5e9 !important;
+  padding: 0 6px;
+}
+
+.trip-planner-shell :deep(.planner-button--text:hover) {
+  text-decoration: underline;
+}
+
+.trip-planner-shell :deep(.planner-button--cta) {
+  padding: 0 26px !important;
+  height: 44px;
+  font-size: 1rem;
+}
+
+.trip-planner-shell :deep(.planner-button--tiny) {
+  font-size: 0.75rem;
+  padding: 0 12px !important;
+  height: 30px;
 }
 
 .planner-hero-card {
@@ -5989,21 +6324,6 @@ function createPlacesSessionToken() {
   gap: 6px;
   font-size: 0.85rem;
   color: rgba(15, 23, 42, 0.65);
-}
-
-.planner-quick-range :deep(.n-button) {
-  padding: 0 14px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.04);
-  border: 1px solid transparent;
-  font-weight: 600;
-  color: rgba(15, 23, 42, 0.75);
-}
-
-.planner-quick-range :deep(.n-button:hover) {
-  background: rgba(16, 185, 129, 0.18);
-  color: #064e3b;
-  border-color: rgba(16, 185, 129, 0.35);
 }
 
 .planner-hero-actions {
