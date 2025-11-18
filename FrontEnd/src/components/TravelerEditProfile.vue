@@ -484,16 +484,22 @@ function handleSubmit() {
           :validation-status="passwordOtpStatus"
         >
           <n-space vertical size="small" class="password-field" style="width: 100%;">
-            <n-input
-              v-model:value="form.currentPassword"
-              type="password"
-              placeholder="Enter your current password"
-              maxlength="20"
-            />
-            <n-space justify="space-between" class="password-actions" style="width: 100%;">
+            <n-space
+              class="password-actions"
+              align="center"
+              justify="space-between"
+              style="width: 100%; flex-wrap: wrap; gap: 8px;"
+            >
+              <n-input
+                :value="otpState.code"
+                type="text"
+                placeholder="Enter 6-digit code"
+                maxlength="6"
+                :disabled="otpState.verified"
+                @update:value="handleOtpInput"
+              />
               <n-button
                 size="small"
-                type="primary"
                 tertiary
                 :loading="otpState.verifying"
                 :disabled="otpState.verified || !canVerifyOtp"

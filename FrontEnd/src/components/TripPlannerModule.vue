@@ -97,6 +97,7 @@ const MALAYSIA_BOUNDING_BOXES = [
   { latMin: 0.6, latMax: 7.8, lngMin: 99, lngMax: 105.6 },
   { latMin: -1.5, latMax: 7.8, lngMin: 109, lngMax: 120.8 },
 ]
+const DESTINATION_MATCH_RADIUS_KM = 75
 
 function normaliseDestinationKey(raw) {
   if (!raw) return null
@@ -1787,14 +1788,20 @@ async function fetchBookingAttractionRecommendations(theme, blueprint, context) 
       params.priceFilters = blueprint.booking.priceFilters
     }
     const response = await searchBookingAttractions(params)
-    const items = applyBookingAttractionThemeFilters(
+    const themedItems = applyBookingAttractionThemeFilters(
       normaliseBookingAttractions(response, {
         theme,
         label: blueprint.label,
         destination: context.destination || plannerPreferences.value.destination || 'Malaysia',
       }),
       blueprint,
-    ).slice(0, MAX_THEME_RESULTS)
+    )
+    const destinationScoped = filterExperiencesByDestination(
+      themedItems,
+      context.destination || plannerPreferences.value.destination || '',
+      context,
+    )
+    const items = destinationScoped.slice(0, MAX_THEME_RESULTS)
     if (!items.length) {
       return null
     }
@@ -2264,6 +2271,7 @@ function pickFirstString(...values) {
 
 async function resolveBookingAttractionLocation(context) {
   const destinationLabel = context.destination || plannerPreferences.value.destination || ''
+  const matcher = destinationLabel ? createDestinationMatcher(destinationLabel) : null
   try {
     const payload = await searchBookingAttractionLocations({
       query: destinationLabel || undefined,
@@ -2274,12 +2282,26 @@ async function resolveBookingAttractionLocation(context) {
     if (!locations.length) {
       return null
     }
-    if (destinationLabel) {
-      const exact = locations.find((entry) =>
-        entry.name?.toLowerCase().includes(destinationLabel.toLowerCase()),
-      )
-      if (exact) {
-        return exact
+    if (matcher) {
+      const canonicalMatch = locations.find((entry) => matcher.match(entry.name))
+      if (canonicalMatch) {
+        return canonicalMatch
+      }
+    }
+    const targetLat = Number.isFinite(context.lat) ? Number(context.lat) : null
+    const targetLng = Number.isFinite(context.lng) ? Number(context.lng) : null
+    if (targetLat !== null && targetLng !== null) {
+      let nearest = null
+      let bestDistance = Infinity
+      locations.forEach((entry) => {
+        const distance = computeDistanceKm(targetLat, targetLng, entry.lat, entry.lng)
+        if (distance !== null && distance < bestDistance) {
+          bestDistance = distance
+          nearest = entry
+        }
+      })
+      if (nearest) {
+        return nearest
       }
     }
     return locations[0]
@@ -2397,11 +2419,18 @@ function normaliseBookingAttraction(attraction, meta = {}) {
   if (!title) {
     return null
   }
-  const addressParts = [
-    attraction.address ?? attraction.full_address ?? null,
-    attraction.city ?? attraction.city_name ?? null,
-    attraction.country ?? attraction.country_name ?? null,
-  ]
+  const city = pickFirstString(
+    attraction.city,
+    attraction.city_name,
+    attraction.cityName,
+    attraction.destination,
+    attraction.destination_name,
+    attraction.destinationName,
+  )
+  const country =
+    pickFirstString(attraction.country, attraction.country_name, attraction.countryName, attraction.country_code) ||
+    'Malaysia'
+  const addressParts = [attraction.address ?? attraction.full_address ?? null, city, country]
     .filter((part) => typeof part === 'string' && part.trim())
   const subtitle =
     addressParts.join(', ') || attraction.short_description || meta.destination || 'Malaysia'
@@ -2452,6 +2481,42 @@ function normaliseBookingAttraction(attraction, meta = {}) {
       imageFromArray,
     ) || ''
   const attractionId = attraction.id ?? attraction.attraction_id ?? attraction.product_id ?? null
+  const lat = coerceFiniteNumber(
+    attraction.latitude ??
+      attraction.lat ??
+      attraction.location?.lat ??
+      attraction.location?.latitude ??
+      attraction.meetingPoint?.lat ??
+      attraction.meeting_point?.lat ??
+      attraction.coordinates?.lat ??
+      attraction.coordinates?.latitude,
+  )
+  const lng = coerceFiniteNumber(
+    attraction.longitude ??
+      attraction.lng ??
+      attraction.location?.lng ??
+      attraction.location?.longitude ??
+      attraction.meetingPoint?.lng ??
+      attraction.meeting_point?.lng ??
+      attraction.coordinates?.lng ??
+      attraction.coordinates?.longitude,
+  )
+  const taxonomySlug =
+    (pickFirstString(
+      attraction.taxonomySlug,
+      attraction.taxonomy_slug,
+      attraction.taxonomy?.slug,
+      attraction.categorySlug,
+      attraction.category_slug,
+      attraction.category,
+    ) || ''
+    ).toLowerCase() || null
+  const metadataDestination = city || country || ''
+  const requestedDestination = meta.destination || ''
+  const tags = [meta.label || 'Experience']
+  if (city) {
+    tags.push(city)
+  }
   return {
     id: `booking-attraction-${attractionId || createLocalId()}`,
     provider: 'booking',
@@ -2461,7 +2526,7 @@ function normaliseBookingAttraction(attraction, meta = {}) {
     reviews,
     priceText: priceInfo.text,
     photoUrl,
-    tags: [meta.label || 'Experience'],
+    tags,
     metadata: {
       provider: 'booking',
       theme: meta.theme,
@@ -2471,8 +2536,14 @@ function normaliseBookingAttraction(attraction, meta = {}) {
       rating,
       reviewCount: reviews,
       address: subtitle,
-      taxonomySlug: attraction.taxonomySlug ?? null,
+      taxonomySlug,
       description: attraction.shortDescription ?? attraction.short_description ?? '',
+      city: city || '',
+      country,
+      destination: metadataDestination,
+      requestedDestination,
+      lat,
+      lng,
     },
     raw: attraction,
   }
@@ -2524,10 +2595,24 @@ function applyBookingAttractionThemeFilters(items = [], blueprint) {
   let filtered = [...items]
   const taxonomySlugs = blueprint?.booking?.taxonomySlugs
   if (Array.isArray(taxonomySlugs) && taxonomySlugs.length) {
-    filtered = filtered.filter((item) => {
-      const slug = (item.metadata?.taxonomySlug || item.raw?.taxonomySlug || '').trim()
-      return slug && taxonomySlugs.includes(slug)
+    const allowed = taxonomySlugs.map((slug) => slug.toLowerCase())
+    const taxonomyFiltered = filtered.filter((item) => {
+      const slugCandidates = [
+        item.metadata?.taxonomySlug,
+        item.metadata?.taxonomy,
+        item.raw?.taxonomySlug,
+        item.raw?.taxonomy_slug,
+        item.raw?.taxonomy?.slug,
+        item.raw?.taxonomy,
+      ]
+      const slug = slugCandidates
+        .map((candidate) => (typeof candidate === 'string' ? candidate.trim().toLowerCase() : ''))
+        .find(Boolean)
+      return slug ? allowed.includes(slug) : false
     })
+    if (taxonomyFiltered.length) {
+      filtered = taxonomyFiltered
+    }
   }
   const keywordIncludes = blueprint?.booking?.keywordIncludes
   if (Array.isArray(keywordIncludes) && keywordIncludes.length) {
@@ -2537,17 +2622,85 @@ function applyBookingAttractionThemeFilters(items = [], blueprint) {
       const lower = value.toLowerCase()
       return keywords.some((keyword) => lower.includes(keyword))
     }
-    const keywordMatches = filtered.filter(
-      (item) =>
-        matchKeywords(item.title) ||
-        matchKeywords(item.subtitle) ||
-        matchKeywords(item.metadata?.description),
-    )
+    const keywordMatches = filtered.filter((item) => {
+      const keywordSources = [
+        item.title,
+        item.subtitle,
+        item.metadata?.description,
+        item.metadata?.address,
+        item.metadata?.city,
+        Array.isArray(item.tags) ? item.tags.join(' ') : null,
+        item.raw?.categoryName,
+        item.raw?.short_description,
+        Array.isArray(item.raw?.highlights) ? item.raw.highlights.join(' ') : null,
+      ]
+      return keywordSources.some((source) => matchKeywords(source))
+    })
     if (keywordMatches.length) {
       filtered = keywordMatches
     }
   }
   return filtered.length ? filtered : items
+}
+
+function filterExperiencesByDestination(items = [], destinationLabel, context = {}) {
+  const label = typeof destinationLabel === 'string' ? destinationLabel.trim() : ''
+  const matcher = label ? createDestinationMatcher(label) : null
+  const referenceLat = Number.isFinite(context.lat) ? Number(context.lat) : null
+  const referenceLng = Number.isFinite(context.lng) ? Number(context.lng) : null
+  if (!matcher && referenceLat === null && referenceLng === null) {
+    return items
+  }
+  const filtered = items.filter((item) => {
+    if (matcher) {
+      const candidateFields = [
+        item.subtitle,
+        item.metadata?.address,
+        item.metadata?.city,
+        item.metadata?.destination,
+        item.metadata?.country,
+        item.raw?.city,
+        item.raw?.city_name,
+        item.raw?.destination,
+      ]
+      if (
+        candidateFields.some((field) => {
+          if (!field) return false
+          return matcher.match(String(field))
+        })
+      ) {
+        return true
+      }
+    }
+    if (referenceLat !== null && referenceLng !== null) {
+      const itemLat = coerceFiniteNumber(
+        item.metadata?.lat ??
+          item.raw?.latitude ??
+          item.raw?.lat ??
+          item.raw?.meetingPoint?.lat ??
+          item.raw?.meeting_point?.lat ??
+          item.raw?.location?.lat ??
+          item.raw?.location?.latitude,
+      )
+      const itemLng = coerceFiniteNumber(
+        item.metadata?.lng ??
+          item.raw?.longitude ??
+          item.raw?.lng ??
+          item.raw?.meetingPoint?.lng ??
+          item.raw?.meeting_point?.lng ??
+          item.raw?.location?.lng ??
+          item.raw?.location?.longitude,
+      )
+      if (itemLat !== null && itemLng !== null) {
+        const distanceKm = computeDistanceKm(referenceLat, referenceLng, itemLat, itemLng)
+        if (distanceKm !== null && distanceKm <= DESTINATION_MATCH_RADIUS_KM) {
+          return true
+        }
+      }
+    }
+    return false
+  })
+  return filtered
 }
 
 function buildAccommodationFilterFromTheme(theme) {
