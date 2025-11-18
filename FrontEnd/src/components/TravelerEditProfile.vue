@@ -501,7 +501,6 @@ function handleSubmit() {
               <n-button
                 size="small"
                 tertiary
-                type="primary"
                 :loading="otpState.verifying"
                 :disabled="otpState.verified || !canVerifyOtp"
                 @click="handleVerifyPasswordOtp"

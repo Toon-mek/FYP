@@ -23,10 +23,29 @@ try {
 function safeQuery($pdo, $sql, $default = 0) {
     try {
         $result = $pdo->query($sql);
-        if ($result === false) return $default;
+        if ($result === false) {
+            error_log("safeQuery failed: " . json_encode($pdo->errorInfo()));
+            return $default;
+        }
         $value = $result->fetchColumn();
         return $value !== false ? (int)$value : $default;
     } catch (Throwable $e) {
+        error_log("safeQuery error: " . $e->getMessage());
+        return $default;
+    }
+}
+
+function safeQueryRow($pdo, $sql, $default = []) {
+    try {
+        $result = $pdo->query($sql);
+        if ($result === false) {
+            error_log("safeQueryRow failed: " . json_encode($pdo->errorInfo()));
+            return $default;
+        }
+        $row = $result->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? $row : $default;
+    } catch (Throwable $e) {
+        error_log("safeQueryRow error: " . $e->getMessage());
         return $default;
     }
 }
@@ -73,29 +92,53 @@ try {
         WHERE DATE(paidAt) BETWEEN '{$startDate}' AND '{$endDate}' 
         AND status = 'confirmed'");
     
-    // Chatbot Usage
+    // Chatbot Usage - Count total messages/interactions
     $chatbotUsage = safeQuery($pdo, "SELECT COUNT(*) FROM ChatbotLog 
+        WHERE DATE(timestamp) BETWEEN '{$startDate}' AND '{$endDate}'");
+    
+    // Chatbot Conversations - Count unique sessions
+    $chatbotConversations = safeQuery($pdo, "SELECT COUNT(DISTINCT sessionID) FROM ChatbotConversation 
         WHERE DATE(timestamp) BETWEEN '{$startDate}' AND '{$endDate}'");
     
     // ==================== ANALYTICS DASHBOARD ====================
     
-    // Daily Logins Trend
-    $dailyLogins = safeQueryAll($pdo, "
-        SELECT DATE(loginTimestamp) as date, COUNT(*) as count
-        FROM (
-            SELECT loginTimestamp FROM TravelerLoginLog WHERE DATE(loginTimestamp) BETWEEN '{$startDate}' AND '{$endDate}'
-            UNION ALL
-            SELECT loginTimestamp FROM OperatorLoginLog WHERE DATE(loginTimestamp) BETWEEN '{$startDate}' AND '{$endDate}'
-        ) combined
-        GROUP BY DATE(loginTimestamp)
-        ORDER BY date ASC
-    ");
-    $dailyLogins = array_map(function($row) {
-        return [
-            'date' => $row['date'],
-            'count' => (int)$row['count']
+    // Daily Active Sessions - Count unique users who had active sessions on each day
+    $dailyLogins = [];
+    
+    // Generate all dates in range
+    $period = new DatePeriod(
+        new DateTime($startDate),
+        new DateInterval('P1D'),
+        (new DateTime($endDate))->modify('+1 day')
+    );
+    
+    foreach ($period as $date) {
+        $currentDate = $date->format('Y-m-d');
+        
+        // Count unique active users on this date
+        // A user has an active session on a date if they have ANY login record where:
+        // - Login happened on or before this date
+        // - Logout hasn't happened yet OR happened on or after this date
+        $activeCount = safeQueryRow($pdo, "
+            SELECT COUNT(DISTINCT user_id) as count
+            FROM (
+                SELECT CONCAT('T', travelerID) as user_id
+                FROM TravelerLoginLog
+                WHERE loginTimestamp <= '{$currentDate} 23:59:59'
+                AND (logoutTimestamp IS NULL OR logoutTimestamp >= '{$currentDate} 00:00:00')
+                UNION
+                SELECT CONCAT('O', operatorID) as user_id
+                FROM OperatorLoginLog
+                WHERE loginTimestamp <= '{$currentDate} 23:59:59'
+                AND (logoutTimestamp IS NULL OR logoutTimestamp >= '{$currentDate} 00:00:00')
+            ) active_users
+        ", ['count' => 0])['count'];
+        
+        $dailyLogins[] = [
+            'date' => $currentDate,
+            'count' => (int)$activeCount
         ];
-    }, $dailyLogins);
+    }
     
     // Community Activeness (Top users by posts, comments, stories, engagement)
     $communityActiveness = safeQueryAll($pdo, "
@@ -246,7 +289,8 @@ try {
             'activeUsers' => $activeUsers,
             'newListings' => $newListings,
             'confirmedBookings' => $confirmedBookings,
-            'chatbotUsage' => $chatbotUsage
+            'chatbotUsage' => $chatbotUsage,
+            'chatbotConversations' => $chatbotConversations
         ],
         'analytics' => [
             'dailyLogins' => $dailyLogins,
