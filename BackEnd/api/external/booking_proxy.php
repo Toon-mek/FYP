@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const BOOKING_RAPIDAPI_KEY = '1d79978ae7msh16de8e83e0a4d8ep1b1735jsnc38f3d34df3c';
+const BOOKING_RAPIDAPI_KEY = 'ae8c56da73mshd03c65b16d6b3bdp1f81a1jsn54ea7c04a870';
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
