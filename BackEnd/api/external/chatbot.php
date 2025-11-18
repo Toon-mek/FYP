@@ -14,6 +14,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // Enhanced chatbot logging with conversation history and metrics
 function logChatbotUsage($pdo, $travelerId = null, $intent = '', $responseTime = 0, $success = true, $errorType = null) {
+    if ($pdo === null) {
+        error_log('ChatbotLog: PDO is null, cannot log usage');
+        return;
+    }
+    
     try {
         // Create enhanced ChatbotLog table
         $pdo->exec("CREATE TABLE IF NOT EXISTS ChatbotLog (
@@ -43,7 +48,13 @@ function logChatbotUsage($pdo, $travelerId = null, $intent = '', $responseTime =
         
         // Insert usage log with metrics
         $stmt = $pdo->prepare("INSERT INTO ChatbotLog (travelerID, timestamp, intent, responseTime, success, errorType) VALUES (?, NOW(), ?, ?, ?, ?)");
-        $stmt->execute([$travelerId, $intent, $responseTime, $success, $errorType]);
+        $result = $stmt->execute([$travelerId, $intent, $responseTime, $success, $errorType]);
+        
+        if (!$result) {
+            error_log('ChatbotLog insert failed: ' . json_encode($stmt->errorInfo()));
+        } else {
+            error_log('ChatbotLog inserted successfully - TravelerID: ' . ($travelerId ?? 'null') . ', Intent: ' . $intent);
+        }
     } catch (Exception $e) {
         error_log('Chatbot logging failed: ' . $e->getMessage());
     }
@@ -64,6 +75,11 @@ try {
     $pdo = null;
     try {
         $pdo = require __DIR__ . '/../../config/db.php';
+        if ($pdo === null) {
+            error_log('CHATBOT: Database connection returned null');
+        } else {
+            error_log('CHATBOT: Database connected successfully');
+        }
     } catch (Exception $e) {
         error_log('DB connection failed for chatbot logging: ' . $e->getMessage());
     }
@@ -129,12 +145,19 @@ try {
         $faqReply['actions'] = $faqReply['actions'] ?? $moduleActions;
         $responseTime = microtime(true) - $startTime;
         
+        $loggingStatus = 'not attempted';
         if ($pdo !== null) {
+            $loggingStatus = 'pdo available';
             logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
             saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $faqReply['reply'], $faqReply['actions']);
+            $loggingStatus = 'logged';
+        } else {
+            $loggingStatus = 'pdo is null';
         }
         
-        echo json_encode(['ok' => true, 'reply' => $faqReply['reply'], 'actions' => $faqReply['actions'], 'sessionId' => $sessionId]);
+        error_log('FAQ Response - Logging: ' . $loggingStatus . ', TravelerID: ' . ($travelerId ?? 'null') . ', Intent: ' . $intent);
+        
+        echo json_encode(['ok' => true, 'reply' => $faqReply['reply'], 'actions' => $faqReply['actions'], 'sessionId' => $sessionId, 'debug' => ['logging' => $loggingStatus, 'pdo' => ($pdo !== null)]]);
         exit;
     }
 
@@ -143,12 +166,16 @@ try {
         $quickReply['actions'] = $quickReply['actions'] ?? $moduleActions;
         $responseTime = microtime(true) - $startTime;
         
+        $loggingStatus = 'not attempted';
         if ($pdo !== null) {
             logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
             saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $quickReply['reply'], $quickReply['actions']);
+            $loggingStatus = 'logged';
+        } else {
+            $loggingStatus = 'pdo is null';
         }
         
-        echo json_encode(['ok' => true, 'reply' => $quickReply['reply'], 'actions' => $quickReply['actions'], 'sessionId' => $sessionId]);
+        echo json_encode(['ok' => true, 'reply' => $quickReply['reply'], 'actions' => $quickReply['actions'], 'sessionId' => $sessionId, 'debug' => ['logging' => $loggingStatus, 'pdo' => ($pdo !== null)]]);
         exit;
     }
 
@@ -157,12 +184,16 @@ try {
         $personaTip['actions'] = $personaTip['actions'] ?? $moduleActions;
         $responseTime = microtime(true) - $startTime;
         
+        $loggingStatus = 'not attempted';
         if ($pdo !== null) {
             logChatbotUsage($pdo, $travelerId, $intent, $responseTime, true);
             saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $personaTip['reply'], $personaTip['actions']);
+            $loggingStatus = 'logged';
+        } else {
+            $loggingStatus = 'pdo is null';
         }
         
-        echo json_encode(['ok' => true, 'reply' => $personaTip['reply'], 'actions' => $personaTip['actions'], 'sessionId' => $sessionId]);
+        echo json_encode(['ok' => true, 'reply' => $personaTip['reply'], 'actions' => $personaTip['actions'], 'sessionId' => $sessionId, 'debug' => ['logging' => $loggingStatus, 'pdo' => ($pdo !== null)]]);
         exit;
     }
     
@@ -171,12 +202,16 @@ try {
     if ($marketplaceSearch !== null) {
         $responseTime = microtime(true) - $startTime;
         
+        $loggingStatus = 'not attempted';
         if ($pdo !== null) {
             logChatbotUsage($pdo, $travelerId, 'marketplace_search', $responseTime, true);
             saveConversationMessage($pdo, $sessionId, $travelerId, 'assistant', $marketplaceSearch['reply'], $marketplaceSearch['actions']);
+            $loggingStatus = 'logged';
+        } else {
+            $loggingStatus = 'pdo is null';
         }
         
-        echo json_encode(['ok' => true, 'reply' => $marketplaceSearch['reply'], 'actions' => $marketplaceSearch['actions'], 'sessionId' => $sessionId]);
+        echo json_encode(['ok' => true, 'reply' => $marketplaceSearch['reply'], 'actions' => $marketplaceSearch['actions'], 'sessionId' => $sessionId, 'debug' => ['logging' => $loggingStatus, 'pdo' => ($pdo !== null)]]);
         exit;
     }
 

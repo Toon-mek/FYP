@@ -85,7 +85,7 @@ const usageCards = computed(() => {
     {
       label: 'Chatbot Usage',
       value: usage.chatbotUsage,
-      detail: 'Conversations',
+      detail: 'Total interactions',
       icon: '🤖',
       color: '#9333ea'
     }
@@ -137,6 +137,66 @@ const loginChartData = computed(() => {
     x: padding.left + (i * xStep),
     y: padding.top + chartHeight + 30
   }))
+
+  return {
+    width,
+    height,
+    padding,
+    chartWidth,
+    chartHeight,
+    linePath,
+    areaPath,
+    points,
+    yLabels,
+    xLabels,
+    maxValue,
+    minValue
+  }
+})
+
+// ==================== DAILY SIGN-INS CHART ====================
+
+const dailySignInsChartData = computed(() => {
+  if (!data.value?.analytics?.dailyLogins?.length) return null
+
+  const activeUsers = data.value.analytics.dailyLogins
+  const width = 700
+  const height = 250
+  const padding = { top: 20, right: 30, bottom: 50, left: 50 }
+  const chartWidth = width - padding.left - padding.right
+  const chartHeight = height - padding.top - padding.bottom
+
+  const values = activeUsers.map(d => d.count)
+  const maxValue = Math.max(...values, 1)
+  const minValue = Math.min(...values, 0)
+  const range = maxValue - minValue || 1
+
+  const xStep = chartWidth / Math.max(activeUsers.length - 1, 1)
+
+  const points = activeUsers.map((item, i) => {
+    const x = padding.left + (i * xStep)
+    const y = padding.top + chartHeight - ((item.count - minValue) / range * chartHeight)
+    return { x, y, date: item.date, count: item.count }
+  })
+
+  const linePath = points.map((p, i) =>
+    `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`
+  ).join(' ')
+
+  const areaPath = `${linePath} L${points[points.length - 1].x},${padding.top + chartHeight} L${padding.left},${padding.top + chartHeight} Z`
+
+  const yLabels = Array.from({ length: 5 }, (_, i) => {
+    const value = minValue + (range * (4 - i) / 4)
+    const y = padding.top + (chartHeight * i / 4)
+    return { value: Math.round(value), y }
+  })
+
+  const xLabelStep = Math.ceil(activeUsers.length / 8)
+  const xLabels = activeUsers.map((item, i) => ({
+    date: item.date,
+    x: padding.left + (i * xStep),
+    show: i % xLabelStep === 0 || i === activeUsers.length - 1
+  })).filter(d => d.show)
 
   return {
     width,
@@ -1015,44 +1075,47 @@ function formatDateShort(dateStr) {
 
         <n-card title="View Analytics" :segmented="{ content: true }">
           <n-text depth="3" style="margin-bottom: 24px; display: block;">
-            Dashboard containing real-time analytics such as daily logins, community activeness, top user activities,
+            Dashboard containing real-time analytics such as daily sign-ins, community activeness, top user activities,
             and operator performance.
           </n-text>
 
-          <n-card title="📈 Daily Logins" size="small" style="margin-bottom: 16px;">
-            <div v-if="loginChartData" class="chart-container">
-              <svg :width="loginChartData.width" :height="loginChartData.height" xmlns="http://www.w3.org/2000/svg">
+          <n-card title="📊 Daily Sign-ins" size="small" style="margin-bottom: 16px;">
+            <template #header-extra>
+              <n-text depth="3" style="font-size: 12px;">Total login events per day</n-text>
+            </template>
+            <div v-if="dailySignInsChartData" class="chart-container">
+              <svg :width="dailySignInsChartData.width" :height="dailySignInsChartData.height" xmlns="http://www.w3.org/2000/svg">
                 <defs>
-                  <linearGradient :id="lineGradientId" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" stop-color="rgba(32, 128, 240, 0.4)" />
-                    <stop offset="100%" stop-color="rgba(32, 128, 240, 0)" />
+                  <linearGradient id="signInsGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="rgba(24, 160, 88, 0.4)" />
+                    <stop offset="100%" stop-color="rgba(24, 160, 88, 0)" />
                   </linearGradient>
                 </defs>
 
-                <g v-for="label in loginChartData.yLabels" :key="label.y">
-                  <line :x1="loginChartData.padding.left" :y1="label.y"
-                    :x2="loginChartData.padding.left + loginChartData.chartWidth" :y2="label.y"
+                <g v-for="label in dailySignInsChartData.yLabels" :key="label.y">
+                  <line :x1="dailySignInsChartData.padding.left" :y1="label.y"
+                    :x2="dailySignInsChartData.padding.left + dailySignInsChartData.chartWidth" :y2="label.y"
                     stroke="rgba(128, 128, 128, 0.1)" stroke-width="1" />
-                  <text :x="loginChartData.padding.left - 8" :y="label.y + 4" text-anchor="end"
+                  <text :x="dailySignInsChartData.padding.left - 8" :y="label.y + 4" text-anchor="end"
                     fill="rgba(128, 128, 128, 0.7)" font-size="11">
                     {{ label.value }}
                   </text>
                 </g>
 
-                <g v-for="label in loginChartData.xLabels" :key="label.x">
-                  <text v-if="label.label" :x="label.x" :y="label.y" text-anchor="middle"
+                <g v-for="label in dailySignInsChartData.xLabels" :key="label.x">
+                  <text :x="label.x" :y="dailySignInsChartData.height - dailySignInsChartData.padding.bottom + 25" text-anchor="middle"
                     fill="rgba(128, 128, 128, 0.7)" font-size="11">
-                    {{ label.label }}
+                    {{ formatDateShort(label.date) }}
                   </text>
                 </g>
 
-                <path :d="loginChartData.areaPath" :fill="`url(#${lineGradientId})`" />
+                <path :d="dailySignInsChartData.areaPath" fill="url(#signInsGradient)" />
 
-                <path :d="loginChartData.linePath" stroke="#2080f0" stroke-width="3" fill="none" stroke-linecap="round"
+                <path :d="dailySignInsChartData.linePath" stroke="#18a058" stroke-width="3" fill="none" stroke-linecap="round"
                   stroke-linejoin="round" />
 
-                <circle v-for="(point, i) in loginChartData.points" :key="i" :cx="point.x" :cy="point.y" r="4"
-                  fill="#2080f0" stroke="white" stroke-width="2" />
+                <circle v-for="(point, i) in dailySignInsChartData.points" :key="i" :cx="point.x" :cy="point.y" r="4"
+                  fill="#18a058" stroke="white" stroke-width="2" />
               </svg>
             </div>
             <n-empty v-else description="Not enough data to generate chart" />

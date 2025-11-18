@@ -488,7 +488,6 @@ function handleSubmit() {
               v-model:value="form.currentPassword"
               type="password"
               placeholder="Enter your current password"
-              :disabled="passwordState.method === 'last-digit'"
               maxlength="20"
             />
             <n-space justify="space-between" class="password-actions" style="width: 100%;">
@@ -496,7 +495,6 @@ function handleSubmit() {
                 size="small"
                 type="primary"
                 tertiary
-                type="primary"
                 :loading="otpState.verifying"
                 :disabled="otpState.verified || !canVerifyOtp"
                 @click="handleVerifyPasswordOtp"
