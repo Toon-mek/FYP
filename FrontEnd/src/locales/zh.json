@@ -1,4 +1,4 @@
-﻿{
+{
   "language": {
     "label": "语言",
     "en": "英语",
@@ -7,11 +7,11 @@
     "ta": "泰米尔语"
   },
   "nav": {
-    "about": "关于我们",
+    "about": "关于",
     "destinations": "目的地",
-    "tips": "旅行贴士",
-    "newsletter": "电子通讯",
-    "calendar": "行程表",
+    "tips": "贴士",
+    "newsletter": "通讯",
+    "calendar": "日历",
     "resorts": "度假村",
     "upcoming": "即将到来",
     "uploadInfo": "上传信息",
@@ -19,16 +19,17 @@
     "manageListings": "管理列表"
   },
   "header": {
-    "brandName": "马来西亚永续旅游",
-    "tagline": "细心探索",
+    "brandName": "马来西亚可持续旅行",
+    "tagline": "用心探索",
     "cta": "开始规划",
-    "secondaryCta": "编辑个人资料"
+    "secondaryCta": "编辑资料",
+    "homeCta": "首页"
   },
   "auth": {
-    "logout": "登出"
+    "logout": "退出登录"
   },
   "profile": {
-    "edit": "编辑个人资料"
+    "edit": "编辑资料"
   },
   "theme": {
     "label": "主题",

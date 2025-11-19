@@ -1001,17 +1001,21 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
 <template>
   <section class="login">
     <Transition name="fade-slide" appear>
-      <n-card class="hero-card" :bordered="false">
-        <n-space vertical size="large">
-          <n-tag size="small" round strong :bordered="false" type="success">Welcome back</n-tag>
-          <n-gradient-text type="success" class="hero-title">
-            Sign in to Malaysia Sustainable Travel
-          </n-gradient-text>
-          <n-text depth="3" class="hero-copy">
-            Select your account type to continue planning or managing sustainable journeys.
-          </n-text>
-        </n-space>
-      </n-card>
+      <div class="hero-banner">
+        <div class="hero-banner__badge" aria-label="Welcome back">
+          <span class="hero-banner__badge-icon" aria-hidden="true"></span>
+          <div class="hero-banner__badge-text">
+            <span class="hero-banner__badge-title">Welcome back</span>
+            <small class="hero-banner__badge-subtitle">Pick up from your latest itinerary checkpoint.</small>
+          </div>
+        </div>
+        <n-gradient-text type="success" class="hero-title">
+          Sign in to Malaysia Sustainable Travel
+        </n-gradient-text>
+        <p class="hero-copy">
+          Select your account type to continue planning or managing sustainable journeys.
+        </p>
+      </div>
     </Transition>
 
     <n-card class="login-card" :bordered="false" size="large" :segmented="{ content: true, footer: 'soft' }">
@@ -1392,28 +1396,84 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
   display: flex;
   flex-direction: column;
   gap: 2.75rem;
-  padding: 0 1.5rem 4.5rem;
+  padding: 0 0 4.5rem;
 }
 
-.hero-card {
-  background: linear-gradient(135deg, #def4e8 0%, #f3fbf6 55%, #ffffff 100%);
-  border-radius: 36px;
-  box-shadow: 0 26px 52px rgba(9, 54, 34, 0.12);
-  padding: clamp(1.75rem, 4vw, 2.75rem);
+.hero-banner {
+  background: linear-gradient(135deg, #e5f6ed 0%, #f8fffb 100%);
+  box-shadow: 0 18px 38px rgba(9, 54, 34, 0.12);
+  padding: clamp(1.4rem, 3vw, 2.25rem) clamp(1.4rem, 6vw, 4rem);
+  border-bottom: 1px solid rgba(9, 87, 46, 0.08);
+  border-radius: 0 0 36px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }
+
+.hero-banner__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(19, 137, 88, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 14px rgba(15, 84, 48, 0.08);
+  width: fit-content;
+}
+
+.hero-banner__badge-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #a1f0c9 0%, #7cd2a0 70%);
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(8, 62, 30, 0.08);
+}
+
+.hero-banner__badge-icon::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #0c4c2a;
+  border-bottom: 2px solid #0c4c2a;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -45%) rotate(45deg);
+}
+
+.hero-banner__badge-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.hero-banner__badge-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #0d402b;
+}
+
+.hero-banner__badge-subtitle {
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  color: #4b6a58;
+}
+
 
 .hero-title {
   display: block;
-  font-size: clamp(2.6rem, 5vw, 3.7rem);
+  font-size: clamp(2.5rem, 4.5vw, 3.8rem);
   font-weight: 700;
   letter-spacing: -0.01em;
-  line-height: 1.05;
+  line-height: 1.1;
 }
 
 .hero-copy {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   line-height: 1.75;
-  max-width: 540px;
+  max-width: 640px;
 }
 
 .login-card {
@@ -1573,6 +1633,14 @@ const dialogFooterStyle = { padding: '0 clamp(1.25rem, 3vw, 1.75rem) 1.25rem' }
 
   .hero-card {
     text-align: center;
+  }
+  
+  .hero-banner {
+    padding: 1.25rem;
+  }
+
+  .hero-banner__badge {
+    margin-inline: auto;
   }
 
   .form-actions {

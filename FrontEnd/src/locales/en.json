@@ -22,7 +22,8 @@
     "brandName": "Malaysia Sustainable Travel",
     "tagline": "Explore with care",
     "cta": "Start planning",
-    "secondaryCta": "Edit profile"
+    "secondaryCta": "Edit profile",
+    "homeCta": "Home Page"
   },
   "auth": {
     "logout": "Log out"
@@ -32,12 +33,12 @@
   },
   "traveler": {
     "menu": {
-      "weather": "Weather outlook",
-      "community": "Community feed",
-      "savedPosts": "Saved posts",
+      "weather": "Weather Outlook",
+      "community": "Community Feed",
+      "savedPosts": "Saved Posts",
       "marketplace": "Marketplace",
-      "trips": "Trip planner",
-      "savedPlaces": "Saved places"
+      "trips": "Trip Planner",
+      "savedPlaces": "Saved Places"
     }
   },
   "theme": {

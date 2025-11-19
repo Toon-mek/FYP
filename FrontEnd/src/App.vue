@@ -98,6 +98,8 @@ const headerCtaHome = computed(() => ({
 const headerTone = computed(() => {
   if (currentView.value === 'operator') return 'operator'
   if (currentView.value === 'traveler') return 'traveler'
+  if (currentView.value === 'home') return 'home'
+  if (currentView.value === 'login') return 'login'
   return 'default'
 })
 
@@ -432,6 +434,7 @@ const navLinks = computed(() => {
   if (currentView.value === 'traveler') return travelerNavLinks.value
   if (currentView.value === 'operator') return operatorNavLinks.value
   if (currentView.value === 'admin') return adminNavLinks
+  if (currentView.value === 'login') return []
   return homeNavLinks.value
 })
 
@@ -460,9 +463,15 @@ const headerBrand = computed(() => ({
           : '#hero',
 }))
 
-const headerCta = computed(() =>
-  currentAccountUser.value ? { key: 'cta-logout', label: t('auth.logout') } : headerCtaHome.value,
-)
+const headerCta = computed(() => {
+  if (currentAccountUser.value) {
+    return { key: 'cta-logout', label: t('auth.logout') }
+  }
+  if (currentView.value === 'login') {
+    return { key: 'cta-home', label: t('header.homeCta') }
+  }
+  return headerCtaHome.value
+})
 const activeEditComponent = computed(() =>
   currentAccountUser.value ? profileComponentMap[currentView.value] ?? null : null,
 )
@@ -561,11 +570,11 @@ async function handleHeaderCta() {
     await logout(currentView.value)
     return
   }
-  if (currentView.value !== 'login') {
-    goToLogin()
+  if (currentView.value === 'login') {
+    showHome('#hero')
     return
   }
-  scrollToSection('#hero')
+  goToLogin()
 }
 
 function handleBrandClick() {

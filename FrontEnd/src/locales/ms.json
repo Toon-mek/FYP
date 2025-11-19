@@ -10,11 +10,11 @@
     "about": "Tentang",
     "destinations": "Destinasi",
     "tips": "Tip",
-    "newsletter": "Surat berita",
+    "newsletter": "Surat Berita",
     "calendar": "Kalendar",
     "resorts": "Resort",
-    "upcoming": "Akan datang",
-    "uploadInfo": "Muat naik maklumat",
+    "upcoming": "Akan Datang",
+    "uploadInfo": "Muat Naik Maklumat",
     "mediaManager": "Pengurus Media",
     "manageListings": "Urus Senarai"
   },
@@ -22,7 +22,8 @@
     "brandName": "Pelancongan Lestari Malaysia",
     "tagline": "Terokai dengan penuh prihatin",
     "cta": "Mula merancang",
-    "secondaryCta": "Sunting profil"
+    "secondaryCta": "Sunting profil",
+    "homeCta": "Laman Utama"
   },
   "auth": {
     "logout": "Log keluar"

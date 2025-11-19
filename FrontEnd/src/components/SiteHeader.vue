@@ -169,6 +169,20 @@ const emit = defineEmits([
   box-shadow: 0 24px 54px rgba(31, 90, 66, 0.16);
 }
 
+.site-header--home {
+  background: linear-gradient(120deg, #f4edff, #e5f6ff);
+  border-color: rgba(91, 112, 189, 0.12);
+  box-shadow: 0 24px 52px rgba(72, 94, 149, 0.14);
+}
+
+.site-header--login {
+  background: radial-gradient(circle at 10% 20%, #fff1e5, transparent 55%),
+    radial-gradient(circle at 90% 10%, #e0f2ff, transparent 50%),
+    linear-gradient(120deg, #ffe8f3, #e7f5ff);
+  border: 1px solid rgba(137, 94, 60, 0.12);
+  box-shadow: 0 26px 48px rgba(120, 104, 136, 0.18);
+}
+
 .site-header__container {
   flex: 1;
   display: flex;
@@ -259,10 +273,21 @@ const emit = defineEmits([
   box-shadow: 0 18px 36px rgba(24, 85, 61, 0.15);
 }
 
+.site-header--home .site-header__cluster {
+  border-color: rgba(86, 106, 176, 0.14);
+  box-shadow: 0 18px 36px rgba(67, 88, 148, 0.16);
+}
+
+.site-header--login .site-header__cluster {
+  border-color: rgba(143, 122, 178, 0.18);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 20px 36px rgba(130, 112, 152, 0.18);
+}
+
 .site-nav {
   display: inline-flex;
   align-items: center;
-  gap: 1.25rem;
+  gap: 1.1rem;
   flex-wrap: wrap;
 }
 
@@ -292,6 +317,68 @@ const emit = defineEmits([
 
 .site-header--operator .site-nav a:hover {
   color: #0c3725;
+}
+
+.site-header--home .site-nav {
+  padding: 0 0.9rem;
+  gap: 0;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.site-header--home .site-nav a {
+  color: #0f4c33;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 1rem;
+  margin-right: 0;
+  font-family: Arial, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.3;
+  text-transform: none;
+  text-decoration: none;
+}
+
+.site-header--home .site-nav a:last-child {
+  padding-right: 0;
+}
+
+.site-header--home .site-nav a::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  height: 2px;
+  width: 100%;
+  background: #0f4c33;
+  border-radius: 999px;
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.site-header--home .site-nav a:hover {
+  color: #0c3423;
+}
+
+.site-header--home .site-nav a:hover::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.site-header--home .site-nav a:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 1.35rem;
+  background: rgba(15, 59, 39, 0.35);
+  pointer-events: none;
 }
 
 .header-actions {
@@ -327,6 +414,16 @@ const emit = defineEmits([
   box-shadow: 0 10px 18px rgba(0, 0, 0, 0.12);
 }
 
+.site-header--login .header-cta.btn.primary {
+  background: linear-gradient(120deg, #ffd977, #ffb347);
+  color: #3b2a0a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 12px 20px rgba(255, 183, 71, 0.35);
+}
+
+.site-header--login .header-cta.btn.primary:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 14px 22px rgba(255, 183, 71, 0.45);
+}
+
 .language-selector {
   display: flex;
   align-items: center;
@@ -344,6 +441,14 @@ const emit = defineEmits([
 
 .site-header--operator .language-label {
   color: #1a5139;
+}
+
+.site-header--home .language-label {
+  color: #314263;
+}
+
+.site-header--login .language-label {
+  color: #5b577b;
 }
 
 .language-select {
@@ -418,6 +523,16 @@ const emit = defineEmits([
 .site-header--operator .language-select:focus {
   border-color: #1d6f4f;
   box-shadow: 0 0 0 2px rgba(29, 111, 79, 0.18);
+}
+
+.site-header--home .language-select:focus {
+  border-color: #4b64a5;
+  box-shadow: 0 0 0 2px rgba(75, 100, 165, 0.18);
+}
+
+.site-header--login .language-select:focus {
+  border-color: #a96237;
+  box-shadow: 0 0 0 2px rgba(169, 98, 55, 0.2);
 }
 
 @media (max-width: 720px) {

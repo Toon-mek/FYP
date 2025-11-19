@@ -742,6 +742,7 @@ async function completeAuthorization(outcome = 'success') {
       })
       notifySavedPlacesRefresh()
       notifyBookingHistoryRefresh()
+      exitPaymentFlow()
     } else if (response.session?.status === 'failed') {
       message.warning(response.session?.failureReason || 'Payment marked as failed.')
       exitPaymentFlow()

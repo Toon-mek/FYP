@@ -154,6 +154,51 @@ const upcomingTrips = computed(() =>
     .map((trip) => enhanceTripWithCountdown(trip, new Date(countdownTicker.value)))
     .sort(sortTripsChronologically),
 )
+const journeyFilterOptions = [
+  { value: 'next', label: 'Next Adventure' },
+  { value: 'ongoing', label: 'Ongoing Journey' },
+  { value: 'completed', label: 'Completed Journey' },
+]
+const journeyFilterLookup = journeyFilterOptions.reduce((acc, option) => {
+  acc[option.value] = option
+  return acc
+}, {})
+const selectedJourneyFilter = ref(journeyFilterOptions[0].value)
+const journeyCollections = computed(() => {
+  const groups = {
+    next: [],
+    ongoing: [],
+    completed: [],
+  }
+  const upcomingCandidates = []
+  upcomingTrips.value.forEach((trip) => {
+    if (!trip) {
+      return
+    }
+    if (isTripOngoing(trip)) {
+      groups.ongoing.push(trip)
+      return
+    }
+    if (isTripCompleted(trip)) {
+      groups.completed.push(trip)
+      return
+    }
+    if (isTripUpcoming(trip)) {
+      upcomingCandidates.push(trip)
+    }
+  })
+  groups.next = upcomingCandidates.length ? [...upcomingCandidates] : []
+  return groups
+})
+const filteredJourneys = computed(
+  () => journeyCollections.value[selectedJourneyFilter.value] ?? [],
+)
+const filteredJourneyCount = computed(() =>
+  filteredJourneys.value.filter((trip) => isExperienceKit(trip)).length,
+)
+const journeySectionTitle = computed(
+  () => journeyFilterLookup[selectedJourneyFilter.value]?.label ?? 'Upcoming journeys',
+)
 const nextTrip = computed(() => upcomingTrips.value[0] ?? null)
 const malaysiaClockDisplay = computed(() =>
   malaysiaClockFormatter.format(new Date(countdownTicker.value)),
@@ -255,11 +300,11 @@ const sidebarOptions = [
   { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
   { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
   { key: 'marketplace', label: 'Marketplace', icon: renderIcon('ri-store-3-line') },
-  { key: 'trips', label: 'Trip planner', icon: renderIcon('ri-calendar-event-line') },
-  { key: 'saved', label: 'Saved places', icon: renderIcon('ri-heart-3-line') },
-  { key: 'booking-dashboard', label: 'Booking dashboard', icon: renderIcon('ri-cash-line') },
-  { key: 'payment-dashboard', label: 'Payment simulations', icon: renderIcon('ri-bank-card-line') },
-  { key: 'payment-history', label: 'Booking history', icon: renderIcon('ri-archive-2-line') },
+  { key: 'trips', label: 'Trip Planner', icon: renderIcon('ri-calendar-event-line') },
+  { key: 'saved', label: 'Saved Places', icon: renderIcon('ri-heart-3-line') },
+  { key: 'booking-dashboard', label: 'Booking Dashboard', icon: renderIcon('ri-cash-line') },
+  { key: 'payment-dashboard', label: 'Payment Simulations', icon: renderIcon('ri-bank-card-line') },
+  { key: 'payment-history', label: 'Booking History', icon: renderIcon('ri-archive-2-line') },
 ]
 
 const route = useRoute()
@@ -1338,7 +1383,77 @@ function formatTripDayRange(bounds) {
   return ''
 }
 
+const UPCOMING_COUNTDOWN_STATES = new Set(['calm', 'soon', 'urgent'])
+const ONGOING_COUNTDOWN_STATES = new Set(['live'])
+const COMPLETED_COUNTDOWN_STATES = new Set(['done'])
+const UPCOMING_STATUS_EXCLUSIONS = new Set(['in-progress', 'completed', 'cancelled', 'refunded', 'failed'])
+const EXPERIENCE_KIT_REGEX = /experience kit/gi
+const JOURNEY_FILTER_EMPTY_COPY = {
+  next: 'No adventures are queued up next.',
+  ongoing: 'No journeys are currently in progress.',
+  completed: 'Completed journeys will appear here soon.',
+}
+
+function isTripUpcoming(trip) {
+  if (!trip) {
+    return false
+  }
+  const state = trip.countdownState
+  if (state) {
+    if (UPCOMING_COUNTDOWN_STATES.has(state)) {
+      return true
+    }
+    if (ONGOING_COUNTDOWN_STATES.has(state) || COMPLETED_COUNTDOWN_STATES.has(state)) {
+      return false
+    }
+  }
+  const status = normaliseTripStatus(trip.status)
+  if (UPCOMING_STATUS_EXCLUSIONS.has(status)) {
+    return false
+  }
+  const startTime = getTripStartTimestamp(trip)
+  return Number.isFinite(startTime) && startTime > Date.now()
+}
+
+function isTripOngoing(trip) {
+  if (!trip) {
+    return false
+  }
+  if (trip.countdownState && ONGOING_COUNTDOWN_STATES.has(trip.countdownState)) {
+    return true
+  }
+  return normaliseTripStatus(trip.status) === 'in-progress'
+}
+
+function isTripCompleted(trip) {
+  if (!trip) {
+    return false
+  }
+  if (trip.countdownState && COMPLETED_COUNTDOWN_STATES.has(trip.countdownState)) {
+    return true
+  }
+  return normaliseTripStatus(trip.status) === 'completed'
+}
+
+function formatJourneyTitle(value) {
+  if (typeof value !== 'string') {
+    return value
+  }
+  return value.replace(EXPERIENCE_KIT_REGEX, 'Experience Kit')
+}
+
+function isExperienceKit(trip) {
+  if (!trip || typeof trip.title !== 'string') {
+    return false
+  }
+  return trip.title.toLowerCase().includes('experience kit')
+}
+
 const hasTrips = computed(() => upcomingTrips.value.length > 0)
+const hasFilteredJourneys = computed(() => filteredJourneys.value.length > 0)
+const journeyFilterEmptyMessage = computed(
+  () => JOURNEY_FILTER_EMPTY_COPY[selectedJourneyFilter.value] ?? 'No journeys found for this view.',
+)
 
 const sidebarCollapsed = ref(false)
 const expandedSidebarStyle = computed(() => ({
@@ -1497,16 +1612,32 @@ defineExpose({
           <n-space vertical size="large">
             <n-grid cols="1 m:3" :x-gap="16" :y-gap="16">
               <n-grid-item span="1 m:2">
-                <n-card title="Upcoming journeys" :segmented="{ content: true }">
+                <n-card :title="journeySectionTitle" :segmented="{ content: true }">
                   <template #header-extra>
-                    <n-tag v-if="hasTrips" round size="small" type="success">
-                      {{ upcomingTrips.length }} {{ upcomingTrips.length === 1 ? 'journey' : 'journeys' }}
-                    </n-tag>
+                    <div v-if="hasTrips" class="journey-header-actions" aria-label="Journey filters">
+                      <div class="journey-filter-pills" role="group">
+                        <button
+                          v-for="option in journeyFilterOptions"
+                          :key="option.value"
+                          type="button"
+                          class="journey-filter-pill"
+                          :class="{ 'journey-filter-pill--active': selectedJourneyFilter === option.value }"
+                          :aria-pressed="selectedJourneyFilter === option.value"
+                          @click="selectedJourneyFilter = option.value"
+                        >
+                          <span class="journey-filter-pill__label">{{ option.label }}</span>
+                        </button>
+                      </div>
+                      <n-tag round size="small" type="success" class="journey-count-tag">
+                        {{ filteredJourneyCount }} {{ filteredJourneyCount === 1 ? 'journey' : 'journeys' }}
+                      </n-tag>
+                    </div>
                   </template>
                   <template v-if="hasTrips">
-                    <div class="journey-list" aria-live="polite">
+                    <template v-if="hasFilteredJourneys">
+                      <div class="journey-list" aria-live="polite">
                       <article
-                        v-for="trip in upcomingTrips"
+                        v-for="trip in filteredJourneys"
                         :key="trip.id ?? trip.title"
                         class="journey-card"
                         :class="[
@@ -1517,7 +1648,7 @@ defineExpose({
                         <div class="journey-card__header">
                           <div>
                             <div class="journey-card__eyebrow">{{ trip.location }}</div>
-                            <div class="journey-card__title">{{ trip.title }}</div>
+                            <div class="journey-card__title">{{ formatJourneyTitle(trip.title) }}</div>
                           </div>
                           <n-tag round size="small" :type="trip.statusTone">
                             {{ trip.statusLabel }}
@@ -1564,7 +1695,20 @@ defineExpose({
                         </div>
                         <p class="journey-card__focus">{{ trip.focus }}</p>
                       </article>
-                    </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <n-empty :description="journeyFilterEmptyMessage">
+                        <n-button
+                          v-if="selectedJourneyFilter === 'next'"
+                          type="primary"
+                          size="small"
+                          @click="openTripPlanner"
+                        >
+                          Plan your next escape
+                        </n-button>
+                      </n-empty>
+                    </template>
                   </template>
                   <template v-else>
                     <n-empty description="No upcoming trips scheduled.">
@@ -1797,6 +1941,77 @@ defineExpose({
   font-size: 0.9rem;
   color: rgba(15, 23, 42, 0.45);
   padding: 16px 0;
+}
+
+.journey-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.journey-filter-pills {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: #f4f7fb;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.journey-filter-pill {
+  position: relative;
+  border: none;
+  background: transparent;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 999px;
+  color: rgba(15, 23, 42, 0.65);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.01em;
+}
+
+.journey-filter-pill__label {
+  position: relative;
+  z-index: 1;
+}
+
+.journey-filter-pill::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 999px;
+  background: transparent;
+  transition: all 0.2s ease;
+  box-shadow: none;
+}
+
+.journey-filter-pill--active {
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.journey-filter-pill--active::after {
+  background: linear-gradient(135deg, #10b981, #22c55e);
+  box-shadow: 0 15px 35px rgba(16, 185, 129, 0.45);
+}
+
+.journey-filter-pill:not(.journey-filter-pill--active):hover {
+  color: rgba(15, 23, 42, 0.85);
+}
+
+.journey-filter-pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.35);
+}
+
+.journey-count-tag {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+  color: #15803d;
 }
 
 .journey-list {
