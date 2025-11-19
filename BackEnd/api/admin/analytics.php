@@ -149,9 +149,18 @@ try {
             COUNT(DISTINCT CASE WHEN DATE(cs.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN cs.id END) as posts,
             COUNT(DISTINCT CASE WHEN DATE(csc.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN csc.id END) as comments,
             COUNT(DISTINCT CASE WHEN DATE(cs.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN cs.id END) as stories,
-            COALESCE(SUM(CASE WHEN DATE(cs.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN cs.likes ELSE 0 END), 0) as storyLikes,
-            COALESCE(SUM(CASE WHEN DATE(cs.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN cs.comments ELSE 0 END), 0) as storyComments,
-            COALESCE(SUM(CASE WHEN DATE(cs.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN cs.saves ELSE 0 END), 0) as storySaves,
+            (SELECT COUNT(*) 
+             FROM community_story_reaction csr 
+             INNER JOIN community_story cs_inner ON csr.storyId = cs_inner.id 
+             WHERE cs_inner.travelerID = t.travelerID) as storyLikes,
+            (SELECT COUNT(*) 
+             FROM community_story_comment cscom 
+             INNER JOIN community_story cs_inner ON cscom.storyId = cs_inner.id 
+             WHERE cs_inner.travelerID = t.travelerID) as storyComments,
+            (SELECT COUNT(*) 
+             FROM community_story_save css 
+             INNER JOIN community_story cs_inner ON css.storyId = cs_inner.id 
+             WHERE cs_inner.travelerID = t.travelerID) as storySaves,
             (COUNT(DISTINCT CASE WHEN DATE(cs.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN cs.id END) + 
              COUNT(DISTINCT CASE WHEN DATE(csc.createdAt) BETWEEN '{$startDate}' AND '{$endDate}' THEN csc.id END)) as totalActivity
         FROM Traveler t
@@ -160,7 +169,6 @@ try {
         GROUP BY t.travelerID
         HAVING totalActivity > 0
         ORDER BY totalActivity DESC, storyLikes DESC
-        LIMIT 10
     ");
     $communityActiveness = array_map(function($row) {
         $engagement = (int)$row['storyLikes'] + (int)$row['storyComments'] + (int)$row['storySaves'];
@@ -207,8 +215,6 @@ try {
             WHERE DATE(createdAt) BETWEEN '{$startDate}' AND '{$endDate}'"),
         'comments' => safeQuery($pdo, "SELECT COUNT(*) FROM community_story_comment 
             WHERE DATE(createdAt) BETWEEN '{$startDate}' AND '{$endDate}'"),
-        'reviews' => safeQuery($pdo, "SELECT COUNT(*) FROM ListingReview 
-            WHERE DATE(createdAt) BETWEEN '{$startDate}' AND '{$endDate}'"),
         'saves' => safeQuery($pdo, "SELECT COUNT(*) FROM ListingSave 
             WHERE DATE(savedAt) BETWEEN '{$startDate}' AND '{$endDate}'"),
         'messages' => safeQuery($pdo, "SELECT COUNT(*) FROM Message 
@@ -236,7 +242,22 @@ try {
         ORDER BY approvedListings DESC, avgRating DESC, totalSaves DESC
         LIMIT 20
     ");
-    $operatorRankings = array_map(function($row) {
+    $operatorRankings = array_map(function($row) use ($pdo) {
+        // Get listing names for this operator
+        $listings = [];
+        try {
+            $listingsQuery = $pdo->prepare("
+                SELECT businessName 
+                FROM BusinessListing 
+                WHERE operatorID = ? AND status = 'Approved'
+                ORDER BY businessName
+            ");
+            $listingsQuery->execute([(int)$row['operatorID']]);
+            $listings = $listingsQuery->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Throwable $e) {
+            error_log("Failed to fetch listings for operator {$row['operatorID']}: " . $e->getMessage());
+        }
+        
         return [
             'operatorID' => (int)$row['operatorID'],
             'name' => $row['fullName'],
@@ -247,7 +268,8 @@ try {
             'avgRating' => round((float)$row['avgRating'], 1),
             'goodReviews' => (int)$row['goodReviews'],
             'badReviews' => (int)$row['badReviews'],
-            'totalSaves' => (int)$row['totalSaves']
+            'totalSaves' => (int)$row['totalSaves'],
+            'listings' => $listings
         ];
     }, $operatorRankings);
     

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router"
 import {
   NAlert,
   NAvatar,
+  NBadge,
   NButton,
   NCard,
   NEmpty,
@@ -23,6 +24,7 @@ import {
   NSwitch,
   NTag,
   NText,
+  useNotification,
 } from "naive-ui"
 import BusinessOperatorGuidelines from "./BusinessOperatorGuidelines.vue"
 import BusinessOperatorManageListings from "./BusinessOperatorManageListings.vue"
@@ -275,13 +277,23 @@ provide(notificationFeedSymbol, operatorNotificationFeed)
 
 const renderIcon = (name) => () => h(NIcon, null, { default: () => h("i", { class: name }) })
 
+const renderIconWithBadge = (name, count) => () => {
+  const icon = h(NIcon, null, { default: () => h("i", { class: name }) })
+  if (!count || count === 0) return icon
+  return h(NBadge, { value: count, max: 99, show: count > 0 }, { default: () => icon })
+}
+
+const unreadNotificationCount = computed(() => {
+  return operatorNotificationFeed.unreadCount?.value ?? 0
+})
+
 const sidebarOptions = computed(() => [
   { key: "overview", label: "Dashboard Overview", icon: renderIcon("ri-dashboard-line") },
   { key: "upload-info", label: "Upload Business Info", icon: renderIcon("ri-file-add-line") },
   { key: "media-manager", label: "Upload Photos / Media", icon: renderIcon("ri-image-add-line") },
   { key: "manage-listings", label: "Manage Listings", icon: renderIcon("ri-list-settings-line") },
-  { key: "messages", label: "Messages", icon: renderIcon("ri-chat-3-line") },
-  { key: "notifications", label: "Notifications", icon: renderIcon("ri-notification-3-line") },
+  { key: "messages", label: "Messages", icon: renderIconWithBadge("ri-chat-3-line", unreadMessagesCount.value) },
+  { key: "notifications", label: "Notifications", icon: renderIconWithBadge("ri-notification-3-line", unreadNotificationCount.value) },
   { key: "guidelines", label: "Operator Guidelines", icon: renderIcon("ri-graduation-cap-line") },
 ])
 
@@ -406,6 +418,86 @@ const sectionMeta = {
 }
 
 const activeSection = ref("overview")
+const operatorMessagesRef = ref(null)
+const notification = useNotification()
+
+const unreadMessagesCount = computed(() => {
+  return operatorMessagesRef.value?.totalUnreadCount ?? totalUnreadFromPolling.value
+})
+
+// Background message polling for notifications
+const BACKGROUND_MESSAGE_POLL_INTERVAL = 10000 // 10 seconds
+let backgroundMessagePollHandle = null
+const previousMessageCounts = new Map()
+const totalUnreadFromPolling = ref(0)
+
+async function pollMessagesInBackground() {
+  const operatorId = currentOperatorId.value
+  if (!operatorId) return
+  
+  try {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+    const params = new URLSearchParams({
+      view: 'threads',
+      currentType: 'Operator',
+      currentId: String(operatorId),
+    })
+    const response = await fetch(`${API_BASE}/messages.php?${params.toString()}`)
+    if (!response.ok) return
+    
+    const payload = await response.json()
+    const threads = Array.isArray(payload?.threads) ? payload.threads : []
+    
+    // Calculate total unread count
+    let totalUnread = 0
+    
+    // Check for new messages
+    threads.forEach(thread => {
+      const threadKey = `${thread.participantType}-${thread.participantId}`
+      const previousUnread = previousMessageCounts.get(threadKey) || 0
+      const currentUnread = thread.unreadCount || 0
+      
+      totalUnread += currentUnread
+      
+      if (currentUnread > previousUnread && currentUnread > 0 && activeSection.value !== 'messages') {
+        // Show notification only if not viewing messages
+        notification.info({
+          title: `New message from ${thread.participantName || 'Unknown'}`,
+          content: thread.lastMessageContent || 'You have a new message',
+          duration: 5000,
+          keepAliveOnHover: true,
+        })
+      }
+      
+      previousMessageCounts.set(threadKey, currentUnread)
+    })
+    
+    totalUnreadFromPolling.value = totalUnread
+  } catch (error) {
+    console.error('Background message poll failed:', error)
+  }
+}
+
+function startBackgroundMessagePolling() {
+  stopBackgroundMessagePolling()
+  backgroundMessagePollHandle = setInterval(pollMessagesInBackground, BACKGROUND_MESSAGE_POLL_INTERVAL)
+  pollMessagesInBackground() // Initial poll
+}
+
+function stopBackgroundMessagePolling() {
+  if (backgroundMessagePollHandle) {
+    clearInterval(backgroundMessagePollHandle)
+    backgroundMessagePollHandle = null
+  }
+}
+
+onMounted(() => {
+  startBackgroundMessagePolling()
+})
+
+onBeforeUnmount(() => {
+  stopBackgroundMessagePolling()
+})
 
 const availableSectionKeys = computed(() => sidebarOptions.value.map((option) => option.key))
 
@@ -1373,7 +1465,7 @@ defineExpose({
         />
 
         <div v-else-if="activeSection === 'messages'" class="messages-panel">
-          <OperatorMessages :current-user="operator" />
+          <OperatorMessages ref="operatorMessagesRef" :current-user="operator" />
         </div>
 
         <NotificationCenter

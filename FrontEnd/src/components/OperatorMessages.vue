@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import {
   NAlert,
   NAvatar,
+  NBadge,
   NButton,
   NDescriptions,
   NDescriptionsItem,
@@ -87,6 +88,7 @@ const activeThread = ref(null)
 const conversationPaneRef = ref(null)
 let conversationPollHandle = null
 let conversationPollInFlight = false
+const previousThreadUnreads = new Map()  // Track previous unread counts
 
 const filteredThreads = computed(() => {
     if (!threadsState.search) {
@@ -99,6 +101,12 @@ const filteredThreads = computed(() => {
             .some((value) => value.toLowerCase().includes(q))
     )
 })
+
+const totalUnreadCount = computed(() => {
+    return threadsState.items.reduce((sum, thread) => sum + (thread.unreadCount || 0), 0)
+})
+
+defineExpose({ totalUnreadCount })
 
 watch(
     () => viewer.value.id,
@@ -170,6 +178,63 @@ async function loadThreads(options = {}) {
                 const bTime = b.lastSentAt instanceof Date ? b.lastSentAt.getTime() : 0
                 return bTime - aTime
             })
+        
+        // Check for new messages in inactive threads
+        if (silent && preserveActive) {
+            items.forEach(thread => {
+                const previousUnread = previousThreadUnreads.get(thread.threadKey) || 0
+                const currentUnread = thread.unreadCount || 0
+                
+                // Only notify if it's not the active thread and unread count increased
+                const isActiveThread = activeThread.value?.threadKey === thread.threadKey
+                if (!isActiveThread && currentUnread > previousUnread && currentUnread > 0) {
+                    notification.info({
+                        title: `New message from ${thread.participantName || 'Unknown'}`,
+                        content: thread.lastMessageContent ? summariseMessageContent(thread.lastMessageContent) : 'You have a new message',
+                        meta: formatMessageTimestamp(thread.lastSentAt),
+                        duration: 5000,
+                        keepAliveOnHover: true,
+                    })
+                }
+                
+                // Update tracked unread count
+                previousThreadUnreads.set(thread.threadKey, currentUnread)
+            })
+        } else {
+            // Initialize tracking on first load
+            items.forEach(thread => {
+                previousThreadUnreads.set(thread.threadKey, thread.unreadCount || 0)
+            })
+        }
+        
+        // Check for new messages in inactive threads
+        if (silent && preserveActive) {
+            items.forEach(thread => {
+                const previousUnread = previousThreadUnreads.get(thread.threadKey) || 0
+                const currentUnread = thread.unreadCount || 0
+                
+                // Only notify if it's not the active thread and unread count increased
+                const isActiveThread = activeThread.value?.threadKey === thread.threadKey
+                if (!isActiveThread && currentUnread > previousUnread && currentUnread > 0) {
+                    notification.info({
+                        title: `New message from ${thread.participantName || 'Unknown'}`,
+                        content: thread.lastMessageContent ? summariseMessageContent(thread.lastMessageContent) : 'You have a new message',
+                        meta: formatMessageTimestamp(thread.lastSentAt),
+                        duration: 5000,
+                        keepAliveOnHover: true,
+                    })
+                }
+                
+                // Update tracked unread count
+                previousThreadUnreads.set(thread.threadKey, currentUnread)
+            })
+        } else {
+            // Initialize tracking on first load
+            items.forEach(thread => {
+                previousThreadUnreads.set(thread.threadKey, thread.unreadCount || 0)
+            })
+        }
+        
         threadsState.items = items
         if (!items.length) {
             activeThread.value = null
@@ -180,12 +245,10 @@ async function loadThreads(options = {}) {
             const matched = items.find((thread) => thread.threadKey === previousKey)
             if (matched) {
                 activeThread.value = matched
-            } else {
-                activeThread.value = items[0]
             }
-        } else if (!activeThread.value || !preserveActive) {
-            activeThread.value = items[0]
+            // Don't auto-select first thread if no match
         }
+        // Don't auto-select any thread on initial load
     } catch (error) {
         const messageText = error instanceof Error ? error.message : 'Unable to load conversations.'
         threadsState.error = messageText
@@ -771,13 +834,15 @@ onBeforeUnmount(() => {
                             'messages-thread',
                             { 'messages-thread--active': activeThread?.threadKey === thread.threadKey },
                         ]" @click="selectThread(thread)">
-                            <n-avatar round size="medium" :src="thread.avatar || undefined"
-                                class="messages-thread__avatar">
-                                <template v-if="!thread.avatar">
-                                    {{ computeInitialsFromName(thread.participantName || thread.participantUsername ||
-                                    'OP') }}
-                                </template>
-                            </n-avatar>
+                            <n-badge :value="thread.unreadCount" :max="99" :show="thread.unreadCount > 0" :offset="[-5, 5]">
+                                <n-avatar round size="medium" :src="thread.avatar || undefined"
+                                    class="messages-thread__avatar">
+                                    <template v-if="!thread.avatar">
+                                        {{ computeInitialsFromName(thread.participantName || thread.participantUsername ||
+                                        'OP') }}
+                                    </template>
+                                </n-avatar>
+                            </n-badge>
                             <div class="messages-thread__body">
                                 <div class="messages-thread__top">
                                     <span class="messages-thread__name">{{ thread.participantName }}</span>
@@ -792,9 +857,6 @@ onBeforeUnmount(() => {
                                     <span>{{ thread.lastMessage || 'Start the conversation' }}</span>
                                 </div>
                             </div>
-                            <n-tag v-if="thread.unreadCount > 0" type="success" size="small" round bordered>
-                                {{ thread.unreadCount }}
-                            </n-tag>
                         </button>
                     </template>
                     <n-empty v-else description="No conversations yet. Start with a community story." />
