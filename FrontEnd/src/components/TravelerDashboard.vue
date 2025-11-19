@@ -1,7 +1,7 @@
 <script setup>
 import { computed, h, reactive, ref, watch, nextTick, provide, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NIcon, useMessage } from 'naive-ui'
+import { NIcon, NBadge, useMessage, useNotification } from 'naive-ui'
 import TravelerWeatherWidget from './TravelerWeatherWidget.vue'
 import BookingLiveStays from './BookingLiveStays.vue'
 import TravelerSocialFeed from './TravelerSocialFeed.vue'
@@ -136,6 +136,16 @@ const metrics = computed(() => ({
 const renderIcon = (name) => () =>
   h(NIcon, null, { default: () => h('i', { class: name }) })
 
+const renderIconWithBadge = (name, count) => () => {
+  const icon = h(NIcon, null, { default: () => h('i', { class: name }) })
+  if (!count || count === 0) return icon
+  return h(NBadge, { value: count, max: 99, show: count > 0 }, { default: () => icon })
+}
+
+const unreadNotificationCount = computed(() => {
+  return travelerNotificationFeed.unreadCount?.value ?? 0
+})
+
 const baseUpcomingTrips = ref(Array.isArray(props.upcomingTrips) ? [...props.upcomingTrips] : [])
 const confirmedUpcomingTrips = ref([])
 const countdownTicker = ref(Date.now())
@@ -252,8 +262,8 @@ const sidebarOptions = [
   { key: 'weather', label: 'Weather Outlook', icon: renderIcon('ri-sun-cloudy-line') },
   { key: 'community', label: 'Community Feed', icon: renderIcon('ri-hashtag') },
   { key: 'saved-posts', label: 'Saved Posts', icon: renderIcon('ri-bookmark-line') },
-  { key: 'messages', label: 'Messages', icon: renderIcon('ri-chat-3-line') },
-  { key: 'notifications', label: 'Notifications', icon: renderIcon('ri-notification-3-line') },
+  { key: 'messages', label: 'Messages', get icon() { return renderIconWithBadge('ri-chat-3-line', unreadMessagesCount.value) } },
+  { key: 'notifications', label: 'Notifications', get icon() { return renderIconWithBadge('ri-notification-3-line', unreadNotificationCount.value) } },
   { key: 'marketplace', label: 'Marketplace', icon: renderIcon('ri-store-3-line') },
   { key: 'trips', label: 'Trip planner', icon: renderIcon('ri-calendar-event-line') },
   { key: 'saved', label: 'Saved places', icon: renderIcon('ri-heart-3-line') },
@@ -265,9 +275,89 @@ const sidebarOptions = [
 const route = useRoute()
 const router = useRouter()
 const message = useMessage()
+const notification = useNotification()
 const selectableModules = sidebarOptions.filter((item) => !item.disabled).map((item) => item.key)
 const selectedMenu = ref('dashboard')
 const marketplaceRef = ref(null)
+const travelerMessagesRef = ref(null)
+
+const unreadMessagesCount = computed(() => {
+  return travelerMessagesRef.value?.totalUnreadCount ?? totalUnreadFromPolling.value
+})
+
+// Background message polling for notifications
+const BACKGROUND_MESSAGE_POLL_INTERVAL = 10000 // 10 seconds
+let backgroundMessagePollHandle = null
+const previousMessageCounts = new Map()
+const totalUnreadFromPolling = ref(0)
+
+async function pollMessagesInBackground() {
+  const travelerId = currentTravelerId.value
+  if (!travelerId) return
+  
+  try {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+    const params = new URLSearchParams({
+      view: 'threads',
+      currentType: 'Traveler',
+      currentId: String(travelerId),
+    })
+    const response = await fetch(`${API_BASE}/messages.php?${params.toString()}`)
+    if (!response.ok) return
+    
+    const payload = await response.json()
+    const threads = Array.isArray(payload?.threads) ? payload.threads : []
+    
+    // Calculate total unread count
+    let totalUnread = 0
+    
+    // Check for new messages
+    threads.forEach(thread => {
+      const threadKey = `${thread.participantType}-${thread.participantId}`
+      const previousUnread = previousMessageCounts.get(threadKey) || 0
+      const currentUnread = thread.unreadCount || 0
+      
+      totalUnread += currentUnread
+      
+      if (currentUnread > previousUnread && currentUnread > 0 && selectedMenu.value !== 'messages') {
+        // Show notification only if not viewing messages
+        notification.info({
+          title: `New message from ${thread.participantName || 'Unknown'}`,
+          content: thread.lastMessageContent || 'You have a new message',
+          duration: 5000,
+          keepAliveOnHover: true,
+        })
+      }
+      
+      previousMessageCounts.set(threadKey, currentUnread)
+    })
+    
+    totalUnreadFromPolling.value = totalUnread
+  } catch (error) {
+    console.error('Background message poll failed:', error)
+  }
+}
+
+function startBackgroundMessagePolling() {
+  stopBackgroundMessagePolling()
+  backgroundMessagePollHandle = setInterval(pollMessagesInBackground, BACKGROUND_MESSAGE_POLL_INTERVAL)
+  pollMessagesInBackground() // Initial poll
+}
+
+function stopBackgroundMessagePolling() {
+  if (backgroundMessagePollHandle) {
+    clearInterval(backgroundMessagePollHandle)
+    backgroundMessagePollHandle = null
+  }
+}
+
+onMounted(() => {
+  startBackgroundMessagePolling()
+})
+
+onBeforeUnmount(() => {
+  stopBackgroundMessagePolling()
+})
 const bookingDashboardPackage = ref(null)
 const paymentDashboardPackage = ref(null)
 const moduleRefreshKeys = reactive({})
@@ -1437,6 +1527,7 @@ defineExpose({
         </div>
         <div v-else-if="selectedMenu === 'messages'" class="messages-panel">
           <TravelerMessages
+            ref="travelerMessagesRef"
             :key="`messages-${moduleRefreshKeys.messages}`"
             :current-user="traveler"
           />

@@ -17,6 +17,7 @@ import {
 import { Chart, registerables } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import jsPDF from 'jspdf'
+import SimplePagination from '../shared/SimplePagination.vue'
 
 Chart.register(...registerables, ChartDataLabels)
 
@@ -29,16 +30,29 @@ const rangeOptions = [
   { label: 'Last 90 days', value: 90 },
 ]
 
+const pieChartOptions = [
+  { label: 'Post Categories', value: 'categories' },
+  { label: 'Engagement Types', value: 'engagement' },
+  { label: 'Activity Distribution', value: 'activity' },
+  { label: 'Top Contributors', value: 'contributors' },
+]
+
 const selectedRange = ref(30)
 const loading = ref(false)
 const errorMessage = ref('')
 const data = ref(null)
 const communityChartType = ref('table')
+const pieChartMetric = ref('categories')
 const exportingReport = ref(false)
+const communityPage = ref(1)
+const communityPageSize = ref(10)
+const operatorPage = ref(1)
+const operatorPageSize = ref(10)
 const communityMetricConfig = [
   { key: 'posts', label: 'Posts', color: '#2080f0' },
-  { key: 'comments', label: 'Comments', color: '#18a058' },
-  { key: 'likes', label: 'Likes', color: '#d03050' },
+  { key: 'storyComments', label: 'Comments Received', color: '#18a058' },
+  { key: 'likes', label: 'Likes Received', color: '#d03050' },
+  { key: 'saves', label: 'Saves', color: '#f0a020' },
 ]
 const communityMetricKeys = communityMetricConfig.map(metric => metric.key)
 const sumCommunityMetrics = (user) => {
@@ -217,20 +231,33 @@ const dailySignInsChartData = computed(() => {
 // ==================== COMMUNITY ACTIVENESS ====================
 
 const communityColumns = [
+  { title: 'Rank', key: 'rank', align: 'center', width: 70, render: (row) => h('span', { style: { fontWeight: '600' } }, row.rank <= 3 ? ['🥇', '🥈', '🥉'][row.rank - 1] + ` #${row.rank}` : `#${row.rank}`) },
   { title: 'User Name', key: 'userName', ellipsis: { tooltip: true }, width: 180 },
   { title: 'Posts', key: 'posts', align: 'center', width: 80 },
-  { title: 'Comments', key: 'comments', align: 'center', width: 100 },
+  { title: 'Comments', key: 'storyComments', align: 'center', width: 100 },
   { title: 'Likes', key: 'likes', align: 'center', width: 80 },
+  { title: 'Saves', key: 'saves', align: 'center', width: 80 },
   { title: 'Engagement', key: 'engagement', align: 'center', width: 110 },
   { title: 'Total Activity', key: 'totalActivity', align: 'center', width: 120 },
 ]
 
 const communityActiveness = computed(() => {
   const users = data.value?.analytics?.communityActiveness || []
-  return users.map(user => ({
+  return users.map((user, index) => ({
     ...user,
+    rank: index + 1,
     totalActivity: sumCommunityMetrics(user),
   }))
+})
+
+const paginatedCommunityActiveness = computed(() => {
+  const start = (communityPage.value - 1) * communityPageSize.value
+  const end = start + communityPageSize.value
+  return communityActiveness.value.slice(start, end)
+})
+
+const communityPageCount = computed(() => {
+  return Math.ceil(communityActiveness.value.length / communityPageSize.value)
 })
 
 const communitySummary = computed(() => {
@@ -270,36 +297,82 @@ const communityMetricTotals = computed(() => {
 })
 
 const communityCategoryDistribution = computed(() => {
-  const categories = data.value?.analytics?.communityCategories || []
-  const cleaned = categories
-    .map((item, index) => ({
-      label: item.category || 'Uncategorized',
-      value: Number(item.count ?? 0),
+  if (pieChartMetric.value === 'categories') {
+    const categories = data.value?.analytics?.communityCategories || []
+    const cleaned = categories
+      .map((item, index) => ({
+        label: item.category || 'Uncategorized',
+        value: Number(item.count ?? 0),
+      }))
+      .filter(item => item.value > 0)
+      .slice(0, 8)
+
+    const total = cleaned.reduce((sum, item) => sum + item.value, 0)
+    const segments = cleaned.map((item, index) => ({
+      ...item,
+      percentage: total ? (item.value / total) * 100 : 0,
+      color: communityUserPalette[index % communityUserPalette.length],
     }))
-    .filter(item => item.value > 0)
-    .slice(0, 8)
 
-  const total = cleaned.reduce((sum, item) => sum + item.value, 0)
-  const segments = cleaned.map((item, index) => ({
-    ...item,
-    percentage: total ? (item.value / total) * 100 : 0,
-    color: communityUserPalette[index % communityUserPalette.length],
-  }))
-
-  return {
-    total,
-    segments,
+    return { total, segments, title: 'Total Posts' }
   }
+
+  if (pieChartMetric.value === 'engagement') {
+    const users = communityActiveness.value
+    const engagement = [
+      { label: 'Likes', value: users.reduce((sum, u) => sum + (u.likes || 0), 0), color: '#d03050' },
+      { label: 'Comments', value: users.reduce((sum, u) => sum + (u.storyComments || 0), 0), color: '#18a058' },
+      { label: 'Saves', value: users.reduce((sum, u) => sum + (u.saves || 0), 0), color: '#f0a020' },
+    ].filter(item => item.value > 0)
+
+    const total = engagement.reduce((sum, item) => sum + item.value, 0)
+    const segments = engagement.map(item => ({
+      ...item,
+      percentage: total ? (item.value / total) * 100 : 0,
+    }))
+
+    return { total, segments, title: 'Total Engagement' }
+  }
+
+  if (pieChartMetric.value === 'activity') {
+    const users = communityActiveness.value
+    const activity = [
+      { label: 'Posts', value: users.reduce((sum, u) => sum + (u.posts || 0), 0), color: '#2080f0' },
+      { label: 'Comments', value: users.reduce((sum, u) => sum + (u.comments || 0), 0), color: '#18a058' },
+    ].filter(item => item.value > 0)
+
+    const total = activity.reduce((sum, item) => sum + item.value, 0)
+    const segments = activity.map(item => ({
+      ...item,
+      percentage: total ? (item.value / total) * 100 : 0,
+    }))
+
+    return { total, segments, title: 'Total Activities' }
+  }
+
+  if (pieChartMetric.value === 'contributors') {
+    const users = communityActiveness.value.slice(0, 5)
+    const total = users.reduce((sum, u) => sum + sumCommunityMetrics(u), 0)
+    const segments = users.map((user, index) => ({
+      label: user.userName,
+      value: sumCommunityMetrics(user),
+      percentage: total ? (sumCommunityMetrics(user) / total) * 100 : 0,
+      color: communityUserPalette[index % communityUserPalette.length],
+    }))
+
+    return { total, segments, title: 'Total Actions' }
+  }
+
+  return { total: 0, segments: [], title: 'Total' }
 })
 
 const communityCategorySegments = computed(() => communityCategoryDistribution.value.segments ?? [])
 
 const communityBarChartHeight = computed(() => {
-  const rows = communityActiveness.value.length || 1
-  return Math.min(Math.max(rows * 56 + 80, 220), 520)
+  return 380
 })
 
-watch([communityActiveness, communityCategoryDistribution, communityChartType], () => {
+watch([communityActiveness, communityCategoryDistribution, communityChartType, pieChartMetric], () => {
   nextTick(() => {
     if (communityChartType.value === 'bar') {
       renderCommunityBarChart()
@@ -341,16 +414,18 @@ function renderCommunityBarChart() {
   if (!users.length) return
 
   const datasets = communityMetricConfig.map(metric => {
-    const dataPoints = users.map(user => Number(user[metric.key] ?? 0))
+    const dataPoints = users.map(user => {
+      const value = Number(user[metric.key] ?? 0)
+      return value > 0 ? value : null
+    })
     return {
       label: metric.label,
       data: dataPoints,
       backgroundColor: metric.color,
-      borderRadius: 12,
-      maxBarThickness: 28,
-      barPercentage: 0.8,
+      borderRadius: 0,
+      borderWidth: 0,
     }
-  }).filter(dataset => dataset.data.some(value => value > 0))
+  }).filter(dataset => dataset.data.some(value => value !== null))
 
   if (!datasets.length) {
     destroyCommunityBarChart()
@@ -367,50 +442,64 @@ function renderCommunityBarChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      indexAxis: 'y',
-      interaction: { mode: 'nearest', intersect: false },
+      interaction: { mode: 'index', intersect: false },
+      skipNull: true,
+      datasets: {
+        bar: {
+          barThickness: 30,
+          skipNull: true,
+        },
+      },
       scales: {
         x: {
-          stacked: true,
+          grid: { display: false },
+          ticks: {
+            font: { size: 12, weight: '600' },
+            color: '#0f172a',
+          },
+        },
+        y: {
           beginAtZero: true,
           grid: {
             color: 'rgba(148, 163, 184, 0.2)',
             borderDash: [4, 4],
           },
           ticks: {
-            callback: value => formatNumber(value),
+            callback: value => Number.isInteger(value) ? formatNumber(value) : '',
+            stepSize: 1,
             font: { size: 11 },
             color: '#475569',
           },
         },
-        y: {
-          stacked: true,
-          grid: { display: false },
-          ticks: {
-            font: { size: 13, weight: '600' },
-            color: '#0f172a',
-          },
-        },
       },
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          position: 'top',
+          align: 'start',
+          labels: {
+            boxWidth: 12,
+            boxHeight: 12,
+            padding: 15,
+            font: { size: 12, weight: '600' },
+            color: '#0f172a',
+            usePointStyle: false,
+          },
+        },
         tooltip: {
           backgroundColor: '#0f172a',
+          filter: (tooltipItem) => tooltipItem.parsed.y !== null,
           callbacks: {
             label: context => {
+              if (context.parsed.y === null) return null
               const label = context.dataset.label || ''
-              const value = formatNumber(context.parsed.x)
+              const value = formatNumber(context.parsed.y)
               return `${label}: ${value}`
             },
           },
         },
         datalabels: {
-          anchor: 'center',
-          align: 'center',
-          color: 'white',
-          formatter: value => (value > 0 ? formatNumber(value) : ''),
-          font: { weight: '600' },
-          clamp: true,
+          display: false,
         },
       },
     },
@@ -431,14 +520,14 @@ function renderCommunityDonutChart() {
   communityDonutChart = new Chart(canvas, {
     type: 'doughnut',
     data: {
-    labels: segments.map(item => item.label),
-    datasets: [
-      {
-        data: segments.map(item => item.value),
-        backgroundColor: segments.map(item => item.color),
-        borderWidth: 0,
-      },
-    ],
+      labels: segments.map(item => item.label),
+      datasets: [
+        {
+          data: segments.map(item => item.value),
+          backgroundColor: segments.map(item => item.color),
+          borderWidth: 0,
+        },
+      ],
     },
     options: {
       responsive: true,
@@ -457,13 +546,13 @@ function renderCommunityDonutChart() {
           },
         },
         datalabels: {
-          color: '#0f172a',
+          color: '#ffffff',
           formatter: (value, ctx) => {
             const total = ctx.chart.data.datasets[0].data.reduce((sum, val) => sum + val, 0)
             const pct = total ? (value / total) * 100 : 0
-            return pct >= 8 ? `${pct.toFixed(0)}%` : ''
+            return `${pct.toFixed(1)}%`
           },
-          font: { weight: '600' },
+          font: { weight: '600', size: 14 },
         },
       },
     },
@@ -477,11 +566,10 @@ const activityBars = computed(() => {
 
   const activities = data.value.analytics.userActivities
   const items = [
-    { label: 'Posts', value: activities.posts, color: '#2080f0' },
-    { label: 'Comments', value: activities.comments, color: '#18a058' },
-    { label: 'Reviews', value: activities.reviews, color: '#f0a020' },
-    { label: 'Saves', value: activities.saves, color: '#d03050' },
-    { label: 'Messages', value: activities.messages, color: '#9333ea' },
+    { label: 'Posts', value: activities.posts ?? 0, color: '#2080f0' },
+    { label: 'Comments', value: activities.comments ?? 0, color: '#18a058' },
+    { label: 'Saves', value: activities.saves ?? 0, color: '#d03050' },
+    { label: 'Messages', value: activities.messages ?? 0, color: '#9333ea' },
   ]
 
   const maxValue = Math.max(...items.map(i => i.value), 1)
@@ -496,6 +584,12 @@ const activityBars = computed(() => {
 
 const operatorRankings = computed(() => {
   return data.value?.analytics?.operatorRankings || []
+})
+
+const paginatedOperatorRankings = computed(() => {
+  const start = (operatorPage.value - 1) * operatorPageSize.value
+  const end = start + operatorPageSize.value
+  return operatorRankings.value.slice(start, end)
 })
 
 const operatorColumns = [
@@ -516,6 +610,19 @@ const operatorColumns = [
   { title: 'Business Type', key: 'businessType', ellipsis: { tooltip: true }, width: 140 },
   {
     title: 'Listings',
+    key: 'listings',
+    ellipsis: { tooltip: true },
+    width: 250,
+    render: (row) => {
+      if (Array.isArray(row.listings) && row.listings.length > 0) {
+        const listingText = row.listings.join(', ')
+        return h('span', { style: { color: '#333' } }, listingText)
+      }
+      return h('span', { style: { color: '#999', fontStyle: 'italic' } }, 'No listings')
+    }
+  },
+  {
+    title: 'Approved',
     key: 'totalListings',
     width: 120,
     align: 'center',
@@ -657,7 +764,7 @@ function renderChartImage(config, width = 640, height = 320) {
   })
 }
 
-async function buildPdfChartImages(analytics) {
+async function buildPdfChartImages(analytics, chartState = {}) {
   const result = {}
   const dailyLogins = Array.isArray(analytics?.dailyLogins) ? analytics.dailyLogins : []
   if (dailyLogins.length) {
@@ -687,7 +794,15 @@ async function buildPdfChartImages(analytics) {
           maintainAspectRatio: false,
           scales: {
             x: { ticks: { color: '#475569' }, grid: { color: 'rgba(148, 163, 184, 0.3)' } },
-            y: { ticks: { color: '#475569' }, grid: { color: 'rgba(148, 163, 184, 0.2)', borderDash: [4, 4] } },
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: value => Number.isInteger(value) ? value : '',
+                stepSize: 1,
+                color: '#475569'
+              },
+              grid: { color: 'rgba(148, 163, 184, 0.2)', borderDash: [4, 4] }
+            },
           },
           plugins: { legend: { display: false } },
         },
@@ -697,39 +812,142 @@ async function buildPdfChartImages(analytics) {
 
   const community = Array.isArray(analytics?.communityActiveness) ? analytics.communityActiveness.slice(0, 5) : []
   if (community.length) {
-    const datasets = communityMetricConfig.map(metric => ({
-      label: metric.label,
-      data: community.map(user => Number(user[metric.key] ?? 0)),
-      backgroundColor: metric.color,
-      borderWidth: 0,
-      borderRadius: 6,
-      barThickness: 30,
-    })).filter(dataset => dataset.data.some(value => value > 0))
+    // Generate chart based on current UI selection
+    if (chartState.communityChartType === 'bar') {
+      // Bar chart
+      const datasets = communityMetricConfig.map(metric => ({
+        label: metric.label,
+        data: community.map(user => {
+          const value = Number(user[metric.key] ?? 0)
+          return value > 0 ? value : null
+        }),
+        backgroundColor: metric.color,
+        borderWidth: 0,
+        borderRadius: 0,
+        barThickness: 30,
+      }))
 
-    if (datasets.length) {
-      result.community = await renderChartImage({
-        type: 'bar',
-        data: { labels: community.map(user => user.userName ?? 'Unknown'), datasets },
-        options: {
-          indexAxis: 'y',
-          responsive: false,
-          animation: false,
-          maintainAspectRatio: false,
-          scales: {
-            x: {
-              stacked: true,
-              ticks: { color: '#475569' },
-              grid: { color: 'rgba(148, 163, 184, 0.2)', borderDash: [4, 4] },
+      if (datasets.length) {
+        result.community = await renderChartImage({
+          type: 'bar',
+          data: { labels: community.map(user => user.userName ?? 'Unknown'), datasets },
+          options: {
+            responsive: false,
+            animation: false,
+            maintainAspectRatio: false,
+            skipNull: true,
+            scales: {
+              x: {
+                ticks: { color: '#0f172a', font: { weight: '600' } },
+                grid: { display: false },
+              },
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: value => Number.isInteger(value) ? value : '',
+                  stepSize: 1,
+                  color: '#475569'
+                },
+                grid: { color: 'rgba(148, 163, 184, 0.2)', borderDash: [4, 4] },
+              },
             },
-            y: {
-              stacked: true,
-              ticks: { color: '#0f172a', font: { weight: '600' } },
-              grid: { display: false },
+            plugins: {
+              legend: {
+                display: true,
+                position: 'bottom',
+                labels: {
+                  boxWidth: 12,
+                  boxHeight: 12,
+                  padding: 10,
+                  font: { size: 11, weight: '600' }
+                }
+              }
             },
           },
-          plugins: { legend: { position: 'bottom' } },
-        },
-      }, 720, 320)
+        }, 720, 380)
+      }
+    } else if (chartState.communityChartType === 'donut') {
+      // Pie/Donut chart - generate based on selected metric
+      let chartData = []
+      let chartTitle = 'Community'
+
+      if (chartState.pieChartMetric === 'categories') {
+        const categories = Array.isArray(analytics.communityCategories) ? analytics.communityCategories : []
+        chartData = categories.slice(0, 8).map((item, index) => ({
+          label: item.category || 'Uncategorized',
+          value: Number(item.count ?? 0),
+          color: communityUserPalette[index % communityUserPalette.length]
+        }))
+        chartTitle = 'Post Categories'
+      } else if (chartState.pieChartMetric === 'engagement') {
+        chartData = [
+          { label: 'Likes', value: community.reduce((sum, u) => sum + (u.likes || 0), 0), color: '#d03050' },
+          { label: 'Comments', value: community.reduce((sum, u) => sum + (u.storyComments || 0), 0), color: '#18a058' },
+          { label: 'Saves', value: community.reduce((sum, u) => sum + (u.saves || 0), 0), color: '#f0a020' },
+        ]
+        chartTitle = 'Engagement Types'
+      } else if (chartState.pieChartMetric === 'activity') {
+        chartData = [
+          { label: 'Posts', value: community.reduce((sum, u) => sum + (u.posts || 0), 0), color: '#2080f0' },
+          { label: 'Comments', value: community.reduce((sum, u) => sum + (u.comments || 0), 0), color: '#18a058' },
+        ]
+        chartTitle = 'Activity Distribution'
+      } else if (chartState.pieChartMetric === 'contributors') {
+        chartData = community.map((user, index) => ({
+          label: user.userName,
+          value: sumCommunityMetrics(user),
+          color: communityUserPalette[index % communityUserPalette.length]
+        }))
+        chartTitle = 'Top Contributors'
+      }
+
+      chartData = chartData.filter(item => item.value > 0)
+
+      if (chartData.length) {
+        result.community = await renderChartImage({
+          type: 'doughnut',
+          data: {
+            labels: chartData.map(item => item.label),
+            datasets: [{
+              data: chartData.map(item => item.value),
+              backgroundColor: chartData.map(item => item.color),
+              borderWidth: 0
+            }]
+          },
+          options: {
+            responsive: false,
+            animation: false,
+            maintainAspectRatio: false,
+            cutout: '70%',
+            plugins: {
+              legend: {
+                display: true,
+                position: 'bottom',
+                labels: {
+                  boxWidth: 12,
+                  boxHeight: 12,
+                  padding: 10,
+                  font: { size: 11, weight: '600' }
+                }
+              },
+              title: {
+                display: true,
+                text: chartTitle,
+                font: { size: 14, weight: '600' }
+              },
+              datalabels: {
+                color: '#ffffff',
+                formatter: (value, ctx) => {
+                  const total = ctx.chart.data.datasets[0].data.reduce((sum, val) => sum + val, 0)
+                  const pct = total ? (value / total) * 100 : 0
+                  return `${pct.toFixed(1)}%`
+                },
+                font: { weight: '600', size: 14 },
+              }
+            }
+          }
+        }, 500, 500)
+      }
     }
   }
 
@@ -774,7 +992,7 @@ async function buildPdfChartImages(analytics) {
   return result
 }
 
-function createAnalyticsPdf(report, charts) {
+function createAnalyticsPdf(report, charts, chartState = {}) {
   const doc = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' })
   const margin = 50
   const lineHeight = 22
@@ -853,7 +1071,7 @@ function createAnalyticsPdf(report, charts) {
       doc.rect(currentX, cursorY, width, rowHeight, 'FD')
       currentX += width
     })
-    
+
     // Draw header text on top
     doc.setTextColor(255, 255, 255)
     currentX = margin
@@ -863,7 +1081,7 @@ function createAnalyticsPdf(report, charts) {
       currentX += width
     })
     cursorY += rowHeight
-    
+
     // Data rows
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(10)
@@ -878,7 +1096,7 @@ function createAnalyticsPdf(report, charts) {
         doc.rect(xPos, cursorY, width, rowHeight, 'FD')
         xPos += width
       })
-      
+
       // Draw text on top of filled rectangles
       doc.setTextColor(40, 40, 40)
       xPos = margin
@@ -913,20 +1131,20 @@ function createAnalyticsPdf(report, charts) {
   doc.setFontSize(24)
   doc.setTextColor(0, 0, 0)
   doc.text('EcoTravel Platform', pageWidth / 2, 120, { align: 'center' })
-  
+
   doc.setFontSize(18)
   doc.setTextColor(41, 98, 255)
   doc.text('Analytics Report', pageWidth / 2, 155, { align: 'center' })
-  
+
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(11)
   doc.setTextColor(100, 100, 100)
   doc.text(`Generated: ${new Date(report.generatedAt).toLocaleString()}`, pageWidth / 2, 195, { align: 'center' })
-  
+
   if (report.range?.start && report.range?.end) {
     doc.text(`Range: ${report.range.start} -> ${report.range.end} (${report.range.days ?? '?'} days)`, pageWidth / 2, 220, { align: 'center' })
   }
-  
+
   cursorY = 280
 
   addSectionHeading('Usage Reports')
@@ -956,20 +1174,79 @@ function createAnalyticsPdf(report, charts) {
   const dailyLogins = Array.isArray(analytics.dailyLogins) ? analytics.dailyLogins : []
   if (dailyLogins.length) {
     addSectionHeading('Daily Logins')
-    addLines(dailyLogins.slice(0, 6).map(entry => `- ${entry.date ?? 'Unknown'}: ${formatNumber(entry.count ?? 0)} logins`))
     addChart(charts.dailyLogins)
   }
 
   const community = Array.isArray(analytics.communityActiveness) ? analytics.communityActiveness : []
   if (community.length) {
-    addSectionHeading('Community Activeness (Top Contributors)')
-    addLines(community.slice(0, 5).map((user, index) => {
-      const total = sumCommunityMetrics(user)
-      const detail = communityMetricConfig
-        .map(metric => `${metric.label}: ${formatNumber(user[metric.key] ?? 0)}`)
-        .join(', ')
-      return `${index + 1}. ${user.userName ?? 'Unknown'} - ${formatNumber(total)} actions (${detail})`
-    }))
+    let sectionTitle = 'Community Activeness (Top 5 Contributors)'
+    if (chartState.communityChartType === 'donut') {
+      const metricTitles = {
+        categories: 'Community Activeness (Post Categories)',
+        engagement: 'Community Activeness (Engagement Types)',
+        activity: 'Community Activeness (Activity Distribution)',
+        contributors: 'Community Activeness (Top 5 Contributors)'
+      }
+      sectionTitle = metricTitles[chartState.pieChartMetric] || sectionTitle
+    }
+
+    addSectionHeading(sectionTitle)
+
+    // Show data based on chart type
+    if (chartState.communityChartType === 'bar' || chartState.communityChartType === 'table') {
+      addTable({
+        headers: ['#', 'User', 'Posts', 'Comments', 'Likes', 'Saves', 'Engagement'],
+        columnWidths: [0.10, 0.24, 0.11, 0.15, 0.11, 0.11, 0.18],
+        rows: community.slice(0, 5).map((user, index) => {
+          const posts = user.posts ?? 0
+          const comments = user.storyComments ?? 0
+          const likes = user.likes ?? 0
+          const saves = user.saves ?? 0
+          const engagement = comments + likes + saves
+          return [
+            `#${index + 1}`,
+            user.userName ?? 'Unknown',
+            formatNumber(posts),
+            formatNumber(comments),
+            formatNumber(likes),
+            formatNumber(saves),
+            formatNumber(engagement)
+          ]
+        })
+      })
+    } else if (chartState.communityChartType === 'donut') {
+      // Show data relevant to pie chart metric
+      if (chartState.pieChartMetric === 'categories') {
+        const categories = Array.isArray(analytics.communityCategories) ? analytics.communityCategories : []
+        addLines(categories.slice(0, 8).map((cat, index) =>
+          `${index + 1}. ${cat.category || 'Uncategorized'}: ${formatNumber(cat.count ?? 0)} posts`
+        ))
+      } else if (chartState.pieChartMetric === 'engagement') {
+        const totalLikes = community.reduce((sum, u) => sum + (u.likes || 0), 0)
+        const totalComments = community.reduce((sum, u) => sum + (u.storyComments || 0), 0)
+        const totalSaves = community.reduce((sum, u) => sum + (u.saves || 0), 0)
+        addLines([
+          `- Likes Received: ${formatNumber(totalLikes)}`,
+          `- Comments Received: ${formatNumber(totalComments)}`,
+          `- Saves: ${formatNumber(totalSaves)}`,
+          `- Total Engagement: ${formatNumber(totalLikes + totalComments + totalSaves)}`
+        ])
+      } else if (chartState.pieChartMetric === 'activity') {
+        const totalPosts = community.reduce((sum, u) => sum + (u.posts || 0), 0)
+        const totalComments = community.reduce((sum, u) => sum + (u.comments || 0), 0)
+        addLines([
+          `- Posts Created: ${formatNumber(totalPosts)}`,
+          `- Comments Written: ${formatNumber(totalComments)}`,
+          `- Total Activities: ${formatNumber(totalPosts + totalComments)}`
+        ])
+      } else if (chartState.pieChartMetric === 'contributors') {
+        addLines(community.slice(0, 5).map((user, index) => {
+          const total = sumCommunityMetrics(user)
+          return `${index + 1}. ${user.userName ?? 'Unknown'}: ${formatNumber(total)} actions`
+        }))
+      }
+    }
+
     addChart(charts.community)
   }
 
@@ -983,15 +1260,21 @@ function createAnalyticsPdf(report, charts) {
   if (operators.length) {
     addSectionHeading('Operator Performance (Top 5)')
     addTable({
-      headers: ['#', 'Operator', 'Approved', 'Avg Rating', 'Saves'],
-      columnWidths: [0.12, 0.46, 0.14, 0.14, 0.14],
-      rows: operators.map((op, index) => [
-        `#${index + 1}`,
-        op.name ?? 'Unknown',
-        formatNumber(op.approvedListings ?? 0),
-        op.avgRating ?? 0,
-        formatNumber(op.totalSaves ?? 0),
-      ]),
+      headers: ['#', 'Operator', 'Listings', 'Approved', 'Avg Rating', 'Saves'],
+      columnWidths: [0.08, 0.22, 0.35, 0.12, 0.12, 0.11],
+      rows: operators.map((op, index) => {
+        const listingNames = Array.isArray(op.listings) && op.listings.length > 0 
+          ? op.listings.join(', ') 
+          : 'No listings'
+        return [
+          `#${index + 1}`,
+          op.name ?? 'Unknown',
+          listingNames,
+          formatNumber(op.approvedListings ?? 0),
+          op.avgRating ?? 0,
+          formatNumber(op.totalSaves ?? 0),
+        ]
+      }),
     })
   }
 
@@ -1005,8 +1288,13 @@ async function downloadAnalyticsReport() {
   exportingReport.value = true
   try {
     const payload = buildAnalyticsReportPayload(data.value)
-    const charts = await buildPdfChartImages(payload.analytics ?? {})
-    const doc = createAnalyticsPdf(payload, charts)
+    // Pass current UI state for chart generation
+    const chartState = {
+      communityChartType: communityChartType.value,
+      pieChartMetric: pieChartMetric.value
+    }
+    const charts = await buildPdfChartImages(payload.analytics ?? {}, chartState)
+    const doc = createAnalyticsPdf(payload, charts, chartState)
     const range = payload.range ?? {}
     const baseName = range.start && range.end
       ? `analytics-${range.start}-to-${range.end}`
@@ -1055,7 +1343,7 @@ function formatDateShort(dateStr) {
       <template v-if="data">
         <n-card title="Generate Usage Reports" :segmented="{ content: true }">
           <n-text depth="3" style="margin-bottom: 16px; display: block;">
-                        Periodic reports containing active users, new listings, confirmed bookings, and chatbot usage trends.
+            Periodic reports containing active users, new listings, confirmed bookings, and chatbot usage trends.
           </n-text>
           <n-grid cols="2 m:4" :x-gap="16" :y-gap="16">
             <n-grid-item v-for="card in usageCards" :key="card.label">
@@ -1084,7 +1372,8 @@ function formatDateShort(dateStr) {
               <n-text depth="3" style="font-size: 12px;">Total login events per day</n-text>
             </template>
             <div v-if="dailySignInsChartData" class="chart-container">
-              <svg :width="dailySignInsChartData.width" :height="dailySignInsChartData.height" xmlns="http://www.w3.org/2000/svg">
+              <svg :width="dailySignInsChartData.width" :height="dailySignInsChartData.height"
+                xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <linearGradient id="signInsGradient" x1="0%" y1="0%" x2="0%" y2="100%">
                     <stop offset="0%" stop-color="rgba(24, 160, 88, 0.4)" />
@@ -1103,16 +1392,16 @@ function formatDateShort(dateStr) {
                 </g>
 
                 <g v-for="label in dailySignInsChartData.xLabels" :key="label.x">
-                  <text :x="label.x" :y="dailySignInsChartData.height - dailySignInsChartData.padding.bottom + 25" text-anchor="middle"
-                    fill="rgba(128, 128, 128, 0.7)" font-size="11">
+                  <text :x="label.x" :y="dailySignInsChartData.height - dailySignInsChartData.padding.bottom + 25"
+                    text-anchor="middle" fill="rgba(128, 128, 128, 0.7)" font-size="11">
                     {{ formatDateShort(label.date) }}
                   </text>
                 </g>
 
                 <path :d="dailySignInsChartData.areaPath" fill="url(#signInsGradient)" />
 
-                <path :d="dailySignInsChartData.linePath" stroke="#18a058" stroke-width="3" fill="none" stroke-linecap="round"
-                  stroke-linejoin="round" />
+                <path :d="dailySignInsChartData.linePath" stroke="#18a058" stroke-width="3" fill="none"
+                  stroke-linecap="round" stroke-linejoin="round" />
 
                 <circle v-for="(point, i) in dailySignInsChartData.points" :key="i" :cx="point.x" :cy="point.y" r="4"
                   fill="#18a058" stroke="white" stroke-width="2" />
@@ -1140,8 +1429,14 @@ function formatDateShort(dateStr) {
               </n-button-group>
             </n-space>
 
-            <n-data-table v-if="communityChartType === 'table' && communityActiveness.length" size="small"
-              :columns="communityColumns" :data="communityActiveness" :bordered="false" :single-line="false" striped />
+            <div v-if="communityChartType === 'table' && communityActiveness.length">
+              <n-data-table size="small" :columns="communityColumns" :data="paginatedCommunityActiveness"
+                :bordered="false" :single-line="false" striped />
+              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <SimplePagination v-model:page="communityPage" :item-count="communityActiveness.length"
+                  :page-size="communityPageSize" />
+              </div>
+            </div>
 
             <div v-else-if="communityChartType === 'bar' && communityActiveness.length && communityMetricTotals.length"
               class="chart-container">
@@ -1176,11 +1471,16 @@ function formatDateShort(dateStr) {
 
             <div v-else-if="communityChartType === 'donut' && communityCategorySegments.length"
               class="chart-container donut-view">
+              <div style="margin-bottom: 16px;">
+                <n-select v-model:value="pieChartMetric" :options="pieChartOptions" size="small" style="width: 200px;"
+                  placeholder="Select metric" />
+              </div>
+
               <div class="chartjs-wrapper donut">
                 <canvas ref="communityDonutCanvas"></canvas>
                 <div class="donut-center" v-if="communityCategoryDistribution.total">
                   <div class="donut-value">{{ formatNumber(communityCategoryDistribution.total) }}</div>
-                  <div class="donut-label">Total Posts</div>
+                  <div class="donut-label">{{ communityCategoryDistribution.title }}</div>
                 </div>
               </div>
 
@@ -1220,8 +1520,14 @@ function formatDateShort(dateStr) {
               Top operators ranked by approved listings, ratings, and saves. Shows active/inactive status based on last
               login.
             </n-text>
-            <n-data-table v-if="operatorRankings.length" :columns="operatorColumns" :data="operatorRankings"
-              :bordered="false" :single-line="false" :pagination="{ pageSize: 10 }" striped />
+            <div v-if="operatorRankings.length">
+              <n-data-table :columns="operatorColumns" :data="paginatedOperatorRankings" :bordered="false"
+                :single-line="false" striped />
+              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <SimplePagination v-model:page="operatorPage" :item-count="operatorRankings.length"
+                  :page-size="operatorPageSize" />
+              </div>
+            </div>
             <n-empty v-else description="No operator data available" />
           </n-card>
         </n-card>
