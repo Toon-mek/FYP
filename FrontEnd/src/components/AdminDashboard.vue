@@ -316,29 +316,34 @@ function mapBusinessListingActivity(listing) {
   const status = String(listing?.status || 'Pending Review').toLowerCase()
   const displayName = listing?.businessName ? `"${listing.businessName}"` : 'a business listing'
   let description
-  if (status.includes('approve') || status.includes('active')) {
+  if (status.includes('remove')) {
+    description = `Listing ${displayName} was removed.`
+  } else if (status.includes('approve') || status.includes('active')) {
     description = `Listing ${displayName} was approved.`
   } else if (status.includes('reject')) {
     description = `Listing ${displayName} was rejected.`
   } else {
     description = `Submitted listing ${displayName} for review.`
   }
-  const timestampSeconds =
-    listing?.submittedTimestamp ??
-    listing?.latestVerification?.verifiedTimestamp ??
-    null
-  const timestamp =
-    (typeof timestampSeconds === 'number' && Number.isFinite(timestampSeconds) ? new Date(timestampSeconds * 1000) : null) ||
-    safeDate(listing?.submittedDate) ||
-    safeDate(listing?.verifiedDate) ||
-    new Date()
+  
+  // For removed listings, use removedTimestamp/removedAt
+  // Otherwise use submitted or verified timestamp
+  // Note: Use string dates (removedAt/submittedDate) which are already in Malaysia timezone
+  // instead of Unix timestamps which may have timezone issues
+  const timestamp = status.includes('remove')
+    ? (safeDate(listing?.removedAt) || 
+       (typeof listing?.removedTimestamp === 'number' && Number.isFinite(listing.removedTimestamp) ? new Date(listing.removedTimestamp * 1000) : null))
+    : ((typeof timestampSeconds === 'number' && Number.isFinite(timestampSeconds) ? new Date(timestampSeconds * 1000) : null) ||
+       safeDate(listing?.submittedDate) ||
+       safeDate(listing?.verifiedDate))
+  
   return {
     id: `listing-${listing?.listingID ?? Math.random()}`,
     actor,
     description,
-    timestamp,
+    timestamp: timestamp || new Date(),
     category: 'Business listing',
-    rawTimestamp: timestamp,
+    rawTimestamp: timestamp || new Date(),
   }
 }
 
@@ -480,7 +485,6 @@ async function loadActivityStream(options = {}) {
         displayTimestamp: displayTimestamp || formatRelativeTime(item.timestamp),
       }
     })
-    activityLastFetched.value = new Date()
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unable to load community activity stream.'
     activityError.value = messageText
@@ -493,9 +497,12 @@ async function loadActivityStream(options = {}) {
   }
 }
 
-const activityLastUpdatedLabel = computed(() =>
-  activityLastFetched.value ? formatRelativeTime(activityLastFetched.value) : '',
-)
+const activityLastUpdatedLabel = computed(() => {
+  if (activityItems.value.length === 0) return ''
+  const mostRecent = activityItems.value[0]
+  // Use the formatted display timestamp instead of relative time
+  return mostRecent?.displayTimestamp || ''
+})
 
 onMounted(() => {
   loadActivityStream()
