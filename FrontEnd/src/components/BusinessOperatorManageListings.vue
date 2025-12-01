@@ -127,6 +127,9 @@ const previewModalVisible = ref(false)
 const previewListing = ref(null)
 const editModalVisible = ref(false)
 const historyModalVisible = ref(false)
+const deleteModalVisible = ref(false)
+const deletingListing = ref(null)
+const deleteReason = ref('')
 const editForm = reactive({
   id: null,
   name: '',
@@ -343,7 +346,7 @@ const listingColumns = computed(() => [
                 text: true,
                 size: 'small',
                 type: 'error',
-                onClick: () => deleteListing(row),
+                onClick: () => openDeleteModal(row),
               },
               { default: () => 'Delete' },
             ),
@@ -455,6 +458,73 @@ async function saveListingEdits() {
   }
 }
 
+function openDeleteModal(listing) {
+  deletingListing.value = listing
+  deleteReason.value = ''
+  deleteModalVisible.value = true
+}
+
+async function confirmDelete() {
+  const listing = deletingListing.value
+  if (!listing) return
+
+  const reason = deleteReason.value.trim()
+  if (!reason) {
+    message.warning('Please provide a reason for deletion.')
+    return
+  }
+
+  if (!props.operatorId) {
+    listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
+    message.error(listingActionError.value)
+    return
+  }
+
+  const listingIdNumeric = extractListingId(listing)
+  if (listingIdNumeric == null) {
+    listingActionError.value = 'Unable to delete listing.'
+    message.error(listingActionError.value)
+    return
+  }
+
+  listingActionError.value = ''
+  autoSaveMessage.value = ''
+
+  try {
+    const response = await fetch(`${props.apiBase}/operator/listings.php`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operatorId: props.operatorId,
+        listingId: listingIdNumeric,
+        reason: reason,
+      }),
+    })
+
+    const result = await response.json().catch(() => null)
+    if (!response.ok || !result || result.ok !== true) {
+      throw new Error(result?.error || `Failed to delete listing (HTTP ${response.status})`)
+    }
+
+    listingItems.value = listingItems.value.filter(
+      (item) => extractListingId(item) !== listingIdNumeric,
+    )
+    emitListingsUpdate(listingItems.value)
+    autoSaveMessage.value = result.message ?? `${listing.name} removed from the platform.`
+    message.success(autoSaveMessage.value)
+    if (result.operator) {
+      emit('operator-updated', result.operator)
+    }
+    deleteModalVisible.value = false
+    deletingListing.value = null
+    deleteReason.value = ''
+  } catch (error) {
+    listingActionError.value =
+      error instanceof Error ? error.message : 'Unable to delete listing. Please try again.'
+    message.error(listingActionError.value)
+  }
+}
+
 async function toggleVisibility(listing, targetVisibility = null) {
   if (!props.operatorId) {
     listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
@@ -543,61 +613,6 @@ async function toggleVisibility(listing, targetVisibility = null) {
     listing.lastUpdatedDisplay = previousSnapshot.lastUpdatedDisplay ?? listing.lastUpdatedDisplay
     listingActionError.value =
       error instanceof Error ? error.message : 'Unable to toggle listing visibility.'
-    message.error(listingActionError.value)
-  }
-}
-
-async function deleteListing(listing) {
-  if (typeof window !== 'undefined') {
-    const proceed = window.confirm(`Delete ${listing.name}? This action cannot be undone.`)
-    if (!proceed) {
-      return
-    }
-  }
-
-  if (!props.operatorId) {
-    listingActionError.value = 'Operator account not loaded. Please refresh and try again.'
-    message.error(listingActionError.value)
-    return
-  }
-
-  const listingIdNumeric = extractListingId(listing)
-  if (listingIdNumeric == null) {
-    listingActionError.value = 'Unable to delete listing.'
-    message.error(listingActionError.value)
-    return
-  }
-
-  listingActionError.value = ''
-  autoSaveMessage.value = ''
-
-  try {
-    const response = await fetch(`${props.apiBase}/operator/listings.php`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        operatorId: props.operatorId,
-        listingId: listingIdNumeric,
-      }),
-    })
-
-    const result = await response.json().catch(() => null)
-    if (!response.ok || !result || result.ok !== true) {
-      throw new Error(result?.error || `Failed to delete listing (HTTP ${response.status})`)
-    }
-
-    listingItems.value = listingItems.value.filter(
-      (item) => extractListingId(item) !== listingIdNumeric,
-    )
-    emitListingsUpdate(listingItems.value)
-    autoSaveMessage.value = result.message ?? `${listing.name} removed from the platform.`
-    message.success(autoSaveMessage.value)
-    if (result.operator) {
-      emit('operator-updated', result.operator)
-    }
-  } catch (error) {
-    listingActionError.value =
-      error instanceof Error ? error.message : 'Unable to delete listing. Please try again.'
     message.error(listingActionError.value)
   }
 }
@@ -875,6 +890,36 @@ async function loadReviews(listingId) {
         </n-button>
       </n-space>
     </n-space>
+  </n-modal>
+
+  <!-- Delete Listing Modal -->
+  <n-modal
+    v-model:show="deleteModalVisible"
+    preset="card"
+    :title="`Delete ${deletingListing?.name || 'listing'}`"
+    :style="{ maxWidth: '500px', width: '100%' }"
+  >
+    <n-space vertical size="medium" v-if="deletingListing">
+      <n-alert type="warning" title="This action cannot be undone">
+        Deleting this listing will remove it from the platform permanently.
+      </n-alert>
+      <n-form-item label="Reason for deletion" :show-feedback="false">
+        <n-input
+          v-model:value="deleteReason"
+          type="textarea"
+          placeholder="Please provide a reason for deleting this listing..."
+          :rows="4"
+        />
+      </n-form-item>
+    </n-space>
+    <template #footer>
+      <n-space justify="end">
+        <n-button @click="deleteModalVisible = false">Cancel</n-button>
+        <n-button type="error" @click="confirmDelete">
+          Delete listing
+        </n-button>
+      </n-space>
+    </template>
   </n-modal>
 
   <!-- Review Drawer -->

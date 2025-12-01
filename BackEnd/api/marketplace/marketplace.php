@@ -264,6 +264,8 @@ function handlePost(PDO $pdo): void
         handleToggleSave($pdo, $listingId, $travelerId);
     } elseif ($action === 'add-review') {
         handleAddReview($pdo, $listingId, $travelerId, $payload);
+    } elseif ($action === 'delete-review') {
+        handleDeleteReview($pdo, $payload);
     } else {
         http_response_code(400);
         echo json_encode(['error' => 'Invalid action']);
@@ -383,6 +385,75 @@ function handleAddReview(PDO $pdo, int $listingId, int $travelerId, array $paylo
         echo json_encode([
             'ok' => false,
             'error' => 'Failed to process review',
+            'errorDetails' => $e->getMessage(),
+        ]);
+    }
+}
+
+function handleDeleteReview(PDO $pdo, array $payload): void
+{
+    try {
+        $reviewId = isset($payload['reviewId']) ? (int) $payload['reviewId'] : 0;
+        $travelerId = isset($payload['travelerId']) ? (int) $payload['travelerId'] : 0;
+
+        if ($reviewId <= 0 || $travelerId <= 0) {
+            http_response_code(400);
+            echo json_encode(['ok' => false, 'error' => 'reviewId and travelerId are required']);
+            return;
+        }
+
+        ensureListingReviewTable($pdo);
+
+        $pdo->beginTransaction();
+        try {
+            // Verify the review belongs to this traveler
+            $checkStmt = $pdo->prepare(
+                'SELECT travelerID FROM ListingReview WHERE reviewID = :reviewId LIMIT 1'
+            );
+            $checkStmt->execute([':reviewId' => $reviewId]);
+            $ownerId = $checkStmt->fetchColumn();
+
+            if ($ownerId === false) {
+                http_response_code(404);
+                echo json_encode(['ok' => false, 'error' => 'Review not found']);
+                $pdo->rollBack();
+                return;
+            }
+
+            if ((int)$ownerId !== $travelerId) {
+                http_response_code(403);
+                echo json_encode(['ok' => false, 'error' => 'You can only delete your own reviews']);
+                $pdo->rollBack();
+                return;
+            }
+
+            // Delete the review
+            $deleteStmt = $pdo->prepare(
+                'DELETE FROM ListingReview WHERE reviewID = :reviewId AND travelerID = :travelerId'
+            );
+            $deleteStmt->execute([
+                ':reviewId' => $reviewId,
+                ':travelerId' => $travelerId,
+            ]);
+
+            $pdo->commit();
+            echo json_encode(['ok' => true, 'message' => 'Review deleted successfully']);
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            http_response_code(500);
+            echo json_encode([
+                'ok' => false,
+                'error' => 'Failed to delete review',
+                'errorDetails' => $e->getMessage(),
+            ]);
+        }
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode([
+            'ok' => false,
+            'error' => 'Failed to process delete request',
             'errorDetails' => $e->getMessage(),
         ]);
     }

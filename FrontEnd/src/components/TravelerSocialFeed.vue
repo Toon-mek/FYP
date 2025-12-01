@@ -308,7 +308,6 @@
                   <div class="comment-author">
                     <strong>{{ comment.authorName }}</strong>
                     <n-text depth="3">
-                      {{ comment.authorUsername ? '@' + comment.authorUsername : 'Traveler' }}
                       <span> - {{ comment.createdAtLabel }}</span>
                     </n-text>
                   </div>
@@ -603,6 +602,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import TravelerPostActions from './TravelerPostActions.vue'
+import { extractProfileImage } from '../utils/profileImage.js'
 
 const emit = defineEmits(['contact', 'post-updated', 'post-removed'])
 
@@ -944,7 +944,7 @@ function normalisePost(post, index = 0) {
       'Share your sustainable travel highlight to inspire the community.',
     authorName: post.authorName || 'Traveler',
     authorUsername: post.authorUsername || post.username || '',
-    authorAvatar: resolveAssetUrl(post.authorAvatar || post.profileImage || ''),
+    authorAvatar: post.authorAvatar || post.profileImage || '',
     authorType,
     authorInitials: computeInitials(post.authorName || post.authorUsername || 'Traveler'),
     postedAtLabel:
@@ -1340,6 +1340,9 @@ function normaliseComment(raw) {
       ? null
       : Number(raw.rating)
 
+  const createdAtRaw = raw.createdAt ?? raw.created_at ?? ''
+  const createdAtLabel = raw.createdAtLabel ?? raw.created_at_label ?? (formatAbsoluteDateLabel(createdAtRaw) || createdAtRaw)
+
   return {
     id: raw.id !== undefined ? Number(raw.id) : raw.commentId !== undefined ? Number(raw.commentId) : null,
     storyId:
@@ -1361,8 +1364,8 @@ function normaliseComment(raw) {
     authorInitials: raw.authorInitials ?? computeInitials(authorName),
     content: String(raw.content ?? ''),
     rating: ratingValue,
-    createdAt: raw.createdAt ?? raw.created_at ?? '',
-    createdAtLabel: raw.createdAtLabel ?? raw.created_at_label ?? raw.createdAt ?? raw.created_at ?? '',
+    createdAt: createdAtRaw,
+    createdAtLabel: createdAtLabel,
     updatedAt: raw.updatedAt ?? raw.updated_at ?? '',
   }
 }

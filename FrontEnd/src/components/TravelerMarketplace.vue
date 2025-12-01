@@ -436,7 +436,18 @@
                             {{ review.createdAtLabel }}
                           </n-text>
                         </div>
-                        <n-rate v-if="review.rating" :value="review.rating" size="small" readonly />
+                        <n-space align="center" size="small">
+                          <n-rate v-if="review.rating" :value="review.rating" size="small" readonly />
+                          <n-button
+                            v-if="review.travelerId === currentTravelerId"
+                            text
+                            type="error"
+                            size="small"
+                            @click="deleteReview(review.id)"
+                          >
+                            Delete
+                          </n-button>
+                        </n-space>
                       </div>
                       <n-text depth="2" style="display: block; line-height: 1.5;">
                         {{ review.content }}
@@ -479,6 +490,7 @@ import {
   NTag,
   NText,
   NRate,
+  useDialog,
   useMessage,
 } from 'naive-ui'
 
@@ -496,6 +508,7 @@ const MARKETPLACE_ENDPOINT = `${API_BASE}/marketplace/marketplace.php`
 const REVIEWS_ENDPOINT = `${API_BASE}/marketplace/marketplacereview.php`
 
 const message = useMessage()
+const dialog = useDialog()
 const listings = ref([])
 const listingsLoading = ref(false)
 const listingsError = ref('')
@@ -656,6 +669,8 @@ function openReviewDrawer(listing) {
     message.warning('Please sign in to write reviews.')
     return
   }
+  // Reset review form when opening
+  newReview.value = { content: '', rating: null }
   reviewingListing.value = listing
   reviewDrawerVisible.value = true
   loadReviews(listing.id)
@@ -707,6 +722,61 @@ async function toggleSave(listing) {
   }
 }
 
+async function deleteReview(reviewId) {
+  if (!currentTravelerId.value) {
+    message.warning('Please sign in to delete reviews.')
+    return
+  }
+
+  const targetListing = reviewingListing.value || selectedListing.value
+  if (!targetListing) {
+    return
+  }
+
+  dialog.warning({
+    title: 'Delete Review',
+    content: 'Are you sure you want to delete this review? This action cannot be undone.',
+    positiveText: 'Delete',
+    negativeText: 'Cancel',
+    onPositiveClick: async () => {
+      try {
+        const response = await fetch(MARKETPLACE_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'delete-review',
+            reviewId: reviewId,
+            travelerId: currentTravelerId.value,
+          }),
+        })
+
+        const data = await response.json()
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to delete review')
+        }
+
+        reviews.value = reviews.value.filter((r) => r.id !== reviewId)
+        message.success('Review deleted successfully!')
+        await fetchListings()
+        if (selectedListing.value && selectedListing.value.id === targetListing.id) {
+          const updated = listings.value.find((l) => l.id === selectedListing.value.id)
+          if (updated) {
+            selectedListing.value = updated
+          }
+        }
+        if (reviewingListing.value && reviewingListing.value.id === targetListing.id) {
+          const updated = listings.value.find((l) => l.id === reviewingListing.value.id)
+          if (updated) {
+            reviewingListing.value = updated
+          }
+        }
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : 'Failed to delete review')
+      }
+    },
+  })
+}
+
 async function submitReview() {
   if (!currentTravelerId.value) {
     message.warning('Please sign in to write reviews.')
@@ -715,6 +785,11 @@ async function submitReview() {
 
   const targetListing = reviewingListing.value || selectedListing.value
   if (!targetListing) {
+    return
+  }
+
+  if (!newReview.value.rating || newReview.value.rating < 1) {
+    message.warning('Please give a rating before submitting.')
     return
   }
 

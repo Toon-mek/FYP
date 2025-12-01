@@ -373,18 +373,6 @@ const roleColumns = [
       return h(NText, { strong: true }, { default: () => row.members })
     },
   },
-  {
-    title: 'Description',
-    key: 'description',
-    render(row) {
-      const summary = row.description && row.description.trim().length > 0 ? row.description : 'No custom permissions'
-      return h(
-        NText,
-        { depth: 3 },
-        { default: () => summary },
-      )
-    },
-  },
 ]
 
 const loginActivityColumns = [

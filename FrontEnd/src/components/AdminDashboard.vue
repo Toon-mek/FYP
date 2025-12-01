@@ -792,14 +792,9 @@ defineExpose({
           <n-space vertical size="large">
             <n-card title="Community activity stream" :segmented="{ content: true }">
               <template #header-extra>
-                <n-space align="center" size="small">
-                  <n-text v-if="activityLastUpdatedLabel" depth="3" style="font-size: 0.85rem;">
-                    Updated {{ activityLastUpdatedLabel }}
-                  </n-text>
-                  <n-button size="small" quaternary :loading="activityLoading" @click="loadActivityStream()">
-                    Refresh
-                  </n-button>
-                </n-space>
+                <n-button size="small" quaternary :loading="activityLoading" @click="loadActivityStream()">
+                  Refresh
+                </n-button>
               </template>
               <n-spin :show="activityLoading">
                 <n-alert v-if="activityError" type="error" style="margin-bottom: 12px;" closable
