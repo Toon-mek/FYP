@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+// Suppress HTML error output to ensure clean JSON responses
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
@@ -492,6 +496,7 @@ function loadListing(PDO $pdo, int $listingId): ?array
         'businessName' => $row['businessName'],
         'description' => $row['description'],
         'status' => $row['status'],
+        'visibility' => computeVisibility($row['status'] ?? null, $row['visibilityState'] ?? null),
         'submittedDate' => formatDateString($row['submittedDate']),
         'location' => $row['location'],
         'priceRange' => $row['priceRange'],

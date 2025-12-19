@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+// Suppress HTML error output to ensure clean JSON responses
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, DELETE, OPTIONS');
@@ -20,9 +24,9 @@ try {
     ensureVisibilityStateColumn($pdo);
     ensureListingRemovalHistoryTable($pdo);
     ensureListingUpdatedAtColumn($pdo);
-} catch (Throwable) {
+} catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['error' => 'Database unavailable']);
+    echo json_encode(['error' => 'Database unavailable', 'details' => $e->getMessage()]);
     exit;
 }
 
@@ -42,17 +46,23 @@ switch ($method) {
 
 function handleGet(PDO $pdo): void
 {
-    $listingId = isset($_GET['listingId']) ? (int) $_GET['listingId'] : null;
+    try {
+        $listingId = isset($_GET['listingId']) ? (int) $_GET['listingId'] : null;
 
-    if ($listingId !== null && $listingId > 0) {
-        $listing = loadListing($pdo, $listingId);
-        if ($listing === null) {
-            http_response_code(404);
-            echo json_encode(['error' => 'Listing not found']);
+        if ($listingId !== null && $listingId > 0) {
+            $listing = loadListing($pdo, $listingId);
+            if ($listing === null) {
+                http_response_code(404);
+                echo json_encode(['error' => 'Listing not found']);
+                return;
+            }
+
+            echo json_encode(['listing' => $listing]);
             return;
         }
-
-        echo json_encode(['listing' => $listing]);
+    } catch (Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Failed to load listing', 'details' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
         return;
     }
 
@@ -723,24 +733,28 @@ function fetchImages(PDO $pdo, int $listingId): array
 
 function fetchListingTags(PDO $pdo, int $listingId): array
 {
-    $stmt = $pdo->prepare(
-        'SELECT st.tagID, st.tagName, st.description
-         FROM ListingSustainabilityTag lst
-         JOIN SustainabilityTag st ON st.tagID = lst.tagID
-         WHERE lst.listingID = :listingId'
-    );
-    $stmt->execute([':listingId' => $listingId]);
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT st.tagID, st.tagName, st.description
+             FROM ListingSustainabilityTag lst
+             JOIN SustainabilityTag st ON st.tagID = lst.tagID
+             WHERE lst.listingID = :listingId'
+        );
+        $stmt->execute([':listingId' => $listingId]);
 
-    $tags = [];
-    while ($row = $stmt->fetch()) {
-        $tags[] = [
-            'id' => (int) $row['tagID'],
-            'name' => $row['tagName'],
-            'description' => $row['description'],
-        ];
+        $tags = [];
+        while ($row = $stmt->fetch()) {
+            $tags[] = [
+                'id' => (int) $row['tagID'],
+                'name' => $row['tagName'],
+                'description' => $row['description'],
+            ];
+        }
+        return $tags;
+    } catch (Throwable) {
+        // Table doesn't exist yet - return empty array
+        return [];
     }
-
-    return $tags;
 }
 
 function fetchVerificationHistory(PDO $pdo, int $listingId): array

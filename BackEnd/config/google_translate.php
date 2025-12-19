@@ -7,6 +7,6 @@
  */
 
 return [
-    'apiKey' => 'AIzaSyC5-_zLmVnD9vEASrptHKq-s1T0chii-R0',
+    'apiKey' => 'AIzaSyBRKZw3BNbb_mieJsFeWiM9Jw0XfMUlNXA',
 ];
 
